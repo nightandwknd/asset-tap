@@ -13,6 +13,33 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # ─── Detect what changed to skip irrelevant jobs ─────────────────────
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'core/**'
+              - 'cli/**'
+              - 'gui/**'
+              - 'providers/**'
+              - 'templates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Makefile'
+              - '.cargo/**'
+              - '.config/**'
+              - 'scripts/**'
+              - '.github/actions/**'
+              - '.github/workflows/ci.yaml'
+
   # ─── Layer 0: All independent jobs run in parallel ──────────────────
   fmt:
     name: Format
@@ -29,6 +56,8 @@ jobs:
 
   clippy:
     name: Lint
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -40,6 +69,8 @@ jobs:
 
   check:
     name: Check
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -49,6 +80,8 @@ jobs:
 
   test:
     name: Test & Coverage
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     permissions:
       checks: write
@@ -67,6 +100,8 @@ jobs:
 
   docs:
     name: Documentation
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -76,6 +111,8 @@ jobs:
 
   audit:
     name: Security Audit
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -86,6 +123,8 @@ jobs:
 
   udeps:
     name: Unused Dependencies
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -119,20 +158,91 @@ jobs:
 
   # ─── Layer 1: Build + package all platforms in parallel ─────────────
   build-macos:
-    name: Build & Package (macOS)
-    needs: [check]
+    name: Build macOS (${{ matrix.target }})
+    needs: [changes, check]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-macos-${{ matrix.target }}
+
+      - name: Stamp version
+        run: sed -i.bak 's/^version = ".*"/version = "0.0.0-pr.${{ github.event.pull_request.number }}"/' Cargo.toml
+
+      - name: Build
+        run: |
+          cargo build --release --package asset-tap     --target ${{ matrix.target }}
+          cargo build --release --package asset-tap-gui --target ${{ matrix.target }}
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.target }}-pr-${{ github.event.pull_request.number }}
+          path: |
+            target/${{ matrix.target }}/release/asset-tap
+            target/${{ matrix.target }}/release/asset-tap-gui
+          retention-days: 7
+
+  package-macos:
+    name: Package macOS (universal)
+    needs: [changes, build-macos]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/build-and-package
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
         with:
-          platform: macos
-          version: '0.0.0-pr.${{ github.event.pull_request.number }}'
-          artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
+          tool: cargo-packager
+
+      - name: Stamp version
+        run: sed -i.bak 's/^version = ".*"/version = "0.0.0-pr.${{ github.event.pull_request.number }}"/' Cargo.toml
+
+      - name: Download arch binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-*-pr-${{ github.event.pull_request.number }}
+          path: arch
+
+      - name: Create universal binaries
+        run: |
+          mkdir -p target/release
+          lipo -create -output target/release/asset-tap \
+            arch/macos-aarch64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap \
+            arch/macos-x86_64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap
+          lipo -create -output target/release/asset-tap-gui \
+            arch/macos-aarch64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap-gui \
+            arch/macos-x86_64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap-gui
+          chmod +x target/release/asset-tap target/release/asset-tap-gui
+          codesign --sign - --force target/release/asset-tap target/release/asset-tap-gui
+          file target/release/asset-tap
+          file target/release/asset-tap-gui
+          rm -rf arch
+
+      - name: Package .app and DMG
+        run: |
+          (cd gui && cargo packager --release --formats app)
+          ./scripts/package-macos.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v7
+        with:
+          name: asset-tap-macos-pr-${{ github.event.pull_request.number }}
+          path: target/release/AssetTap.dmg
+          if-no-files-found: error
 
   build-linux:
     name: Build & Package (Linux)
-    needs: [check]
+    needs: [changes, check]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -145,7 +255,8 @@ jobs:
 
   build-windows:
     name: Build & Package (Windows)
-    needs: [check]
+    needs: [changes, check]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -158,7 +269,8 @@ jobs:
   # ─── Layer 2: CLI tests (consumes Linux binary) ────────────────────
   cli-test:
     name: CLI Tests
-    needs: [build-linux]
+    needs: [changes, build-linux]
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
