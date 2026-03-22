@@ -1,0 +1,2 @@
+# Ensure JSON files always have LF endings and final newline
+*.json text eol=lf

@@ -1,0 +1,185 @@
+name: Build & Package
+description: Build binaries and create platform-specific packages for Asset Tap
+
+inputs:
+  platform:
+    description: Target platform (macos, linux, windows)
+    required: true
+  universal:
+    description: Build macOS universal binary (arm64 + x86_64). Only applies to macOS.
+    required: false
+    default: 'false'
+  artifact-suffix:
+    description: Suffix for uploaded artifact names (e.g., "-pr-7")
+    required: false
+    default: ''
+  upload-binaries:
+    description: Whether to upload raw binary artifacts (true/false)
+    required: false
+    default: 'false'
+  upload-installers:
+    description: Whether to upload installer artifacts (true/false)
+    required: false
+    default: 'true'
+  upload-cli-archives:
+    description: Whether to upload standalone CLI archives (true/false)
+    required: false
+    default: 'false'
+  version:
+    description: Override version in Cargo.toml before building (e.g., "0.0.0-pr.7"). Skipped if empty.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # ── Toolchain & Cache ──────────────────────────────────────────────
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: build-${{ inputs.platform }}
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-packager
+
+    # ── Stamp version (PR builds only) ───────────────────────────────
+    - name: Stamp version
+      if: inputs.version != ''
+      shell: bash
+      run: sed -i.bak 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+
+    # ── Build & Package: macOS ─────────────────────────────────────────
+    - name: Build & package (macOS universal)
+      if: inputs.platform == 'macos' && inputs.universal == 'true'
+      shell: bash
+      run: ./scripts/build-macos-universal.sh
+
+    - name: Build & package (macOS native)
+      if: inputs.platform == 'macos' && inputs.universal != 'true'
+      shell: bash
+      run: |
+        cargo build --release --workspace
+        (cd gui && cargo packager --release --formats app)
+        ./scripts/package-macos.sh
+
+    - name: Create CLI archive (macOS)
+      if: inputs.platform == 'macos' && inputs.upload-cli-archives == 'true'
+      shell: bash
+      run: |
+        mkdir -p cli-dist
+        cp target/release/asset-tap cli-dist/
+        (cd cli-dist && tar -czvf ../asset-tap-cli-macos.tar.gz *)
+        rm -rf cli-dist
+
+    # ── Build & Package: Linux ─────────────────────────────────────────
+    - name: Build & package (Linux)
+      if: inputs.platform == 'linux'
+      shell: bash
+      run: |
+        cargo build --release --workspace
+        ./scripts/package-linux.sh
+
+    # ── Build & Package: Windows ───────────────────────────────────────
+    - name: Build & package (Windows)
+      if: inputs.platform == 'windows'
+      shell: bash
+      run: |
+        cargo build --release --workspace
+        (cd gui && cargo packager --release --formats nsis)
+
+    - name: Create CLI archive (Windows)
+      if: inputs.platform == 'windows' && inputs.upload-cli-archives == 'true'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path cli-dist
+        Copy-Item target/release/asset-tap.exe cli-dist/
+        Compress-Archive -Path cli-dist/* -DestinationPath asset-tap-cli-windows.zip
+
+    # ── Upload: Binaries ──────────────────────────────────────────────
+    - name: Upload binaries (macOS)
+      if: inputs.platform == 'macos' && inputs.upload-binaries == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-binaries-macos${{ inputs.artifact-suffix }}
+        path: |
+          target/release/asset-tap
+          target/release/asset-tap-gui
+        retention-days: 7
+
+    - name: Upload binaries (Linux)
+      if: inputs.platform == 'linux' && inputs.upload-binaries == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-binaries-linux${{ inputs.artifact-suffix }}
+        path: |
+          target/release/asset-tap
+          target/release/asset-tap-gui
+        retention-days: 7
+
+    - name: Upload binaries (Windows)
+      if: inputs.platform == 'windows' && inputs.upload-binaries == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-binaries-windows${{ inputs.artifact-suffix }}
+        path: |
+          target/release/asset-tap.exe
+          target/release/asset-tap-gui.exe
+        retention-days: 7
+
+    # ── Upload: Installers ─────────────────────────────────────────────
+    - name: Upload DMG (macOS)
+      if: inputs.platform == 'macos' && inputs.upload-installers == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-macos${{ inputs.artifact-suffix }}
+        path: target/release/AssetTap.dmg
+        if-no-files-found: error
+
+    - name: Upload .deb (Linux)
+      if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-linux-deb${{ inputs.artifact-suffix }}
+        path: target/release/*.deb
+        if-no-files-found: warn
+
+    - name: Upload AppImage (Linux)
+      if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-linux-appimage${{ inputs.artifact-suffix }}
+        path: target/release/*.AppImage
+        if-no-files-found: warn
+
+    - name: Upload NSIS installer (Windows)
+      if: inputs.platform == 'windows' && inputs.upload-installers == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-windows${{ inputs.artifact-suffix }}
+        path: target/release/*-setup.exe
+        if-no-files-found: error
+
+    # ── Upload: CLI Archives ───────────────────────────────────────────
+    - name: Upload CLI archive (macOS)
+      if: inputs.platform == 'macos' && inputs.upload-cli-archives == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-cli-macos${{ inputs.artifact-suffix }}
+        path: asset-tap-cli-macos.tar.gz
+        if-no-files-found: error
+
+    - name: Upload CLI archive (Linux)
+      if: inputs.platform == 'linux' && inputs.upload-cli-archives == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-cli-linux${{ inputs.artifact-suffix }}
+        path: asset-tap-cli-linux.tar.gz
+        if-no-files-found: error
+
+    - name: Upload CLI archive (Windows)
+      if: inputs.platform == 'windows' && inputs.upload-cli-archives == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: asset-tap-cli-windows${{ inputs.artifact-suffix }}
+        path: asset-tap-cli-windows.zip
+        if-no-files-found: error

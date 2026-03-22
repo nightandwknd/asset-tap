@@ -1,0 +1,94 @@
+name: Test & Coverage
+description: Run tests with coverage reporting, JUnit XML output, and summary
+
+inputs:
+  ignore-pattern:
+    description: Regex pattern for files to ignore in coverage (e.g., 'gui/')
+    required: false
+    default: ''
+
+outputs:
+  percentage:
+    description: Line coverage percentage
+    value: ${{ steps.coverage.outputs.percentage }}
+  color:
+    description: Badge color based on coverage threshold
+    value: ${{ steps.coverage.outputs.color }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Install tools
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-llvm-cov,cargo-nextest
+
+    - name: Run tests with coverage
+      id: tests
+      shell: bash
+      run: |
+        IGNORE_ARGS=()
+        if [ -n "${{ inputs.ignore-pattern }}" ]; then
+          IGNORE_ARGS=("--ignore-filename-regex" "${{ inputs.ignore-pattern }}")
+        fi
+
+        set +e
+        cargo llvm-cov nextest --workspace "${IGNORE_ARGS[@]}" \
+          --json --output-path coverage.json \
+          --test-threads=1 \
+          --profile ci
+        TEST_EXIT=$?
+        set -e
+
+        if [ $TEST_EXIT -eq 0 ]; then
+          cargo llvm-cov report "${IGNORE_ARGS[@]}" --summary-only > coverage-summary.txt
+        fi
+
+        exit $TEST_EXIT
+
+    - name: Extract coverage percentage
+      if: ${{ !cancelled() }}
+      id: coverage
+      shell: bash
+      run: |
+        if [ ! -f coverage.json ]; then
+          echo "percentage=0.0" >> $GITHUB_OUTPUT
+          echo "color=red" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        COVERAGE=$(cat coverage.json | jq -r '.data[0].totals.lines.percent // 0' | xargs printf "%.1f")
+        echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+
+        if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+          COLOR="brightgreen"
+        elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
+          COLOR="yellow"
+        else
+          COLOR="red"
+        fi
+        echo "color=$COLOR" >> $GITHUB_OUTPUT
+
+    - name: Create coverage summary
+      if: ${{ !cancelled() && steps.coverage.outputs.percentage != '' }}
+      shell: bash
+      run: |
+        echo "## Test Results & Coverage" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Coverage: ${{ steps.coverage.outputs.percentage }}%**" >> $GITHUB_STEP_SUMMARY
+        if [ -f coverage-summary.txt ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat coverage-summary.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        fi
+        if [ -n "${{ inputs.ignore-pattern }}" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "*Coverage excludes files matching: \`${{ inputs.ignore-pattern }}\`*" >> $GITHUB_STEP_SUMMARY
+        fi

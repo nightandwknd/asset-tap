@@ -1,0 +1,49 @@
+[package]
+name = "asset-tap"
+version.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "CLI for Asset Tap - generate 3D models from text prompts"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bin]]
+name = "asset-tap"
+path = "src/main.rs"
+
+[features]
+default = ["mock"]
+mock = ["asset-tap-core/mock"]
+
+[dependencies]
+asset-tap-core = { path = "../core" }
+
+# CLI
+clap = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Env loading
+dotenvy = { workspace = true }
+
+# Tracing/logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# File utilities
+walkdir = { workspace = true }
+
+# Serialization
+serde_json = { workspace = true }

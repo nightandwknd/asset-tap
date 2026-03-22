@@ -1,0 +1,77 @@
+name: Get Version
+description: Calculate CalVer version and generate changelog with git-cliff
+
+outputs:
+  new_version:
+    description: The new CalVer version (e.g., "26.03.1")
+    value: ${{ steps.calver.outputs.new_version }}
+  should_release:
+    description: Whether a release should be created ("true" or "false")
+    value: ${{ steps.calver.outputs.should_release }}
+  changelog:
+    description: Generated changelog in markdown format
+    value: ${{ steps.changelog.outputs.changelog }}
+
+runs:
+  using: composite
+  steps:
+    - name: Determine CalVer version
+      id: calver
+      shell: bash
+      run: |
+        # Get the latest tag, or use v0.0.0 if none exists
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        echo "Latest tag: $LATEST_TAG"
+
+        # Check if there are any commits since the last tag
+        COMMIT_COUNT=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || git rev-list HEAD --count)
+        if [ "$COMMIT_COUNT" -eq 0 ]; then
+          echo "No commits since last tag, skipping release"
+          echo "should_release=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        echo "Commits since last tag: $COMMIT_COUNT"
+
+        # Current YY.MM from date
+        CURRENT_YY=$(date -u +"%y")
+        CURRENT_MM=$(date -u +"%m")
+        echo "Current period: ${CURRENT_YY}.${CURRENT_MM}"
+
+        # Parse previous tag version
+        VERSION=${LATEST_TAG#v}
+        IFS='.' read -r TAG_YY TAG_MM TAG_PATCH <<< "$VERSION"
+
+        # Determine new version
+        if [ "$TAG_YY" = "$CURRENT_YY" ] && [ "$TAG_MM" = "$CURRENT_MM" ]; then
+          # Same month — increment patch
+          NEW_PATCH=$((TAG_PATCH + 1))
+        else
+          # New month (or first release) — reset patch to 1
+          NEW_PATCH=1
+        fi
+
+        NEW_VERSION="${CURRENT_YY}.${CURRENT_MM}.${NEW_PATCH}"
+        echo "New version: $NEW_VERSION"
+
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "should_release=true" >> $GITHUB_OUTPUT
+
+    - name: Install git-cliff
+      if: steps.calver.outputs.should_release == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: git-cliff
+
+    - name: Generate changelog
+      if: steps.calver.outputs.should_release == 'true'
+      id: changelog
+      shell: bash
+      run: |
+        NEW_VERSION="${{ steps.calver.outputs.new_version }}"
+
+        # Generate release notes for this version only (no header)
+        RELEASE_NOTES=$(git-cliff --unreleased --strip header --tag "v${NEW_VERSION}")
+
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT

@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.calver.outputs.new_version }}
+      should_release: ${{ steps.calver.outputs.should_release }}
+      changelog: ${{ steps.calver.outputs.changelog }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: ./.github/actions/get-version
+        id: calver
+
+      - name: Create release commit and tag
+        if: steps.calver.outputs.should_release == 'true'
+        run: |
+          NEW_VERSION="${{ steps.calver.outputs.new_version }}"
+
+          # Stamp version into Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" Cargo.toml
+
+          # Generate full CHANGELOG.md
+          git-cliff --tag "v${NEW_VERSION}" -o CHANGELOG.md
+
+          # Create release commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml CHANGELOG.md
+          git commit -m "release: v${NEW_VERSION} [skip ci]"
+
+          # Tag the release commit and push both
+          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
+          git push origin main --follow-tags
+
+  # ─── Build + Package: all platforms in parallel ──────────────────────
+  build-macos:
+    name: Build & Package (macOS)
+    needs: [version]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ needs.version.outputs.new_version }}
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: macos
+          universal: 'true'
+          upload-installers: 'true'
+          upload-cli-archives: 'true'
+
+  build-linux:
+    name: Build & Package (Linux)
+    needs: [version]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ needs.version.outputs.new_version }}
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: linux
+          upload-installers: 'true'
+          upload-cli-archives: 'true'
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          artifact-name: asset-tap-sbom
+          output-file: asset-tap-sbom.cdx.json
+          format: cyclonedx-json
+
+  build-windows:
+    name: Build & Package (Windows)
+    needs: [version]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ needs.version.outputs.new_version }}
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: windows
+          upload-installers: 'true'
+          upload-cli-archives: 'true'
+
+  # ─── Release: create GitHub Release with all artifacts ──────────────
+  release:
+    name: Create Release
+    needs: [version, build-macos, build-linux, build-windows]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+
+          # macOS — already has stable names from our scripts
+          cp artifacts/asset-tap-macos/AssetTap.dmg release/AssetTap-macos.dmg
+          cp artifacts/asset-tap-cli-macos/asset-tap-cli-macos.tar.gz release/
+
+          # Linux — normalize cargo-packager versioned filenames to stable names
+          find artifacts/asset-tap-linux-deb -name '*.deb' -exec cp {} release/asset-tap-linux-amd64.deb \; 2>/dev/null || echo "No .deb found"
+          find artifacts/asset-tap-linux-appimage -name '*.AppImage' -exec cp {} release/asset-tap-linux-x86_64.AppImage \; 2>/dev/null || echo "No AppImage found"
+          cp artifacts/asset-tap-cli-linux/asset-tap-cli-linux.tar.gz release/
+
+          # Windows — normalize installer name
+          find artifacts/asset-tap-windows -name '*-setup.exe' -exec cp {} release/asset-tap-windows-setup.exe \; 2>/dev/null || echo "No Windows installer found"
+          cp artifacts/asset-tap-cli-windows/asset-tap-cli-windows.zip release/
+
+          # SBOM
+          cp artifacts/asset-tap-sbom/asset-tap-sbom.cdx.json release/
+
+          ls -la release/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGELOG: ${{ needs.version.outputs.changelog }}
+        run: |
+          printf '%s\n' "$CHANGELOG" > release-notes.md
+          gh release create "v${{ needs.version.outputs.new_version }}" \
+            --title "v${{ needs.version.outputs.new_version }}" \
+            --notes-file release-notes.md \
+            release/*

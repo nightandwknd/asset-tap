@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Asset Tap Test Checklist</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; max-width: 700px; margin: 0 auto; }
+  h1 { color: #00d4ff; margin-bottom: 8px; font-size: 22px; }
+  .subtitle { color: #888; margin-bottom: 16px; font-size: 13px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 13px; font-weight: 600; border: 1px solid #333; border-bottom: none; background: #1a1a2e; color: #888; transition: all 0.2s; }
+  .tab:hover { color: #ccc; background: #222; }
+  .tab.active { background: #2a2a3e; color: #00d4ff; border-color: #00d4ff; }
+  .tab .badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 6px; background: #333; color: #888; }
+  .tab.active .badge { background: #00d4ff33; color: #00d4ff; }
+  .progress { background: #2a2a3e; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+  .progress-bar { flex: 1; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #00ff88); border-radius: 4px; transition: width 0.3s; }
+  .progress-text { font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .section { margin-bottom: 16px; }
+  .section-title { font-size: 14px; font-weight: 600; color: #00d4ff; padding: 6px 0; border-bottom: 1px solid #333; margin-bottom: 6px; }
+  .item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 4px; }
+  .item:hover { background: #2a2a3e; }
+  .item input[type="checkbox"] { margin-top: 3px; accent-color: #00d4ff; width: 16px; height: 16px; cursor: pointer; }
+  .item label { cursor: pointer; font-size: 14px; line-height: 1.4; }
+  .item.checked label { color: #666; text-decoration: line-through; }
+  .hint { font-size: 12px; color: #666; padding: 4px 8px; margin-bottom: 4px; font-style: italic; }
+  .reset-btn { margin-top: 16px; padding: 6px 14px; background: #333; border: 1px solid #555; color: #aaa; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .reset-btn:hover { background: #444; color: #fff; }
+  .loading { text-align: center; padding: 40px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Asset Tap — Test Checklist</h1>
+<p class="subtitle">Click items to mark pass/fail. State persisted to state.json on server.</p>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="progress">
+  <span class="progress-text" id="progressText">0 / 0</span>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+</div>
+
+<div id="checklist"><div class="loading">Loading...</div></div>
+<button class="reset-btn" id="resetBtn">Reset current tab</button>
+
+<script>
+// ─── Tab definitions ────────────────────────────────────────────────────
+
+const tabs = {
+  dev: {
+    label: "Dev (Mock)",
+    sections: [
+      { title: "First-Run Experience", items: [
+        { id: "welcome", text: "Welcome modal appears on first launch" },
+        { id: "apikey_entry", text: "API key entry and validation" },
+        { id: "default_selection", text: "Default provider/model selection" },
+      ]},
+      { title: "Core Generation Flow", items: [
+        { id: "full_pipeline", text: "Prompt → image → 3D → viewer" },
+        { id: "template", text: "Template selection and variable interpolation" },
+        { id: "dropdowns", text: "Provider/model dropdown population" },
+        { id: "progress_bar", text: "Progress bar updates during generation" },
+        { id: "cancel", text: "Cancel generation mid-pipeline" },
+        { id: "error_display", text: "Error display for API failures" },
+        { id: "error_toast", text: "Red error toast notification on generation failure" },
+        { id: "approval_btns", text: "Approval button text visibility" },
+        { id: "disabled_state", text: "Template/history disabled when using existing image" },
+      ]},
+      { title: "3D Viewer", items: [
+        { id: "viewer_load", text: "Model loads and renders correctly" },
+        { id: "camera", text: "Camera orbit, zoom, pan controls" },
+        { id: "grid_axis", text: "Grid and axis display toggle" },
+        { id: "orientation", text: "Model orientation correct (Y-up)" },
+      ]},
+      { title: "Library / History", items: [
+        { id: "lib_items", text: "Previous generations appear in library" },
+        { id: "lib_load", text: "Click to load previous bundle" },
+        { id: "bundle_selector", text: "Bundle selector dropdown switches bundles" },
+        { id: "separators", text: "History dropdown renders cleanly (no stray separators)" },
+        { id: "lib_metadata", text: "Bundle metadata display" },
+        { id: "lib_thumbs", text: "Thumbnail aspect ratio preserved" },
+        { id: "open_dir", text: "Output directory opens correctly" },
+      ]},
+      { title: "Settings", items: [
+        { id: "settings_apikey", text: "API key management, mask display" },
+        { id: "settings_outdir", text: "Output directory configuration" },
+        { id: "settings_fbx", text: "FBX export toggle" },
+        { id: "settings_persist", text: "Settings persistence across restarts" },
+        { id: "settings_viewlogs", text: "View Logs link opens logs directory" },
+      ]},
+      { title: "Logging & Diagnostics", items: [
+        { id: "log_file_created", text: "app.log file created in logs directory on launch" },
+        { id: "log_file_content", text: "Log file contains tracing output (no ANSI codes)" },
+        { id: "log_viewlogs_error", text: "View logs link appears below error in progress panel" },
+        { id: "log_viewlogs_opens", text: "View logs link opens correct directory in Finder" },
+        { id: "log_panic_captured", text: "Panics are logged to app.log file with backtrace" },
+        { id: "log_error_json", text: "API failure creates error_*.json in logs dir with config snapshot" },
+        { id: "log_error_structured", text: "API errors in app.log include URL and status code" },
+      ]},
+      { title: "Export", items: [
+        { id: "export_image", text: "Export Image saves copy to chosen location" },
+        { id: "export_glb", text: "Export GLB saves copy to chosen location" },
+        { id: "export_textures", text: "Export Textures saves zip archive to chosen location" },
+        { id: "export_bundle", text: "Export Bundle saves entire bundle as zip archive" },
+        { id: "export_cli", text: "CLI --export-bundle creates zip from bundle directory" },
+        { id: "bundle_metadata", text: "Bundle.json metadata accuracy (resolved model IDs)" },
+      ]},
+      { title: "Edge Cases", items: [
+        { id: "resize", text: "Window resize behavior" },
+        { id: "sidebar_stable", text: "Sidebar layout stability" },
+        { id: "long_prompt", text: "Very long prompt (>10K chars) shows counter, disables button" },
+        { id: "rapid_gen", text: "Rapid generation attempts (button disabled while running)" },
+        { id: "restart", text: "App restart with existing settings" },
+      ]},
+    ],
+  },
+
+  release: {
+    label: "Release (Live API)",
+    sections: [
+      { title: "Build & Install (macOS)", hint: "Run: make package-macos", items: [
+        { id: "r_build_succeeds", text: "make package-macos completes without errors" },
+        { id: "r_app_bundle", text: "Asset Tap.app created in target/release/" },
+        { id: "r_cli_in_app", text: "CLI binary present inside Asset Tap.app/Contents/MacOS/" },
+        { id: "r_app_launches", text: "Double-click Asset Tap.app launches correctly" },
+        { id: "r_no_quarantine", text: "App opens without macOS quarantine/Gatekeeper issues" },
+        { id: "r_app_icon", text: "App icon displays in Dock and app switcher" },
+      ]},
+      { title: "Release-Mode Paths", hint: "Verify release mode uses ~/Library/Application Support/asset-tap/", items: [
+        { id: "r_settings_path", text: "Settings saved to ~/Library/Application Support/asset-tap/settings.json" },
+        { id: "r_providers_path", text: "Provider YAMLs written to ~/Library/Application Support/asset-tap/providers/" },
+        { id: "r_templates_path", text: "Templates written to ~/Library/Application Support/asset-tap/templates/" },
+        { id: "r_logs_path", text: "app.log created in ~/Library/Application Support/asset-tap/logs/" },
+        { id: "r_output_default", text: "Default output directory is ~/Documents/Asset Tap/" },
+        { id: "r_no_dev_dirs", text: "No .dev/ directory created in app bundle or working directory" },
+      ]},
+      { title: "First Launch (Clean State)", hint: "Delete ~/Library/Application Support/asset-tap/ first", items: [
+        { id: "r_welcome_modal", text: "Welcome modal appears on first launch" },
+        { id: "r_api_key_prompt", text: "API key entry works, key is saved to settings" },
+        { id: "r_providers_load", text: "Providers and models populate dropdowns" },
+        { id: "r_model_defaults", text: "Default models auto-selected (image + 3D)" },
+      ]},
+      { title: "Live API — Models", hint: "Run via CLI or GUI. Tests real API response parsing for each model.", items: [
+        { id: "r_img_nano_banana_2", text: "fal-ai/nano-banana-2 — generates image successfully (default)" },
+        { id: "r_img_nano_banana", text: "fal-ai/nano-banana — generates image successfully" },
+        { id: "r_img_nano_banana_pro", text: "fal-ai/nano-banana-pro — generates image successfully" },
+        { id: "r_img_flux2", text: "fal-ai/flux-2 — generates image successfully" },
+        { id: "r_img_flux2_pro", text: "fal-ai/flux-2-pro — generates image successfully" },
+        { id: "r_3d_trellis2", text: "fal-ai/trellis-2 — generates GLB successfully" },
+        { id: "r_3d_hunyuan", text: "fal-ai/hunyuan-3d/v3.1/pro — generates GLB successfully" },
+        { id: "r_3d_meshy", text: "fal-ai/meshy/v6 — generates GLB successfully" },
+      ]},
+      { title: "Live API — End-to-End", hint: "Full pipeline runs. Can verify via CLI with -y flag.", items: [
+        { id: "r_e2e_simple", text: "Simple prompt end-to-end (e.g., 'a red apple')" },
+        { id: "r_e2e_complex", text: "Complex prompt end-to-end (e.g., 'a steampunk robot knight')" },
+        { id: "r_e2e_template", text: "Template-based generation with variables" },
+        { id: "r_e2e_existing_image", text: "Generation from existing image (skip image gen)" },
+        { id: "r_bundle_json", text: "bundle.json has correct resolved model IDs (not null/empty)" },
+        { id: "r_fbx_converts", text: "GLB converts to FBX after 3D generation" },
+        { id: "r_fbx_textures", text: "Textures extracted to textures/ subdirectory" },
+      ]},
+      { title: "Config Versioning", hint: "Verify via CLI: delete config dir, run binary, check files", items: [
+        { id: "r_cfg_fresh_install", text: "Fresh install writes provider and template configs to user dir" },
+        { id: "r_cfg_upgrade", text: "App upgrade overwrites older config versions with .yaml.bak backup" },
+        { id: "r_cfg_user_custom", text: "User-created custom provider files not touched by upgrade" },
+      ]},
+      { title: "GUI — Viewer & Interaction", hint: "These require the GUI app", items: [
+        { id: "r_viewer_loads", text: "Generated GLB loads and renders in 3D viewer" },
+      ]},
+      { title: "GUI — Error Handling", hint: "Test with invalid keys and bad inputs", items: [
+        { id: "r_err_bad_key", text: "Invalid API key shows clear 401 error message" },
+        { id: "r_err_no_key", text: "Missing API key prevents generation with helpful message" },
+      ]},
+      { title: "GUI — Settings Persistence", items: [
+        { id: "r_persist_key", text: "API key persists across app restart" },
+        { id: "r_persist_output", text: "Custom output directory persists across restart" },
+        { id: "r_persist_fbx", text: "FBX toggle persists across restart" },
+      ]},
+      { title: "GUI — Library & Export", items: [
+        { id: "r_lib_shows", text: "Library shows generated bundles from release output dir" },
+        { id: "r_lib_load", text: "Click library item loads bundle in viewer" },
+        { id: "r_export_image", text: "Export Image saves to user-chosen location" },
+        { id: "r_export_glb", text: "Export GLB saves to user-chosen location" },
+        { id: "r_export_bundle", text: "Export Bundle creates zip with all files" },
+        { id: "r_open_dir", text: "Open Directory opens output folder in Finder" },
+      ]},
+    ],
+  },
+};
+
+// ─── State management ───────────────────────────────────────────────────
+
+// State is loaded from server (state.json) as the source of truth.
+// localStorage is used only as a fast cache, never as the authority.
+
+let activeTab = 'dev';
+const state = { dev: {}, release: {} };
+
+function saveToServer() {
+  const payload = JSON.stringify({ dev: state.dev, release: state.release, active_tab: activeTab });
+  // Write to server (source of truth)
+  fetch('/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload
+  }).catch(() => {});
+  // Also cache in localStorage for faster loads
+  localStorage.setItem('checklist_cache', payload);
+  updateProgress();
+}
+
+function countTab(tabId) {
+  let total = 0, done = 0;
+  tabs[tabId].sections.forEach(s => s.items.forEach(i => { total++; if (state[tabId][i.id]) done++; }));
+  return { total, done };
+}
+
+function updateProgress() {
+  const { total, done } = countTab(activeTab);
+  document.getElementById('progressText').textContent = `${done} / ${total}`;
+  document.getElementById('progressFill').style.width = `${total ? (done/total*100) : 0}%`;
+  Object.keys(tabs).forEach(tabId => {
+    const c = countTab(tabId);
+    const badge = document.getElementById(`badge_${tabId}`);
+    if (badge) badge.textContent = `${c.done}/${c.total}`;
+  });
+  const allDone = Object.keys(tabs).reduce((a, t) => a + countTab(t).done, 0);
+  const allTotal = Object.keys(tabs).reduce((a, t) => a + countTab(t).total, 0);
+  document.title = `[${allDone}/${allTotal}] Asset Tap Tests`;
+}
+
+function switchTab(tabId) {
+  activeTab = tabId;
+  renderTabs();
+  renderChecklist();
+  saveToServer();
+}
+
+function renderTabs() {
+  const el = document.getElementById('tabs');
+  el.innerHTML = '';
+  Object.keys(tabs).forEach(tabId => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (tabId === activeTab ? ' active' : '');
+    const c = countTab(tabId);
+    tab.innerHTML = `${tabs[tabId].label}<span class="badge" id="badge_${tabId}">${c.done}/${c.total}</span>`;
+    tab.addEventListener('click', () => switchTab(tabId));
+    el.appendChild(tab);
+  });
+}
+
+function renderChecklist() {
+  const el = document.getElementById('checklist');
+  el.innerHTML = '';
+  const tabState = state[activeTab];
+
+  tabs[activeTab].sections.forEach(section => {
+    const div = document.createElement('div');
+    div.className = 'section';
+    div.innerHTML = `<div class="section-title">${section.title}</div>`;
+    if (section.hint) {
+      div.innerHTML += `<div class="hint">${section.hint}</div>`;
+    }
+    section.items.forEach(item => {
+      const checked = tabState[item.id] || false;
+      const row = document.createElement('div');
+      row.className = 'item' + (checked ? ' checked' : '');
+      row.innerHTML = `<input type="checkbox" id="cb_${item.id}" ${checked ? 'checked' : ''}><label for="cb_${item.id}">${item.text}</label>`;
+      row.querySelector('input').addEventListener('change', (e) => {
+        tabState[item.id] = e.target.checked;
+        row.className = 'item' + (e.target.checked ? ' checked' : '');
+        saveToServer();
+      });
+      div.appendChild(row);
+    });
+    el.appendChild(div);
+  });
+}
+
+// ─── Reset button ───────────────────────────────────────────────────────
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (confirm(`Reset all items in "${tabs[activeTab].label}" tab?`)) {
+    state[activeTab] = {};
+    saveToServer();
+    renderChecklist();
+  }
+});
+
+// ─── Init: load from server first, fall back to localStorage cache ──────
+
+async function init() {
+  let loaded = false;
+
+  // Try server first (source of truth)
+  try {
+    const res = await fetch('/state.json');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.dev) state.dev = data.dev;
+      if (data.release) state.release = data.release;
+      if (data.active_tab) activeTab = data.active_tab;
+      loaded = true;
+    }
+  } catch (e) {
+    // Server not available, fall through
+  }
+
+  // Fall back to localStorage cache if server failed
+  if (!loaded) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('checklist_cache') || '{}');
+      if (cached.dev) state.dev = cached.dev;
+      if (cached.release) state.release = cached.release;
+      if (cached.active_tab) activeTab = cached.active_tab;
+    } catch (e) {
+      // No cache either, start fresh
+    }
+  }
+
+  renderTabs();
+  renderChecklist();
+  updateProgress();
+}
+
+init();
+</script>
+</body>
+</html>

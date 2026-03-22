@@ -1,0 +1,9 @@
+[profile.default]
+# Tests must run single-threaded due to template system file conflicts
+test-threads = 1
+
+[profile.ci]
+test-threads = 1
+# JUnit XML report for GitHub Actions test reporting
+[profile.ci.junit]
+path = "junit.xml"

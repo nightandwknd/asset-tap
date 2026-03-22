@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set dl = "https://github.com/nightandwknd/asset-tap/releases/latest/download" %}
+<article>
+  <h1>Download Asset Tap</h1>
+  <p>Download the latest release for your platform. For detailed installation instructions, see the <a href="{{ get_url(path='@/docs/installation.md') | safe }}">Installation Guide</a>.</p>
+
+  <h2>macOS</h2>
+  <table>
+    <thead><tr><th>Package</th><th>Type</th></tr></thead>
+    <tbody>
+      <tr><td><a href="{{ dl | safe }}/AssetTap-macos.dmg">AssetTap-macos.dmg</a></td><td>GUI + CLI -- Universal (Recommended)</td></tr>
+      <tr><td><a href="{{ dl | safe }}/asset-tap-cli-macos.tar.gz">asset-tap-cli-macos.tar.gz</a></td><td>CLI only -- Universal (for automation/scripting)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Windows</h2>
+  <table>
+    <thead><tr><th>Package</th><th>Type</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/nightandwknd/asset-tap/releases/latest">NSIS Installer (.exe)</a></td><td>GUI -- x86_64 (Recommended)</td></tr>
+      <tr><td><a href="{{ dl | safe }}/asset-tap-cli-windows.zip">asset-tap-cli-windows.zip</a></td><td>CLI only -- x86_64</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Linux</h2>
+  <table>
+    <thead><tr><th>Package</th><th>Type</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/nightandwknd/asset-tap/releases/latest">.deb package</a></td><td>GUI + CLI -- Debian/Ubuntu (Recommended)</td></tr>
+      <tr><td><a href="https://github.com/nightandwknd/asset-tap/releases/latest">.AppImage</a></td><td>GUI -- Universal Linux</td></tr>
+      <tr><td><a href="{{ dl | safe }}/asset-tap-cli-linux.tar.gz">asset-tap-cli-linux.tar.gz</a></td><td>CLI only -- x86_64</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Requirements</h2>
+  <ul>
+    <li><strong>OS</strong> -- macOS 10.15+ (Intel or Apple Silicon), Windows 10+, Linux (glibc 2.31+)</li>
+    <li><strong>API Key</strong> -- From <a href="https://fal.ai/dashboard/keys">fal.ai</a> or a custom provider</li>
+    <li><strong>Blender</strong> (optional) -- Required only for FBX export</li>
+  </ul>
+
+  <h2 id="build-from-source">Build from Source</h2>
+  <p>Asset Tap builds on macOS, Linux, and Windows:</p>
+  <pre class="giallo z-code"><code>git clone https://github.com/nightandwknd/asset-tap.git
+cd asset-tap
+make build</code></pre>
+
+  <p>See the <a href="https://github.com/nightandwknd/asset-tap/blob/main/docs/DEVELOPMENT.md">Development Guide</a> for detailed setup instructions.</p>
+
+  <p class="s" style="margin-top: 2em;">All download links point to the <a href="https://github.com/nightandwknd/asset-tap/releases/latest">latest release</a> and will always download the most recent version.</p>
+</article>
+{% endblock content %}

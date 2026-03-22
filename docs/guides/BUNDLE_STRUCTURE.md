@@ -1,0 +1,163 @@
+# Bundle Structure
+
+Generated assets are organized into timestamped bundle directories with metadata.
+
+## Directory Structure
+
+```
+output/
+└── YYYY-MM-DD_HHMMSS/        # Timestamped bundle
+    ├── bundle.json           # Metadata (see below)
+    ├── image.png             # Generated image
+    ├── model.glb             # 3D model (GLB format)
+    ├── model.fbx             # FBX export (if Blender available)
+    └── textures/             # Extracted textures (if any)
+        ├── texture_0.png
+        └── ...
+```
+
+## Bundle Metadata (bundle.json)
+
+```json
+{
+  "version": 1,
+  "name": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+  "created_at": "2024-12-29T15:30:45Z",
+
+  "config": {
+    "prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+    "image_model": "nano-banana-2",
+    "model_3d": "trellis-2",
+    "provider": "fal.ai",
+    "export_fbx": true
+  },
+
+  "model_info": {
+    "file_size": 2739808,
+    "format": "GLB",
+    "vertex_count": 27398,
+    "triangle_count": 9132
+  },
+
+  "files": {
+    "image": "image.png",
+    "model": "model.glb",
+    "fbx": "model.fbx",
+    "textures": ["textures/texture_0.png"]
+  },
+
+  "generation_metadata": {
+    "image_generation": {
+      "duration_ms": 2341,
+      "model": "nano-banana-2"
+    },
+    "model_3d_generation": {
+      "duration_ms": 45823,
+      "model": "trellis-2"
+    },
+    "fbx_conversion": {
+      "duration_ms": 3421,
+      "success": true
+    }
+  }
+}
+```
+
+## File Naming Convention
+
+**Standard names (always consistent):**
+
+- `bundle.json` - Metadata file
+- `image.png` - Generated image
+- `model.glb` - 3D model
+- `model.fbx` - FBX export (if created)
+- `textures/` - Texture directory
+
+**Rationale:**
+
+- Consistent naming makes loading predictable
+- GUI can always find `model.glb` without searching
+- Bundle structure is self-documenting
+
+## Metadata Fields
+
+### config
+
+Generation configuration:
+
+- `prompt` - User's text prompt
+- `image_model` - Image generation model used
+- `model_3d` - 3D generation model used
+- `provider` - Provider ID (from provider config)
+- `export_fbx` - Whether FBX export was requested
+
+### model_info
+
+3D model statistics:
+
+- `file_size` - File size in bytes
+- `format` - Model format (GLB, FBX)
+- `vertex_count` - Number of vertices
+- `triangle_count` - Number of triangles
+
+### files
+
+File references within bundle:
+
+- `image` - Relative path to image
+- `model` - Relative path to GLB model
+- `fbx` - Relative path to FBX (if exists)
+- `textures` - Array of texture file paths
+
+### generation_metadata
+
+Performance tracking:
+
+- Duration in milliseconds for each stage
+- Success/failure status
+
+## Version History
+
+### Version 1 (Current)
+
+- Initial bundle structure
+- Metadata fields defined
+- Standard file naming
+
+## Usage in Code
+
+### Loading a Bundle
+
+```rust
+use std::path::Path;
+use serde_json::from_str;
+
+let bundle_path = Path::new("output/2024-12-29_153045");
+let metadata_path = bundle_path.join("bundle.json");
+let model_path = bundle_path.join("model.glb");
+
+// Load metadata
+let metadata_str = std::fs::read_to_string(metadata_path)?;
+let metadata: BundleMetadata = from_str(&metadata_str)?;
+
+// Load model
+let model_data = std::fs::read(model_path)?;
+```
+
+### Creating a Bundle
+
+```rust
+// Create timestamped directory
+let timestamp = chrono::Local::now().format("%Y-%m-%d_%H%M%S").to_string();
+let bundle_path = Path::new("output").join(&timestamp);
+std::fs::create_dir_all(&bundle_path)?;
+
+// Save files
+std::fs::write(bundle_path.join("image.png"), &image_bytes)?;
+std::fs::write(bundle_path.join("model.glb"), &model_bytes)?;
+
+// Save metadata
+let metadata = BundleMetadata { /* ... */ };
+let metadata_json = serde_json::to_string_pretty(&metadata)?;
+std::fs::write(bundle_path.join("bundle.json"), metadata_json)?;
+```
