@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+<script src="{{ get_url(path='js/fuse.min.js') | safe }}" defer></script>
+<script src="{{ get_url(path='search_index.en.js') | safe }}" defer></script>
+<script src="{{ get_url(path='js/search.js') | safe }}" defer></script>
+{% endblock head_extra %}
+
+{% block content %}
+<article>
+  <div style="position:relative;margin-bottom:1.5rem">
+    <input id="search-input" type="search" placeholder="Search docs..." style="width:100%;padding:.5rem 2rem .5rem .5rem;background:transparent;border:1px solid;color:inherit;font:inherit;box-sizing:border-box">
+    <button id="search-clear" style="display:none;position:absolute;right:.4rem;top:50%;transform:translateY(-50%);background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:.2rem .4rem;line-height:1" aria-label="Clear search">&times;</button>
+  </div>
+  <div class="search-results" style="display:none"><div class="search-results__items"></div></div>
+  <div id="docs-content">
+    <h1>{{ section.title }}</h1>
+    {{ section.content | safe }}
+    <ul>
+    {% for page in section.pages %}
+      <li>
+        <a href="{{ page.permalink | safe }}"><strong>{{ page.title }}</strong></a>
+        {% if page.description %}<br><span class="s">{{ page.description }}</span>{% endif %}
+      </li>
+    {% endfor %}
+    </ul>
+  </div>
+  <script>
+  (function(){
+    var input=document.getElementById('search-input'),clear=document.getElementById('search-clear'),content=document.getElementById('docs-content'),results=document.querySelector('.search-results');
+    function update(){var v=input.value.trim();content.style.display=v?'none':'';clear.style.display=v?'':'none'}
+    input.addEventListener('input',update);
+    clear.addEventListener('click',function(){input.value='';clear.style.display='none';content.style.display='';results.style.display='none';document.querySelector('.search-results__items').innerHTML='';input.focus()});
+  })();
+  </script>
+</article>
+{% endblock content %}

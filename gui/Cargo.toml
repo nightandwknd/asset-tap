@@ -1,0 +1,94 @@
+[package]
+name = "asset-tap-gui"
+version.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "GUI for Asset Tap - generate 3D models from text prompts with visual preview"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.packager]
+name = "Asset Tap"
+product_name = "Asset Tap"
+identifier = "com.nightandwknd.asset-tap"
+category = "Graphics and Design"
+description = "AI-powered text-to-3D model generation"
+long_description = "Transform text prompts into production-ready 3D models using state-of-the-art AI providers"
+authors = ["Asset Tap Contributors"]
+publisher = "nightandwknd"
+homepage = "https://github.com/nightandwknd/asset-tap"
+icons = ["../assets/icon.png", "../assets/icon.ico"]
+
+# macOS-specific configuration
+[package.metadata.packager.macos]
+minimum_system_version = "10.15"
+
+# Windows-specific configuration
+[package.metadata.packager.windows]
+allow_downgrades = true
+# NSIS installer adds install dir to PATH so CLI is available in cmd/PowerShell
+
+[[bin]]
+name = "asset-tap-gui"
+path = "src/main.rs"
+
+[features]
+default = ["mock"]
+mock = ["asset-tap-core/mock"]
+
+[dependencies]
+asset-tap-core = { path = "../core" }
+
+# Serialization
+serde_json = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+
+# GUI framework
+eframe = { workspace = true }
+egui = { workspace = true }
+egui-phosphor = { workspace = true }
+egui_extras = { workspace = true }
+
+# 3D rendering
+glow = { workspace = true }
+gltf = { workspace = true }
+three-d = { workspace = true }
+three-d-asset = { workspace = true }
+
+# File dialogs
+rfd = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Image handling
+image = { workspace = true }
+
+# Env loading
+dotenvy = { workspace = true }
+
+# Tracing/logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Async utilities
+futures = { workspace = true }
+
+# Archive
+zip = { workspace = true }
+
+# Open files/URLs in default application
+open = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+tauri-winres = "0.2"

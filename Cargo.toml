@@ -1,0 +1,80 @@
+[workspace]
+resolver = "2"
+members = ["cli", "core", "gui"]
+
+[workspace.package]
+version = "0.0.0-dev"
+authors = ["Asset Tap Contributors"]
+categories = ["multimedia", "graphics", "command-line-utilities"]
+edition = "2021"
+homepage = "https://assettap.dev"
+keywords = ["3d", "ai", "tap", "asset-generation", "blender"]
+license = "AGPL-3.0"
+readme = "README.md"
+repository = "https://github.com/nightandwknd/asset-tap"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client - unified approach for all API calls
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Utilities
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+walkdir = "2"
+which = "7"
+
+# Env loading
+dotenvy = "0.15"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+indexmap = "2"
+
+# GUI (0.29 uses glow 0.14, matching three-d 0.18)
+eframe = { version = "0.29", features = ["default_fonts", "glow"] }
+egui = "0.29"
+egui_extras = { version = "0.29", features = ["all_loaders"] }
+
+# 3D rendering (uses glow/OpenGL backend, compatible with eframe glow)
+gltf = { version = "1.4", features = ["KHR_materials_unlit", "extras"] }
+three-d = "0.18"
+three-d-asset = { version = "0.9", features = ["gltf", "image"] }
+
+# OpenGL context (must match eframe's glow version)
+glow = "0.14"
+
+# Phosphor icons for GUI
+egui-phosphor = { version = "0.7.3", default-features = false, features = ["regular"] }
+
+# File dialogs
+rfd = "0.15"
+
+# Image handling
+image = { version = "0.25", features = ["webp"] }
+
+# Open files/URLs in default application
+open = "5"
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# Archive
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Tracing/logging
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

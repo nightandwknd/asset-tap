@@ -1,0 +1,86 @@
+[package]
+name = "asset-tap-core"
+version.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "Core library for Asset Tap - API clients, pipeline orchestration, and utilities"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP client - unified for all API calls
+reqwest = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = "0.10"
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+base64 = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+which = { workspace = true }
+
+# Env loading
+dotenvy = { workspace = true }
+
+# Async utilities
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Collections
+indexmap = { workspace = true }
+
+# 3D file parsing and image processing (for GLB WebP conversion)
+gltf = { workspace = true }
+image = { workspace = true }
+
+# Embed directories at compile time
+include_dir = "0.7"
+
+# Secure temporary files
+tempfile = "3.8"
+
+# Archive
+zip = { workspace = true }
+
+# Tracing/logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Mock server (optional, enabled with 'mock' feature)
+wiremock = { version = "0.6", optional = true }
+
+[features]
+default = ["mock"]
+mock = ["dep:wiremock"]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.8"
+tokio-test = "0.4"
+
+[[bin]]
+name = "refresh-models"
+path = "src/bin/refresh_models.rs"
+
+[[bench]]
+name = "benchmarks"
+harness = false

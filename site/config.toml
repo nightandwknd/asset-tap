@@ -1,0 +1,52 @@
+title = "Asset Tap"
+description = "Text-to-image. Image-to-3D. One click."
+base_url = "https://assettap.dev"
+
+theme = "zap"
+
+compile_sass = false
+build_search_index = true
+default_language = "en"
+
+generate_feeds = false
+
+taxonomies = [{ name = "tags" }]
+
+[search]
+index_format = "fuse_javascript"
+
+[markdown.highlighting]
+style = "class"
+light_theme = "github-light"
+dark_theme = "github-dark"
+
+[slugify]
+paths = "on"
+taxonomies = "on"
+anchors = "on"
+
+[extra]
+meta_description = "Generate 3D models from text prompts. AI creates an image from your prompt, then converts it into a production-ready 3D model."
+keywords = "3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust"
+inline_icons = true
+icon_path = "static/icons/"
+icons = ["home", "document", "download", "search", "light", "asleep", "github"]
+
+search_path = "$BASE_URL/search/"
+
+image_resizing_disabled = false
+image_format = "auto"
+image_quality = 80
+images_default_size = 1024
+images_sizes = [512, 1024, 2048]
+
+thumbnail_quality = 70
+thumbnail_default_size = 256
+thumbnail_sizes = [128, 256]
+
+menu_links = [
+  { url = "$BASE_URL/", name = "Home", icon = "home.svg" },
+  { url = "$BASE_URL/docs/", name = "Docs", icon = "document.svg" },
+  { url = "$BASE_URL/download/", name = "Download", icon = "download.svg" },
+  { url = "https://github.com/nightandwknd/asset-tap", name = "GitHub", icon = "github.svg" },
+]

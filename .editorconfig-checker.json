@@ -1,0 +1,8 @@
+{
+  "Exclude": [
+    "site/themes/.*"
+  ],
+  "Disable": {
+    "IndentSize": true
+  }
+}

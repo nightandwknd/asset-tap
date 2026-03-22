@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ─── Layer 0: All independent jobs run in parallel ──────────────────
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: dprint,editorconfig-checker
+      - run: make fmt-check
+
+  clippy:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: make clippy
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: make check
+
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/test-coverage
+        with:
+          ignore-pattern: gui/
+      - name: Test report
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: target/nextest/ci/junit.xml
+          check_name: Test Results
+          include_passed: true
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: make doc
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  udeps:
+    name: Unused Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps
+      - run: make udeps
+
+  version-preview:
+    name: Version Preview
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/get-version
+        id: calver
+      - name: Post version summary
+        run: |
+          echo "## Release Preview" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.calver.outputs.should_release }}" = "true" ]; then
+            echo "Merging this PR will create release **v${{ steps.calver.outputs.new_version }}**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.calver.outputs.changelog }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No release will be created (no new commits since last tag)." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ─── Layer 1: Build + package all platforms in parallel ─────────────
+  build-macos:
+    name: Build & Package (macOS)
+    needs: [check]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: macos
+          version: '0.0.0-pr.${{ github.event.pull_request.number }}'
+          artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
+
+  build-linux:
+    name: Build & Package (Linux)
+    needs: [check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: linux
+          version: '0.0.0-pr.${{ github.event.pull_request.number }}'
+          artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
+          upload-binaries: 'true'
+
+  build-windows:
+    name: Build & Package (Windows)
+    needs: [check]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/build-and-package
+        with:
+          platform: windows
+          version: '0.0.0-pr.${{ github.event.pull_request.number }}'
+          artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
+
+  # ─── Layer 2: CLI tests (consumes Linux binary) ────────────────────
+  cli-test:
+    name: CLI Tests
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: asset-tap-binaries-linux-pr-${{ github.event.pull_request.number }}
+          path: target/release
+      - name: Make CLI executable
+        run: chmod +x target/release/asset-tap
+      - name: Run comprehensive CLI tests
+        run: ./scripts/test_cli.sh

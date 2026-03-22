@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article>
+
+  <div style="text-align:center; margin: 2em 0;">
+    <img src="{{ get_url(path='images/logo.png') }}"
+         alt="Asset Tap Logo"
+         style="max-width: 200px; width: 100%;"
+    />
+  </div>
+
+  <h1 style="text-align:center;">Asset Tap</h1>
+  <p style="text-align:center; font-size: 1.1em;">
+    <strong>Generate 3D models from text prompts</strong>
+  </p>
+  <p style="text-align:center;">
+    AI creates an image from your prompt, then converts it
+    into a production-ready 3D model. Two steps, one click.
+  </p>
+
+  <p style="text-align:center; margin: 2em 0;">
+    <a href="{{ get_url(path='download/') }}" class="btn primary">Download</a>
+    &nbsp;
+    <a href="{{ get_url(path='docs/getting-started/') }}" class="btn">Get Started</a>
+  </p>
+
+  <div style="text-align:center; margin: 2em 0;">
+    <img src="{{ get_url(path='images/screenshots/hero.png') }}"
+         alt="Asset Tap application with 3D model viewer"
+         style="max-width: 100%; border-radius: 4px; cursor: pointer;"
+         onclick="let d=document.createElement('div');d.className='lb';d.innerHTML='<img src=&quot;'+this.src+'&quot;>';document.body.style.overflow='hidden';d.onclick=()=>{d.remove();document.body.style.overflow=''};document.body.appendChild(d)"
+    />
+  </div>
+
+  <hr />
+
+  <h2>How It Works</h2>
+  <p>
+    <strong>Text</strong> &rarr; <strong>AI Image</strong>
+    &rarr; <strong>3D Model (GLB)</strong> &rarr; <strong>FBX Export</strong>
+  </p>
+  <ol>
+    <li>Enter a text prompt (e.g., "a steampunk robot knight")</li>
+    <li>AI generates a high-quality image from your prompt</li>
+    <li>A second AI model converts the image into a 3D model</li>
+    <li>Optionally export to FBX via Blender for game engines</li>
+  </ol>
+
+  <hr />
+
+  <h2>Features</h2>
+  <ul>
+    <li><strong>Built-in 3D Viewer</strong> &mdash; Preview and inspect models before export</li>
+    <li><strong>Multiple AI Models</strong> &mdash; Choose the best text-to-image and image-to-3D models for your workflow</li>
+    <li><strong>Template System</strong> &mdash; Create and reuse prompt templates</li>
+    <li><strong>FBX Export</strong> &mdash; Automatic conversion via Blender</li>
+    <li><strong>Library Management</strong> &mdash; Browse and organize generated models</li>
+    <li><strong>CLI + GUI</strong> &mdash; Full-featured command-line and graphical interfaces</li>
+    <li><strong>Zero-Cost Testing</strong> &mdash; Built-in mock mode for development</li>
+  </ul>
+
+  <hr />
+
+  <h2>Cross-Platform</h2>
+  <p>Official releases for macOS, Windows, and Linux.</p>
+  <ul>
+    <li><strong>macOS</strong> &mdash; Universal DMG with GUI + CLI (Intel + Apple Silicon)</li>
+    <li><strong>Windows</strong> &mdash; NSIS installer with GUI</li>
+    <li><strong>Linux</strong> &mdash; .deb package (GUI + CLI) and AppImage</li>
+  </ul>
+  <p style="text-align:center; margin: 2em 0;">
+    <a href="{{ get_url(path='download/') }}" class="btn primary">Download</a>
+  </p>
+
+  <hr />
+
+  <h2>Open Source</h2>
+  <p>
+    Asset Tap is licensed under
+    <a href="https://github.com/nightandwknd/asset-tap/blob/main/LICENSE">AGPL-3.0</a>.
+    Built with Rust.
+  </p>
+  <p style="text-align:center;">
+    <a href="https://github.com/nightandwknd/asset-tap">View on GitHub</a>
+    &nbsp;|&nbsp;
+    <a href="https://github.com/nightandwknd/asset-tap/issues">Report Issues</a>
+    &nbsp;|&nbsp;
+    <a href="https://github.com/nightandwknd/asset-tap/discussions">Discussions</a>
+  </p>
+
+</article>
+{% endblock content %}

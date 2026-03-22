@@ -1,0 +1,52 @@
+# git-cliff configuration
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = "# Changelog\n\nAll notable changes to Asset Tap are documented here.\n"
+body = """
+{% if version -%}
+  ## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+  ## Unreleased
+{% endif -%}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+  - {{ commit.message | split(pat="\n") | first | trim }}\
+    {%- if commit.scope %} *({{ commit.scope }})*{% endif -%}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_parsers = [
+  # Skip noise
+  { message = "^Merge", skip = true },
+  { message = "^Initial commit", skip = true },
+  { message = "^release:", skip = true },
+  # Group by type
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^doc|^docs", group = "Documentation" },
+  { message = "^test", group = "Testing" },
+  { message = "^chore\\(ci\\)", group = "CI/CD" },
+  { message = "^chore", group = "Chores" },
+  { message = "^style", group = "Styling" },
+  { message = "^build", group = "Build" },
+  { message = ".*", group = "Other" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+
+# Link PR numbers to GitHub
+commit_preprocessors = [
+  { pattern = "\\(#([0-9]+)\\)", replace = "([#${1}](https://github.com/nightandwknd/asset-tap/pull/${1}))" },
+]
