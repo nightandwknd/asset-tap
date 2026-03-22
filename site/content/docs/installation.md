@@ -24,7 +24,11 @@ The DMG includes both the GUI application and the CLI tool.
 
 1. Open the DMG file
 2. Drag **AssetTap** to your Applications folder
-3. Launch from Applications or Spotlight
+3. **First launch:** macOS will block the app because it isn't signed with an Apple Developer certificate yet. Run this once in Terminal:
+   ```bash
+   xattr -cr "/Applications/Asset Tap.app"
+   ```
+4. Launch from Applications or Spotlight
 
 **CLI Setup (Optional)**
 
