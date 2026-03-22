@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'site/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.github/workflows/site.yaml'
+      - '.github/workflows/ci.yaml'
 
 concurrency:
   group: release
