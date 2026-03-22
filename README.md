@@ -13,9 +13,7 @@
 
 </div>
 
-AI creates an image from your prompt, then converts it into a production-ready 3D model.
-
-**Pipeline:** Text prompt → AI Image (text-to-image) → 3D Model (image-to-3D) → FBX Export
+Text prompt → AI image → 3D model → FBX export
 
 ## Download & Install
 
@@ -172,7 +170,7 @@ output/
 | ----------------- | ----------------------------------------------------------- |
 | **TRELLIS 2**     | Native 3D generative model — fast and versatile _(default)_ |
 | **Hunyuan3D Pro** | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
-| **Meshy v6**      | Production-ready 3D models with PBR textures                |
+| **Meshy v6**      | 3D models with PBR textures                                 |
 
 All models are provided by [fal.ai](https://fal.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 

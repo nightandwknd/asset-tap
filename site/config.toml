@@ -1,5 +1,5 @@
 title = "Asset Tap"
-description = "Text-to-image. Image-to-3D. One click."
+description = "Generate 3D models from text prompts"
 base_url = "https://assettap.dev"
 
 theme = "zap"
@@ -26,7 +26,7 @@ taxonomies = "on"
 anchors = "on"
 
 [extra]
-meta_description = "Generate 3D models from text prompts. AI creates an image from your prompt, then converts it into a production-ready 3D model."
+meta_description = "Generate 3D models from text prompts. Text-to-image, then image-to-3D, with optional FBX export."
 keywords = "3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust"
 inline_icons = true
 icon_path = "static/icons/"

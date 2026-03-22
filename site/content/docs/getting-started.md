@@ -24,13 +24,7 @@ You can also [add your own providers](@/docs/providers.md#adding-custom-provider
 
 ## Launch the Application
 
-Open Asset Tap from your Applications folder (or wherever you installed it) and run it from the command line:
-
-```bash
-asset-tap-gui
-```
-
-On first launch, you'll be prompted to enter your API key in the welcome screen.
+Open Asset Tap from your Applications folder, Start Menu, or wherever you installed it. On first launch, you'll be prompted to enter your API key.
 
 ## Generate Your First Model
 
