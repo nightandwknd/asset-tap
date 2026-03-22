@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "asset-tap"
-version = "0.0.0-dev"
+version = "26.3.1"
 dependencies = [
  "anyhow",
  "asset-tap-core",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "asset-tap-core"
-version = "0.0.0-dev"
+version = "26.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "asset-tap-gui"
-version = "0.0.0-dev"
+version = "26.3.1"
 dependencies = [
  "asset-tap-core",
  "chrono",
