@@ -15,6 +15,10 @@ echo "Bundling CLI into .app..."
 cp target/release/asset-tap "$APP_DIR/Contents/MacOS/"
 echo "  -> $APP_DIR/Contents/MacOS/asset-tap"
 
+# Re-sign bundle after CLI injection
+echo "Signing .app bundle (ad-hoc)..."
+codesign --sign - --force --deep "$APP_DIR"
+
 # Create compressed DMG
 echo "Creating DMG..."
 rm -f "$DMG_OUT"
