@@ -26,8 +26,9 @@ taxonomies = "on"
 anchors = "on"
 
 [extra]
-meta_description = "Generate 3D models from text prompts. Text-to-image, then image-to-3D, with optional FBX export."
+meta_description = "Generate 3D models from text prompts."
 keywords = "3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust"
+og_preview_img = "images/og-preview.png"
 inline_icons = true
 icon_path = "static/icons/"
 icons = ["home", "document", "download", "search", "light", "asleep", "github"]

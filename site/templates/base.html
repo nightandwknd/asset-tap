@@ -32,8 +32,21 @@
     <meta property="og:url" content="{{ current_url | safe }}"/>
     <meta property="og:description" content="{% if section and section.description %}{{ section.description }}{% elif page and page.description %}{{ page.description }}{% else %}{{ config.extra.meta_description }}{% endif %}"/>
     <meta name="twitter:card" content="summary_large_image"/>
+    <meta name="twitter:site" content="@nightandwknd"/>
+    <meta name="twitter:creator" content="@nightandwknd"/>
     <meta name="twitter:title" content="{% if page_title and page_title != config.title %}{{ page_title }} -- {% endif %}{{ config.title }}"/>
     <meta name="twitter:description" content="{% if section and section.description %}{{ section.description }}{% elif page and page.description %}{{ page.description }}{% else %}{{ config.extra.meta_description }}{% endif %}"/>
+    {% if page and page.extra.og_preview_img -%}
+    {% set og_img = get_url(path=page.extra.og_preview_img) -%}
+    {% elif section and section.extra.og_preview_img -%}
+    {% set og_img = get_url(path=section.extra.og_preview_img) -%}
+    {% elif config.extra.og_preview_img -%}
+    {% set og_img = get_url(path=config.extra.og_preview_img) -%}
+    {% endif -%}
+    {% if og_img -%}
+    <meta property="og:image" content="{{ og_img | safe }}"/>
+    <meta name="twitter:image" content="{{ og_img | safe }}"/>
+    {% endif -%}
     {%- endblock og_preview -%}
     {% block rss -%}
     {% if config.generate_feeds %}<link rel="alternate" type="application/atom+xml" title="{{config.title}}" href="{{ get_url(path='atom.xml',trailing_slash=false)|safe}}">{% endif %}
