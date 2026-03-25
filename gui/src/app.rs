@@ -46,6 +46,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::runtime::Runtime;
 
+/// Result type for async FBX conversion (FBX path, optional textures dir).
+type FbxConversionResult = Result<(PathBuf, Option<PathBuf>), String>;
+
 /// A toast notification message shown briefly to the user.
 #[derive(Debug, Clone)]
 pub struct Toast {
@@ -254,6 +257,9 @@ pub struct App {
 
     /// Pending export result (from async zip creation).
     pending_export: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
+
+    /// Pending FBX conversion result (from async Blender conversion).
+    pub pending_fbx_conversion: Option<tokio::sync::oneshot::Receiver<FbxConversionResult>>,
 
     // =========================================================================
     // Toast Notifications
@@ -518,6 +524,7 @@ impl App {
             // Pending File Dialog
             pending_file_selection: None,
             pending_export: None,
+            pending_fbx_conversion: None,
 
             // Toast Notifications
             toasts: Vec::new(),
@@ -1096,6 +1103,32 @@ impl App {
         }
     }
 
+    /// Start an async FBX conversion for the given GLB file.
+    ///
+    /// Spawns the conversion on the tokio runtime so the GUI remains responsive.
+    /// Results are polled via `pending_fbx_conversion` in the update loop.
+    pub fn start_fbx_conversion(&mut self, glb_path: PathBuf) {
+        let blender_path = self.settings.blender_path.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_fbx_conversion = Some(rx);
+        self.add_toast(Toast::info("Converting to FBX..."));
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                asset_tap_core::convert::convert_glb_to_fbx(&glb_path, blender_path.as_deref())
+            })
+            .await;
+            let msg = match result {
+                Ok(Ok(Some((fbx, textures)))) => Ok((fbx, textures)),
+                Ok(Ok(None)) => {
+                    Err("Blender not found. Install Blender to enable FBX conversion.".to_string())
+                }
+                Ok(Err(e)) => Err(format!("FBX conversion failed: {}", e)),
+                Err(e) => Err(format!("FBX conversion task failed: {}", e)),
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
     /// Open an FBX file in Blender.
     ///
     /// Uses the same Blender detection logic as the FBX conversion process.
@@ -1602,6 +1635,31 @@ impl eframe::App for App {
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     tracing::warn!("Export channel closed unexpectedly");
+                }
+            }
+        }
+
+        // Check for completed FBX conversion
+        if let Some(mut rx) = self.pending_fbx_conversion.take() {
+            match rx.try_recv() {
+                Ok(Ok((fbx, textures))) => {
+                    self.add_toast(Toast::success("FBX conversion complete"));
+                    if let Some(ref mut output) = self.output {
+                        output.fbx_path = Some(fbx);
+                        if let Some(tex) = textures {
+                            output.textures_dir = Some(tex);
+                        }
+                    }
+                }
+                Ok(Err(msg)) => {
+                    self.toasts.push(Toast::error(msg));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_fbx_conversion = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("FBX conversion channel closed unexpectedly");
                 }
             }
         }

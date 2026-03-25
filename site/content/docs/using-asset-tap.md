@@ -95,6 +95,8 @@ If you have Blender installed, Asset Tap can automatically convert GLB models to
 
 The exported FBX file is saved alongside the GLB in the same bundle directory.
 
+You can also convert existing bundles to FBX after generation. In the GUI, open a bundle that has a GLB and click **Convert to FBX**. From the CLI, use `asset-tap --convert-fbx <path>` with a bundle directory or GLB file.
+
 ## Keyboard Shortcuts
 
 | Action   | Shortcut                       |

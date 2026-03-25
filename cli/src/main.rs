@@ -8,7 +8,7 @@ use asset_tap_core::{
         list_text_to_image_models,
     },
     constants::http::env,
-    convert::convert_existing_models,
+    convert::{convert_existing_models, convert_glb_to_fbx, is_blender_available},
     format_progress,
     pipeline::{run_pipeline, PipelineConfig},
     progress_fmt::stage_icon,
@@ -100,6 +100,10 @@ struct Cli {
     /// Export a bundle directory as a zip archive
     #[arg(long, value_name = "BUNDLE_DIR")]
     export_bundle: Option<PathBuf>,
+
+    /// Convert a specific GLB file or bundle directory to FBX (requires Blender)
+    #[arg(long, value_name = "PATH")]
+    convert_fbx: Option<PathBuf>,
 }
 
 /// Print ASCII art banner
@@ -156,6 +160,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Handle --export-bundle flag (no registry needed)
     if let Some(ref bundle_dir) = cli.export_bundle {
         return handle_export_bundle(bundle_dir, &cli.output);
+    }
+
+    // Handle --convert-fbx flag (no registry needed)
+    if let Some(ref path) = cli.convert_fbx {
+        return handle_convert_fbx(path);
     }
 
     // Handle mock mode
@@ -452,6 +461,83 @@ fn handle_export_bundle(
         }
         Err(e) => {
             anyhow::bail!("Export failed: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_convert_fbx(path: &std::path::Path) -> anyhow::Result<()> {
+    use asset_tap_core::constants::files::bundle as bundle_files;
+
+    // Resolve path (could be relative)
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+
+    // Determine the GLB file to convert
+    let glb_path = if path.is_dir() {
+        // Bundle directory — look for model.glb
+        let glb = path.join(bundle_files::MODEL_GLB);
+        if !glb.exists() {
+            anyhow::bail!(
+                "No {} found in bundle directory: {}",
+                bundle_files::MODEL_GLB,
+                path.display()
+            );
+        }
+        glb
+    } else if path.extension().and_then(|e| e.to_str()) == Some("glb") {
+        if !path.exists() {
+            anyhow::bail!("GLB file not found: {}", path.display());
+        }
+        path
+    } else {
+        anyhow::bail!(
+            "Expected a .glb file or bundle directory, got: {}",
+            path.display()
+        );
+    };
+
+    // Check if FBX already exists
+    let fbx_path = glb_path.with_extension("fbx");
+    if fbx_path.exists() {
+        println!("\n  ⚠️  FBX already exists: {}", fbx_path.display());
+        println!("  Skipping conversion (delete the existing FBX to reconvert).");
+        return Ok(());
+    }
+
+    // Load settings for custom Blender path
+    let settings = asset_tap_core::settings::Settings::load();
+    let custom_blender = settings.blender_path.as_deref();
+    let has_custom_blender = custom_blender.is_some_and(|p| !p.is_empty());
+
+    // Check Blender availability (auto-detected or custom path)
+    if !is_blender_available() && !has_custom_blender {
+        anyhow::bail!(
+            "Blender is required for FBX conversion but was not found.\n\
+            Install Blender from https://www.blender.org/download/ and ensure it's on your PATH."
+        );
+    }
+
+    println!();
+    println!("{}", "=".repeat(60));
+    println!("  Convert GLB to FBX");
+    println!("{}", "=".repeat(60));
+    println!("\n  Source: {}", glb_path.display());
+
+    match convert_glb_to_fbx(&glb_path, custom_blender)? {
+        Some((fbx, textures_dir)) => {
+            println!("  ✓ FBX:      {}", fbx.display());
+            if let Some(ref tex) = textures_dir {
+                println!("  ✓ Textures: {}", tex.display());
+            }
+            println!();
+        }
+        None => {
+            anyhow::bail!("Blender is required for FBX conversion but was not found.");
         }
     }
 
