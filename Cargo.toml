@@ -3,7 +3,7 @@ resolver = "2"
 members = ["cli", "core", "gui"]
 
 [workspace.package]
-version = "26.3.3"
+version = "26.3.4"
 authors = ["Asset Tap Contributors"]
 categories = ["multimedia", "graphics", "command-line-utilities"]
 edition = "2021"

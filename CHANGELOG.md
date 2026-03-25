@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.3.4 — 2026-03-25
+
+### Bug Fixes
+
+- ref image metadata, changelog fmt, approval progress, dmg packaging ([#4](https://github.com/nightandwknd/asset-tap/pull/4))
+
 ## v26.3.3 — 2026-03-25
 
 ### Bug Fixes
