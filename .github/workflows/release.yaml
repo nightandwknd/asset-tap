@@ -182,7 +182,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
-          tool: git-cliff
+          tool: git-cliff,dprint
 
       - name: Create release commit and tag
         run: |
@@ -192,8 +192,9 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" Cargo.toml
           cargo update --workspace
 
-          # Generate full CHANGELOG.md
+          # Generate full CHANGELOG.md and format to match dprint conventions
           git-cliff --tag "v${NEW_VERSION}" -o CHANGELOG.md
+          dprint fmt CHANGELOG.md
 
           # Create release commit
           git config user.name "github-actions[bot]"
