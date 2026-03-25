@@ -278,8 +278,23 @@ fn build_config(
     // Build config
     let mut config = PipelineConfig::new().with_output_dir(output_dir);
 
-    if !prompt.is_empty() {
-        config = config.with_prompt(prompt);
+    if let Some(ref image) = cli.image {
+        // Validate local file paths before passing to pipeline
+        if !image.starts_with("http://") && !image.starts_with("https://") {
+            let path = std::path::Path::new(image);
+            if !path.exists() {
+                anyhow::bail!("Image file not found: {}", image);
+            }
+        }
+        // Using a reference image — skip prompt/template since image generation is bypassed
+        config = config.with_existing_image(image);
+    } else {
+        if !prompt.is_empty() {
+            config = config.with_prompt(prompt);
+        }
+        if let Some(ref model) = cli.image_model {
+            config = config.with_image_model(model);
+        }
     }
 
     if let Some(ref provider) = cli.provider {
@@ -290,21 +305,6 @@ fn build_config(
 
     if let Some(ref model) = cli.model_3d {
         config = config.with_3d_model(model);
-    }
-
-    if let Some(ref model) = cli.image_model {
-        config = config.with_image_model(model);
-    }
-
-    if let Some(ref image) = cli.image {
-        // Validate local file paths before passing to pipeline
-        if !image.starts_with("http://") && !image.starts_with("https://") {
-            let path = std::path::Path::new(image);
-            if !path.exists() {
-                anyhow::bail!("Image file not found: {}", image);
-            }
-        }
-        config = config.with_existing_image(image);
     }
 
     if cli.no_fbx {
