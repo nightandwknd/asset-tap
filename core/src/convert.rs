@@ -324,6 +324,86 @@ for image in bpy.data.images:
         except Exception as e:
             print(f"Could not save {name}: {e}")
 
+# Bake glTF PBR textures into FBX-compatible Principled BSDF materials.
+#
+# The glTF importer creates a node tree with the textures connected but the
+# FBX exporter only picks up textures that are wired to the Principled BSDF
+# inputs it recognises. This loop walks every material, finds the Principled
+# BSDF node, and for each image texture node ensures:
+#   1. It has a valid image (skip otherwise)
+#   2. Its image file has been saved to disk (pack → save to textures_dir)
+#   3. It is connected to the correct Principled BSDF input
+#
+# Without this, the FBX exporter writes a grey untextured model.
+
+for mat in bpy.data.materials:
+    if not mat.use_nodes:
+        continue
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+
+    # Find the Principled BSDF node
+    principled = None
+    for node in nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            principled = node
+            break
+    if principled is None:
+        continue
+
+    for node in nodes:
+        if node.type != 'TEX_IMAGE' or node.image is None:
+            continue
+        img = node.image
+
+        # Ensure the image is saved to disk so the FBX exporter can embed it
+        if img.packed_file or not os.path.isfile(bpy.path.abspath(img.filepath)):
+            save_path = os.path.join(textures_dir, f"{img.name}.png")
+            try:
+                img.save_render(save_path)
+                img.filepath = save_path
+                img.filepath_raw = save_path
+                if img.packed_file:
+                    img.unpack(method='REMOVE')
+            except Exception as e:
+                print(f"Could not save image {img.name}: {e}")
+
+        # Map the texture to the correct Principled BSDF input based on
+        # which output socket is already linked (or the node label).
+        target_input = None
+        for link in links:
+            if link.from_node == node:
+                # Already connected to Principled BSDF - keep it
+                if link.to_node == principled:
+                    target_input = None
+                    break
+                # Connected to something else (e.g. Normal Map, Separate RGB) -
+                # trace common glTF patterns
+                if link.to_node.type == 'NORMAL_MAP':
+                    target_input = 'Normal'
+                elif link.to_node.type == 'SEPARATE_COLOR':
+                    # glTF packs metallic/roughness into a single texture
+                    target_input = None  # handled by the separate outputs
+                    break
+                else:
+                    # Guess from node label
+                    label = node.label.lower()
+                    if 'base' in label or 'color' in label or 'diffuse' in label or 'albedo' in label:
+                        target_input = 'Base Color'
+                    elif 'normal' in label:
+                        target_input = 'Normal'
+                    elif 'rough' in label:
+                        target_input = 'Roughness'
+                    elif 'metal' in label:
+                        target_input = 'Metallic'
+                    elif 'emission' in label or 'emissive' in label:
+                        target_input = 'Emission Color'
+                break
+
+        if target_input and target_input in principled.inputs:
+            links.new(node.outputs['Color'], principled.inputs[target_input])
+            print(f"Linked {img.name} -> {target_input}")
+
 # NOTE: We intentionally do NOT re-export the GLB here to preserve the original
 # asset from the API. The original GLB maintains full integrity of the API output.
 # If you need a Blender-processed GLB, you can manually export it via the GUI.

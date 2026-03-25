@@ -143,7 +143,11 @@ By default, Asset Tap converts GLB models to FBX if Blender is installed.
 # Skip FBX conversion (GLB output only)
 asset-tap --no-fbx -y "a robot"
 
-# Convert existing GLB files to FBX (no API calls)
+# Convert a specific bundle or GLB file to FBX after generation
+asset-tap --convert-fbx output/2024-12-29_153045
+asset-tap --convert-fbx output/2024-12-29_153045/model.glb
+
+# Batch convert all existing GLB files to FBX (no API calls)
 asset-tap --convert-only
 ```
 
@@ -194,7 +198,8 @@ asset-tap --mock --mock-delay -y "test prompt"
 | `--list-providers`   |       | List available providers and their models                     |
 | `--inspect-template` |       | Inspect a template's syntax and preview                       |
 | `--no-fbx`           |       | Skip FBX conversion (GLB only)                                |
-| `--convert-only`     |       | Convert existing GLB files to FBX (no API calls)              |
+| `--convert-fbx`      |       | Convert a specific GLB file or bundle directory to FBX        |
+| `--convert-only`     |       | Batch convert all existing GLB files to FBX (no API calls)    |
 | `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                     |
 | `--approve`          |       | Require image approval before 3D generation                   |
 | `--export-bundle`    |       | Export a bundle directory as a zip archive                    |

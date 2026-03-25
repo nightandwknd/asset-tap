@@ -270,6 +270,12 @@ run_test "Convert WebP with -o targeting test output" \
 run_test "Convert-only mode" \
     "$CLI --convert-only -o '$TEST_OUTPUT/bundle_validation'" 0
 
+run_test "Convert FBX on non-existent path" \
+    "$CLI --convert-fbx /tmp/does_not_exist_xyz.glb" 1
+
+run_test "Convert FBX on non-GLB file" \
+    "$CLI --convert-fbx '$TEST_OUTPUT/bundle_validation'" 1
+
 echo "=== 11. ADDITIONAL EDGE CASES ===" | tee -a "$LOG_FILE"
 
 run_test "Inspect non-existent template" \

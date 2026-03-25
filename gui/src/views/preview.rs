@@ -723,6 +723,40 @@ fn render_model_action_buttons(
             if response.clicked() {
                 app.open_fbx_in_blender(fbx);
             }
+        } else if glb_path.is_some() {
+            // No FBX yet — offer to convert the existing GLB
+            let blender_available = app.blender_available;
+            let has_custom_blender = app
+                .settings
+                .blender_path
+                .as_ref()
+                .is_some_and(|p| !p.is_empty());
+            let converting = app.pending_fbx_conversion.is_some();
+            let can_convert = (blender_available || has_custom_blender) && !converting;
+
+            let label = if converting {
+                format!("{} Converting...", icons::FILE)
+            } else {
+                format!("{} Convert to FBX", icons::FILE)
+            };
+            let button = egui::Button::new(label);
+            let mut response = ui.add_enabled(can_convert, button);
+
+            if converting {
+                response = response.on_disabled_hover_text("FBX conversion in progress...");
+            } else if blender_available || has_custom_blender {
+                response = response.on_hover_text("Convert GLB to FBX using Blender");
+            } else {
+                response = response.on_disabled_hover_text(
+                    "Blender not found. Install Blender to enable FBX conversion.",
+                );
+            }
+
+            if response.clicked() && app.pending_fbx_conversion.is_none() {
+                if let Some(ref glb) = glb_path {
+                    app.start_fbx_conversion(glb.clone());
+                }
+            }
         }
 
         if let Some(ref glb) = glb_path {
