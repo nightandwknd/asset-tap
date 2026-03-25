@@ -863,15 +863,25 @@ impl App {
                     // last event of the same type/stage instead of appending a new line.
                     // This prevents the progress pane from flooding with hundreds of
                     // "Processing... (Ns elapsed)" lines during long polling waits.
+                    // Only replace within the current run of transient events — don't
+                    // reach back past Completed/AwaitingApproval boundaries.
                     let replace_pos = match &progress {
                         Progress::Queued { stage, .. } | Progress::Processing { stage, .. } => {
                             let target_stage = *stage;
+                            // Find the last Completed or AwaitingApproval for this stage
+                            // to avoid replacing across stage boundaries.
+                            let boundary = s.progress.iter().rposition(|p| matches!(
+                                p,
+                                Progress::Completed { stage: s, .. }
+                                    | Progress::AwaitingApproval { stage: s, .. }
+                                    if *s == target_stage
+                            ));
                             s.progress.iter().rposition(|p| matches!(
                                 p,
                                 Progress::Queued { stage: s, .. }
                                     | Progress::Processing { stage: s, .. }
                                     if *s == target_stage
-                            ))
+                            )).filter(|pos| boundary.is_none_or(|b| *pos > b))
                         }
                         _ => None,
                     };

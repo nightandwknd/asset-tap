@@ -516,12 +516,14 @@ async fn generate_image_stage(
     // Save image bytes to disk
     std::fs::write(&image_path, &result.data)?;
     output.image_path = Some(image_path.clone());
-    let _ = progress_tx.send(Progress::completed(Stage::ImageGeneration));
 
     // Approval loop: if approval is required, wait for user response.
     // On Regenerate, re-run image generation and loop back.
+    // Completed is deferred until after approval so progress messages stay in order.
     if config.require_image_approval {
         loop {
+            let _ = progress_tx.send(Progress::completed(Stage::ImageGeneration));
+
             let approval_data = crate::types::ApprovalData {
                 image_path: image_path.clone(),
                 image_url: format!("file://{}", image_path.display()),
@@ -541,6 +543,10 @@ async fn generate_image_stage(
             match approval_rx.recv().await {
                 Some(ApprovalResponse::Approve) => {
                     tracing::info!("Image approved by user, continuing to 3D generation");
+                    let _ = progress_tx.send(Progress::processing(
+                        Stage::ImageGeneration,
+                        Some("Image approved".to_string()),
+                    ));
                     break;
                 }
                 Some(ApprovalResponse::Reject) => {
@@ -560,8 +566,7 @@ async fn generate_image_stage(
                     // Overwrite image on disk
                     std::fs::write(&image_path, &result.data)?;
                     output.image_path = Some(image_path.clone());
-                    let _ = progress_tx.send(Progress::completed(Stage::ImageGeneration));
-                    // Loop back to send new AwaitingApproval
+                    // Loop back to send Completed then new AwaitingApproval
                 }
                 None => {
                     tracing::error!("Approval channel closed unexpectedly!");
@@ -571,6 +576,8 @@ async fn generate_image_stage(
                 }
             }
         }
+    } else {
+        let _ = progress_tx.send(Progress::completed(Stage::ImageGeneration));
     }
 
     Ok((result.data, resolved_image_model))
