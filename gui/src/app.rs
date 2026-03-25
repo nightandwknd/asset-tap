@@ -696,29 +696,33 @@ impl App {
             .with_3d_model(&self.model_3d)
             .with_output_dir(self.settings.output_dir.clone());
 
-        // Apply template if selected
-        let prompt = if let Some(ref template) = self.template {
-            asset_tap_core::templates::apply_template(template, &self.prompt)
-                .unwrap_or_else(|| self.prompt.clone())
-        } else {
-            self.prompt.clone()
-        };
-
-        if !prompt.is_empty() {
-            config = config.with_prompt(prompt.clone());
-        }
-
-        // Store the template name in config
-        if let Some(ref template) = self.template {
-            config = config.with_template(template);
-        }
-
-        // Always set the image model (since it's provider-specific now)
-        config = config.with_image_model(&self.image_model);
-
-        if let Some(ref image) = self.existing_image {
+        let prompt = if let Some(ref image) = self.existing_image {
+            // Using a reference image — skip prompt/template since image generation is bypassed
             config = config.with_existing_image(image);
-        }
+            String::new()
+        } else {
+            // Apply template if selected
+            let prompt = if let Some(ref template) = self.template {
+                asset_tap_core::templates::apply_template(template, &self.prompt)
+                    .unwrap_or_else(|| self.prompt.clone())
+            } else {
+                self.prompt.clone()
+            };
+
+            if !prompt.is_empty() {
+                config = config.with_prompt(prompt.clone());
+            }
+
+            // Store the template name in config
+            if let Some(ref template) = self.template {
+                config = config.with_template(template);
+            }
+
+            // Always set the image model (since it's provider-specific now)
+            config = config.with_image_model(&self.image_model);
+
+            prompt
+        };
 
         let has_custom_blender = self
             .settings
@@ -759,7 +763,8 @@ impl App {
         // Add to prompt history (if not empty and not duplicate of most recent)
         // Store the raw user input, not the interpolated prompt, so re-selecting
         // a history entry doesn't double-apply the template.
-        if !self.prompt.is_empty() {
+        // Skip when using a reference image — the prompt wasn't used for generation.
+        if !self.prompt.is_empty() && self.existing_image.is_none() {
             let entry = asset_tap_core::state::PromptHistoryEntry {
                 prompt: self.prompt.clone(),
                 template: self.template.clone(),
@@ -858,15 +863,25 @@ impl App {
                     // last event of the same type/stage instead of appending a new line.
                     // This prevents the progress pane from flooding with hundreds of
                     // "Processing... (Ns elapsed)" lines during long polling waits.
+                    // Only replace within the current run of transient events — don't
+                    // reach back past Completed/AwaitingApproval boundaries.
                     let replace_pos = match &progress {
                         Progress::Queued { stage, .. } | Progress::Processing { stage, .. } => {
                             let target_stage = *stage;
+                            // Find the last Completed or AwaitingApproval for this stage
+                            // to avoid replacing across stage boundaries.
+                            let boundary = s.progress.iter().rposition(|p| matches!(
+                                p,
+                                Progress::Completed { stage: s, .. }
+                                    | Progress::AwaitingApproval { stage: s, .. }
+                                    if *s == target_stage
+                            ));
                             s.progress.iter().rposition(|p| matches!(
                                 p,
                                 Progress::Queued { stage: s, .. }
                                     | Progress::Processing { stage: s, .. }
                                     if *s == target_stage
-                            ))
+                            )).filter(|pos| boundary.is_none_or(|b| *pos > b))
                         }
                         _ => None,
                     };

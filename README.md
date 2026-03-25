@@ -99,11 +99,7 @@ You can also add your own providers by creating YAML configuration files (see pr
 
 ### 2. Launch the Application
 
-```bash
-asset-tap-gui
-```
-
-On first launch, you'll be prompted to configure your API key.
+Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. On first launch, you'll be prompted to configure your API key.
 
 ### 3. Generate Your First Model
 

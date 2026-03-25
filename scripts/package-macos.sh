@@ -22,6 +22,13 @@ codesign --sign - --force --deep "$APP_DIR"
 # Create compressed DMG
 echo "Creating DMG..."
 rm -f "$DMG_OUT"
+
+# Detach any leftover "Asset Tap" volume from a previous run
+if hdiutil info 2>/dev/null | grep -q "/Volumes/Asset Tap"; then
+  echo "Detaching stale /Volumes/Asset Tap..."
+  hdiutil detach "/Volumes/Asset Tap" -force 2>/dev/null || true
+fi
+
 hdiutil create -volname "Asset Tap" -srcfolder "$APP_DIR" \
   -ov -format UDZO -fs HFS+ "$DMG_OUT"
 echo "  -> $DMG_OUT"

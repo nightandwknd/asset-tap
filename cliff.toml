@@ -2,23 +2,24 @@
 # https://git-cliff.org/docs/configuration
 
 [changelog]
-header = "# Changelog\n\nAll notable changes to Asset Tap are documented here.\n"
+header = "# Changelog\n\nAll notable changes to Asset Tap are documented here."
 body = """
-{% if version -%}
-  ## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}
-{% else -%}
-  ## Unreleased
-{% endif -%}
 
-{% for group, commits in commits | group_by(attribute="group") %}
+{% if version -%}
+## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## Unreleased
+{% endif %}
+{% for group, commits in commits | group_by(attribute="group") -%}
 ### {{ group | upper_first }}
-{% for commit in commits %}
-  - {{ commit.message | split(pat="\n") | first | trim }}\
-    {%- if commit.scope %} *({{ commit.scope }})*{% endif -%}
+
+{% for commit in commits -%}
+- {{ commit.message | split(pat="\n") | first | trim }}\
+{%- if commit.scope %} *({{ commit.scope }})*{% endif %}
 {% endfor %}
-{% endfor %}
+{% endfor -%}
 """
-trim = true
+trim = false
 footer = ""
 
 [git]
