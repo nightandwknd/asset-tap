@@ -154,13 +154,13 @@ impl Walkthrough {
                 // Top
                 painter.rect_filled(
                     egui::Rect::from_min_max(screen.min, egui::pos2(screen.max.x, highlight.min.y)),
-                    0.0,
+                    0,
                     overlay_color,
                 );
                 // Bottom
                 painter.rect_filled(
                     egui::Rect::from_min_max(egui::pos2(screen.min.x, highlight.max.y), screen.max),
-                    0.0,
+                    0,
                     overlay_color,
                 );
                 // Left
@@ -169,7 +169,7 @@ impl Walkthrough {
                         egui::pos2(screen.min.x, highlight.min.y),
                         egui::pos2(highlight.min.x, highlight.max.y),
                     ),
-                    0.0,
+                    0,
                     overlay_color,
                 );
                 // Right
@@ -178,7 +178,7 @@ impl Walkthrough {
                         egui::pos2(highlight.max.x, highlight.min.y),
                         egui::pos2(screen.max.x, highlight.max.y),
                     ),
-                    0.0,
+                    0,
                     overlay_color,
                 );
 
@@ -186,7 +186,12 @@ impl Walkthrough {
                 let border_alpha = (180.0 + pulse * 75.0) as u8;
                 let border_color =
                     egui::Color32::from_rgba_unmultiplied(100, 180, 255, border_alpha);
-                painter.rect_stroke(highlight, 4.0, egui::Stroke::new(2.0 + pulse, border_color));
+                painter.rect_stroke(
+                    highlight,
+                    4,
+                    egui::Stroke::new(2.0 + pulse, border_color),
+                    egui::StrokeKind::Outside,
+                );
             });
 
         // -- Tooltip card state --
@@ -222,9 +227,9 @@ impl Walkthrough {
             .show(ctx, |ui| {
                 egui::Frame::window(ui.style())
                     .shadow(egui::epaint::Shadow {
-                        offset: egui::vec2(0.0, 4.0),
-                        blur: 12.0,
-                        spread: 0.0,
+                        offset: [0, 4],
+                        blur: 12,
+                        spread: 0,
                         color: egui::Color32::from_black_alpha(80),
                     })
                     .show(ui, |ui| {

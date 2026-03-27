@@ -36,7 +36,7 @@ pub fn show_template_editor(ctx: &egui::Context, app: &mut App) {
             }
             // Draw semi-transparent backdrop
             ui.painter()
-                .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(128));
+                .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(128));
         });
 
     egui::Window::new(window_title)

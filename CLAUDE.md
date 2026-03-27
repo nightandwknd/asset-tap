@@ -352,9 +352,9 @@ make test  # Uses cargo-nextest (single-threaded via .config/nextest.toml)
 
 10. **egui/three-d version compatibility:**
 
-- We're pinned to egui/eframe 0.29 (not latest 0.33+)
-- Reason: three-d 0.18 requires glow 0.14, which matches eframe 0.29
-- **Upgrade path available:** three-d `master` (unreleased, post-0.18.2) uses glow 0.16, which matches eframe 0.32+/0.33+. Upgrading to `eframe 0.33` + `three-d` from git master would unblock us. This is a significant refactor (4 major egui versions of API changes) — plan as a dedicated effort.
+- We use egui/eframe 0.32 with three-d pinned to git master (`da7cef6c5e17`) because three-d hasn't released a version with glow 0.16/egui 0.32 support yet (last release: 0.18.2)
+- three-d-asset 0.10 is also unreleased — patched via `[patch.crates-io]` in root `Cargo.toml`
+- **Next upgrade:** When three-d publishes a release with egui 0.32+ support, switch from git dep to crates.io version and remove the `[patch.crates-io]` entry
 - See https://github.com/emilk/egui/discussions/113 for integration approaches
 
 ## Packaging & Distribution
