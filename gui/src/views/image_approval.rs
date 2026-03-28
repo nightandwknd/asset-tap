@@ -64,10 +64,10 @@ pub fn render(
     ui.separator();
 
     // Info panel
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(egui::Color32::from_rgb(40, 50, 60))
-        .rounding(6.0)
-        .inner_margin(egui::Margin::same(12.0))
+        .corner_radius(6)
+        .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(

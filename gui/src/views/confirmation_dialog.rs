@@ -127,7 +127,7 @@ impl ConfirmationDialog {
                 ui.allocate_response(screen_rect.size(), egui::Sense::hover());
                 // Draw semi-transparent backdrop (darker for better contrast)
                 ui.painter()
-                    .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(200));
+                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(200));
             });
 
         // Dialog window

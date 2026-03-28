@@ -171,10 +171,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 fn render_recovery_panel(ui: &mut egui::Ui, recovery: &RecoveryInfo) -> Option<ProgressAction> {
     let mut action = None;
 
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(egui::Color32::from_rgb(50, 70, 50))
-        .rounding(6.0)
-        .inner_margin(egui::Margin::same(12.0))
+        .corner_radius(6)
+        .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(egui::Color32::from_rgb(100, 220, 100), icons::CIRCLE_CHECK);

@@ -1419,7 +1419,7 @@ impl App {
                 let screen_rect = ctx.screen_rect();
                 ui.allocate_response(screen_rect.size(), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(200));
+                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(200));
             });
 
         // Dialog window
@@ -1550,14 +1550,14 @@ impl App {
                         ToastType::Error => (egui::Color32::from_rgb(140, 40, 40), icons::X),
                     };
 
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(bg_color.gamma_multiply(opacity))
-                        .rounding(8.0)
-                        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                        .corner_radius(8)
+                        .inner_margin(egui::Margin::symmetric(12, 10))
                         .shadow(egui::epaint::Shadow {
-                            offset: egui::vec2(0.0, 2.0),
-                            blur: 8.0,
-                            spread: 0.0,
+                            offset: [0, 2],
+                            blur: 8,
+                            spread: 0,
                             color: egui::Color32::from_black_alpha((40.0 * opacity) as u8),
                         })
                         .show(ui, |ui| {
@@ -1737,20 +1737,20 @@ impl eframe::App for App {
 
         // Menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open Output Folder").clicked() {
                         crate::app::open_with_system(
                             &self.settings.output_dir,
                             Some(&mut self.toasts),
                         );
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("Settings").clicked() {
                         self.settings_modal
                             .open(&self.settings, &self.provider_registry);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("Quit").clicked() {
@@ -1761,31 +1761,31 @@ impl eframe::App for App {
                 ui.menu_button("View", |ui| {
                     if ui.button("Browse Images").clicked() {
                         self.open_library_for_image_preview();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Browse Models").clicked() {
                         self.open_library_for_model_preview();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Browse Textures").clicked() {
                         self.open_library_for_textures_preview();
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
 
                 ui.menu_button("Help", |ui| {
                     if ui.button("Quick Tour").clicked() {
                         self.walkthrough.start();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Show Welcome Screen").clicked() {
                         self.welcome_modal.open();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("About").clicked() {
                         self.about_modal.open();
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             });

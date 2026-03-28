@@ -49,7 +49,7 @@ impl AboutModal {
                     should_close = true;
                 }
                 ui.painter()
-                    .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(180));
+                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(180));
             });
 
         // Modal window

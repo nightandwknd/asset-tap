@@ -172,7 +172,11 @@ impl BundleInfoPanel {
                     combo.show_ui(ui, |ui| {
                         for (path, name) in &self.available_bundles {
                             let is_selected = current_path.as_ref() == Some(path);
-                            if ui.selectable_label(is_selected, name).clicked() && !is_selected {
+                            if ui
+                                .add(egui::Button::selectable(is_selected, name.as_str()))
+                                .clicked()
+                                && !is_selected
+                            {
                                 action = Some(BundleInfoAction::SwitchBundle(path.clone()));
                             }
                         }

@@ -42,30 +42,30 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
     // Tab bar
     ui.horizontal(|ui| {
         if ui
-            .selectable_label(
+            .add(egui::Button::selectable(
                 app.preview_tab == PreviewTab::Image,
                 format!("{} Image", icons::IMAGE),
-            )
+            ))
             .clicked()
         {
             app.preview_tab = PreviewTab::Image;
         }
 
         if ui
-            .selectable_label(
+            .add(egui::Button::selectable(
                 app.preview_tab == PreviewTab::Model3D,
                 format!("{} 3D Model", icons::CUBE),
-            )
+            ))
             .clicked()
         {
             app.preview_tab = PreviewTab::Model3D;
         }
 
         if ui
-            .selectable_label(
+            .add(egui::Button::selectable(
                 app.preview_tab == PreviewTab::Textures,
                 format!("{} Textures", icons::PALETTE),
-            )
+            ))
             .clicked()
         {
             app.preview_tab = PreviewTab::Textures;
@@ -163,7 +163,7 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                 let image = egui::Image::new(&uri)
                     .max_size(max_size)
                     .maintain_aspect_ratio(true)
-                    .rounding(4.0)
+                    .corner_radius(4)
                     .show_loading_spinner(false);
 
                 // Check if image is ready by trying to load it
@@ -183,9 +183,9 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     // Show loading placeholder with consistent spinner
                     let placeholder_size = egui::vec2(max_size.x.min(300.0), max_size.y.min(300.0));
                     ui.allocate_ui(placeholder_size, |ui| {
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgb(40, 40, 45))
-                            .rounding(4.0)
+                            .corner_radius(4)
                             .show(ui, |ui| {
                                 ui.set_min_size(placeholder_size);
                                 ui.centered_and_justified(|ui| {
@@ -485,7 +485,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     if has_model && app.gl_context.is_some() {
                         // Draw dark background behind the 3D viewport
                         let painter = ui.painter_at(rect);
-                        painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(30, 30, 36));
+                        painter.rect_filled(rect, 4, egui::Color32::from_rgb(30, 30, 36));
 
                         // Add PaintCallback — three-d renders directly into
                         // egui's framebuffer at the correct viewport offset
@@ -496,7 +496,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                         ui.painter().add(callback);
                     } else if app.gl_context.is_none() {
                         let painter = ui.painter_at(rect);
-                        painter.rect_filled(rect, 8.0, egui::Color32::from_rgb(30, 30, 35));
+                        painter.rect_filled(rect, 8, egui::Color32::from_rgb(30, 30, 35));
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -581,7 +581,7 @@ fn render_model_info_fallback(
 
         // Draw background
         ui.painter()
-            .rect_filled(rect, 8.0, egui::Color32::from_rgb(30, 30, 35));
+            .rect_filled(rect, 8, egui::Color32::from_rgb(30, 30, 35));
 
         // Center content vertically and horizontally within the rect
         let content_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
@@ -616,10 +616,10 @@ fn render_model_info_fallback(
                     .layout(egui::Layout::top_down(egui::Align::Center)),
             );
 
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(egui::Color32::from_rgba_premultiplied(40, 40, 20, 200))
-                .rounding(egui::Rounding::same(8.0))
-                .inner_margin(egui::Margin::same(16.0))
+                .corner_radius(egui::CornerRadius::same(8))
+                .inner_margin(egui::Margin::same(16))
                 .show(&mut child_ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.label(
@@ -846,7 +846,7 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                                 egui::Image::from_texture(texture)
                                     .max_size(max_size)
                                     .maintain_aspect_ratio(true)
-                                    .rounding(4.0)
+                                    .corner_radius(4)
                                     .sense(egui::Sense::click()),
                             );
                             if response.clicked() {
@@ -857,9 +857,9 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                             let placeholder =
                                 egui::vec2(max_size.x.min(200.0), max_size.y.min(200.0));
                             ui.allocate_ui(placeholder, |ui| {
-                                egui::Frame::none()
+                                egui::Frame::new()
                                     .fill(egui::Color32::from_rgb(40, 40, 45))
-                                    .rounding(4.0)
+                                    .corner_radius(4)
                                     .show(ui, |ui| {
                                         ui.set_min_size(placeholder);
                                         ui.centered_and_justified(|ui| {
@@ -957,7 +957,7 @@ fn render_centered_message(
 
         // Draw background
         ui.painter()
-            .rect_filled(rect, 8.0, egui::Color32::from_rgb(30, 30, 35));
+            .rect_filled(rect, 8, egui::Color32::from_rgb(30, 30, 35));
 
         // Center content within the rect
         let center = rect.center();
@@ -970,10 +970,10 @@ fn render_centered_message(
                 .layout(egui::Layout::top_down(egui::Align::Center)),
         );
 
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgba_premultiplied(40, 40, 20, 200))
-            .rounding(egui::Rounding::same(8.0))
-            .inner_margin(egui::Margin::same(16.0))
+            .corner_radius(egui::CornerRadius::same(8))
+            .inner_margin(egui::Margin::same(16))
             .show(&mut child_ui, |ui| {
                 ui.vertical_centered(|ui| {
                     // Title with icon
@@ -1040,7 +1040,7 @@ fn render_model_loading(ui: &mut egui::Ui) {
 
         // Draw the background frame
         ui.painter()
-            .rect_filled(rect, 8.0, egui::Color32::from_rgb(40, 40, 45));
+            .rect_filled(rect, 8, egui::Color32::from_rgb(40, 40, 45));
 
         // Calculate center position for spinner and text
         let center = rect.center();

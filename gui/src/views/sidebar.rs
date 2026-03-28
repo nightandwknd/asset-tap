@@ -47,7 +47,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     .selected_text(app.template.as_deref().unwrap_or("None"))
                     .show_ui(ui, |ui| {
                         if ui
-                            .selectable_label(app.template.is_none(), "None")
+                            .add(egui::Button::selectable(app.template.is_none(), "None"))
                             .clicked()
                         {
                             app.template = None;
@@ -57,10 +57,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
                         for template in &app.available_templates {
                             if ui
-                                .selectable_label(
+                                .add(egui::Button::selectable(
                                     app.template.as_deref() == Some(template.as_str()),
-                                    template,
-                                )
+                                    template.as_str(),
+                                ))
                                 .clicked()
                             {
                                 app.template = Some(template.to_string());
@@ -70,7 +70,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         ui.separator();
 
                         if ui
-                            .selectable_label(false, "+ Create Custom Template")
+                            .add(egui::Button::selectable(false, "+ Create Custom Template"))
                             .clicked()
                         {
                             open_template_for_creation(app);
@@ -183,7 +183,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                                     display_prompt
                                 };
 
-                                if ui.selectable_label(false, display).clicked() {
+                                if ui.add(egui::Button::selectable(false, display)).clicked() {
                                     app.prompt = entry.prompt.clone();
                                     app.template = entry.template.clone();
                                 }
@@ -193,7 +193,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                             if !app.app_state.prompt_history.is_empty() {
                                 ui.separator();
                                 if ui
-                                    .selectable_label(false, format!("{} Clear history", icons::X))
+                                    .add(egui::Button::selectable(
+                                        false,
+                                        format!("{} Clear history", icons::X),
+                                    ))
                                     .clicked()
                                 {
                                     app.show_clear_history_confirmation = true;
@@ -207,10 +210,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         // Warning if both prompt and existing image are set
         if !app.prompt.is_empty() && app.existing_image.is_some() {
             ui.add_space(4.0);
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(egui::Color32::from_rgb(80, 60, 40))
-                .rounding(4.0)
-                .inner_margin(egui::Margin::same(8.0))
+                .corner_radius(4)
+                .inner_margin(egui::Margin::same(8))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.colored_label(egui::Color32::from_rgb(255, 200, 100), icons::WARNING);
@@ -300,7 +303,13 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
             };
 
             // Draw dropzone background with dashed border
-            ui.painter().rect(rect, 4.0, bg_color, egui::Stroke::NONE);
+            ui.painter().rect(
+                rect,
+                4,
+                bg_color,
+                egui::Stroke::NONE,
+                egui::StrokeKind::Outside,
+            );
 
             // Draw dashed border
             let dash_len = 6.0;
@@ -493,10 +502,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         for provider in &image_provider_list {
                             let provider_id = provider.id();
                             if ui
-                                .selectable_label(
+                                .add(egui::Button::selectable(
                                     app.image_provider == provider_id,
                                     provider.name(),
-                                )
+                                ))
                                 .on_hover_text(provider.metadata().description.clone())
                                 .clicked()
                             {
@@ -532,7 +541,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                                 let display_name =
                                     format_model_display_name(&model.name, &model.id);
                                 if ui
-                                    .selectable_label(app.image_model == model.id, display_name)
+                                    .add(egui::Button::selectable(
+                                        app.image_model == model.id,
+                                        display_name,
+                                    ))
                                     .on_hover_text(model.description.as_deref().unwrap_or(""))
                                     .clicked()
                                 {
@@ -573,10 +585,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         for provider in &model_3d_provider_list {
                             let provider_id = provider.id();
                             if ui
-                                .selectable_label(
+                                .add(egui::Button::selectable(
                                     app.model_3d_provider == provider_id,
                                     provider.name(),
-                                )
+                                ))
                                 .on_hover_text(provider.metadata().description.clone())
                                 .clicked()
                             {
@@ -613,7 +625,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                                 let display_name =
                                     format_model_display_name(&model.name, &model.id);
                                 if ui
-                                    .selectable_label(app.model_3d == model.id, display_name)
+                                    .add(egui::Button::selectable(
+                                        app.model_3d == model.id,
+                                        display_name,
+                                    ))
                                     .on_hover_text(model.description.as_deref().unwrap_or(""))
                                     .clicked()
                                 {

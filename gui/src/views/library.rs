@@ -613,7 +613,7 @@ impl LibraryBrowser {
                 }
                 // Draw semi-transparent backdrop
                 ui.painter()
-                    .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(100));
+                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(100));
             });
 
         // 5 icons: 140px each + 10px spacing = 740px content
@@ -865,7 +865,7 @@ fn render_library_item_cached(
         // Background
         ui.painter().rect_filled(
             rect,
-            6.0,
+            6,
             if is_selected {
                 egui::Color32::from_rgb(60, 80, 120)
             } else {
@@ -882,7 +882,7 @@ fn render_library_item_cached(
                 if let Some(texture) = thumbnail {
                     // Draw background for letterbox/pillarbox
                     ui.painter()
-                        .rect_filled(thumb_rect, 4.0, egui::Color32::from_rgb(30, 30, 35));
+                        .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(30, 30, 35));
                     // Fit thumbnail preserving aspect ratio, centered in thumb_rect
                     let tex_size = texture.size_vec2();
                     let scale =
@@ -892,12 +892,12 @@ fn render_library_item_cached(
                         egui::Rect::from_center_size(thumb_rect.center(), display_size);
                     let image = egui::Image::new(texture)
                         .fit_to_exact_size(display_size)
-                        .rounding(4.0);
+                        .corner_radius(4);
                     image.paint_at(ui, centered_rect);
                 } else if is_loading {
                     // Show loading placeholder with spinner
                     ui.painter()
-                        .rect_filled(thumb_rect, 4.0, egui::Color32::from_rgb(45, 45, 50));
+                        .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(45, 45, 50));
                     let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(thumb_rect));
                     child_ui.centered_and_justified(|ui| {
                         ui.spinner();
@@ -905,7 +905,7 @@ fn render_library_item_cached(
                 } else {
                     // Failed to load — show image icon placeholder
                     ui.painter()
-                        .rect_filled(thumb_rect, 4.0, egui::Color32::from_rgb(45, 45, 50));
+                        .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(45, 45, 50));
                     ui.painter().text(
                         thumb_rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -918,7 +918,7 @@ fn render_library_item_cached(
             AssetType::Models => {
                 // Show model icon
                 ui.painter()
-                    .rect_filled(thumb_rect, 4.0, egui::Color32::from_rgb(40, 40, 45));
+                    .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(40, 40, 45));
                 ui.painter().text(
                     thumb_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -930,7 +930,7 @@ fn render_library_item_cached(
             AssetType::Textures => {
                 // Show textures/palette icon
                 ui.painter()
-                    .rect_filled(thumb_rect, 4.0, egui::Color32::from_rgb(50, 40, 45));
+                    .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(50, 40, 45));
                 ui.painter().text(
                     thumb_rect.center(),
                     egui::Align2::CENTER_CENTER,
