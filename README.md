@@ -26,10 +26,12 @@ Download the latest release for your platform from [GitHub Releases](https://git
 1. Download [AssetTap-macos.dmg](https://github.com/nightandwknd/asset-tap/releases/latest/download/AssetTap-macos.dmg)
 2. Open the DMG file
 3. Drag **AssetTap** to your Applications folder
-4. **First launch:** macOS will block the app because it isn't signed with an Apple Developer certificate yet. Run this once in Terminal:
-   ```bash
-   xattr -cr "/Applications/Asset Tap.app"
-   ```
+4. **First launch:** macOS will block the app because it isn't signed with an Apple Developer certificate yet. To allow it:
+   - Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the "Asset Tap.app was blocked" message
+   - Or run this once in Terminal:
+     ```bash
+     xattr -cr "/Applications/Asset Tap.app"
+     ```
 5. Launch from Applications or Spotlight
 
 **CLI Setup (Optional)**
@@ -200,8 +202,10 @@ All models are provided by [fal.ai](https://fal.ai). See [Provider Documentation
 
 **macOS: "Asset Tap.app" Not Opened / "cannot be verified"**
 
-- Run `xattr -cr "/Applications/Asset Tap.app"` in Terminal
-- This is required once because the app is not yet signed with an Apple Developer certificate
+This is required once because the app is not yet signed with an Apple Developer certificate. Either:
+
+- Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**
+- Or run `xattr -cr "/Applications/Asset Tap.app"` in Terminal
 
 **"Provider not found"**
 

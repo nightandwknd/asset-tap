@@ -6,10 +6,23 @@ on:
     paths-ignore:
       - 'site/**'
       - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
+      - 'scripts/**'
+      - '.vscode/**'
+      - '.claude/**'
+      - '.config/**'
+      - '.github/actions/**'
       - '.github/workflows/site.yaml'
       - '.github/workflows/ci.yaml'
+      - '*.md'
+      - 'LICENSE'
+      - '.editorconfig'
+      - '.editorconfig-checker.json'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.mcp.json'
+      - '.env.example'
+      - 'dprint.json'
+      - 'cliff.toml'
 
 concurrency:
   group: release

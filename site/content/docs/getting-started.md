@@ -26,7 +26,7 @@ You can also [add your own providers](@/docs/providers.md#adding-custom-provider
 
 Open Asset Tap from your Applications folder, Start Menu, or wherever you installed it.
 
-**macOS:** On first launch, macOS will block the app because it isn't signed with an Apple Developer certificate yet. Run `xattr -cr "/Applications/Asset Tap.app"` in Terminal first. You only need to do this once.
+**macOS:** On first launch, macOS will block the app because it isn't signed with an Apple Developer certificate yet. Go to **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -cr "/Applications/Asset Tap.app"` in Terminal. You only need to do this once.
 
 On first launch, you'll be prompted to enter your API key.
 
