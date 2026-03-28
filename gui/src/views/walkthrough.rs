@@ -133,7 +133,7 @@ impl Walkthrough {
             }
         };
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let time = ctx.input(|i| i.time) as f32;
         let pulse = (time * 2.5).sin() * 0.5 + 0.5; // 0..1
 

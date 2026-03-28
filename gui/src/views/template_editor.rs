@@ -29,7 +29,7 @@ pub fn show_template_editor(ctx: &egui::Context, app: &mut App) {
         .fixed_pos(egui::pos2(0.0, 0.0))
         .order(egui::Order::Background)
         .show(ctx, |ui| {
-            let screen_rect = ctx.screen_rect();
+            let screen_rect = ctx.content_rect();
             let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
             if response.clicked() {
                 clicked_outside = true;

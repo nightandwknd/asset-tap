@@ -122,7 +122,7 @@ impl ConfirmationDialog {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                let screen_rect = ctx.screen_rect();
+                let screen_rect = ctx.content_rect();
                 // Don't allow click-outside to close - user must explicitly confirm or cancel
                 ui.allocate_response(screen_rect.size(), egui::Sense::hover());
                 // Draw semi-transparent backdrop (darker for better contrast)

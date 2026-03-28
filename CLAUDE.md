@@ -352,9 +352,11 @@ make test  # Uses cargo-nextest (single-threaded via .config/nextest.toml)
 
 10. **egui/three-d version compatibility:**
 
-- We use egui/eframe 0.32 with three-d pinned to git master (`da7cef6c5e17`) because three-d hasn't released a version with glow 0.16/egui 0.32 support yet (last release: 0.18.2)
-- three-d-asset 0.10 is also unreleased — patched via `[patch.crates-io]` in root `Cargo.toml`
-- **Next upgrade:** When three-d publishes a release with egui 0.32+ support, switch from git dep to crates.io version and remove the `[patch.crates-io]` entry
+- We use egui/eframe **0.33** (NOT the latest — 0.34 is available) with glow **0.16**, three-d pinned to a git rev (`da7cef6c5e17`), and three-d-asset pinned to a git rev (`edbc5d8f`)
+- three-d's last crates.io release (0.18.2) only supports egui 0.29/glow 0.14 — the git master has egui 0.32/glow 0.16 support but no release has been published ([issue #568](https://github.com/asny/three-d/issues/568))
+- Both git pins are in root `Cargo.toml`: three-d via `[workspace.dependencies]`, three-d-asset via `[patch.crates-io]`
+- **Why not egui 0.34:** egui 0.34 requires glow **0.17**, but three-d master is on glow 0.16. No one has started porting three-d to glow 0.17. Also, `egui-phosphor` has no 0.34-compatible release yet.
+- **Next upgrade path:** (1) Check if three-d has a new release or commit supporting glow 0.17. (2) Check if egui-phosphor has a 0.34-compatible release. (3) Then bump egui 0.33 → 0.34, which also involves migrating `App::update` → `App::logic`+`App::ui` and `SidePanel`/`TopBottomPanel` → unified `Panel`.
 - See https://github.com/emilk/egui/discussions/113 for integration approaches
 
 ## Packaging & Distribution

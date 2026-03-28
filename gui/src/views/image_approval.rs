@@ -197,7 +197,7 @@ pub fn render(
         // Measure actual button widths
         let mut total_width = 0.0;
         for (label, min_w) in button_labels.iter().zip(min_widths.iter()) {
-            let text_width = ui.fonts(|f| {
+            let text_width = ui.fonts_mut(|f| {
                 f.layout_no_wrap(label.clone(), egui::FontId::default(), egui::Color32::WHITE)
                     .size()
                     .x

@@ -41,7 +41,7 @@ impl AboutModal {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                let screen_rect = ctx.screen_rect();
+                let screen_rect = ctx.content_rect();
                 if ui
                     .allocate_response(screen_rect.size(), egui::Sense::click())
                     .clicked()
@@ -91,7 +91,7 @@ impl AboutModal {
                     // Creator info with clickable link (manually centered)
                     ui.horizontal(|ui| {
                         // Calculate total width needed for the content
-                        let text1_width = ui.fonts(|f| {
+                        let text1_width = ui.fonts_mut(|f| {
                             f.layout_no_wrap(
                                 "Created by ".to_string(),
                                 egui::FontId::default(),
@@ -100,7 +100,7 @@ impl AboutModal {
                             .size()
                             .x
                         });
-                        let link_width = ui.fonts(|f| {
+                        let link_width = ui.fonts_mut(|f| {
                             f.layout_no_wrap(
                                 "nightandwknd".to_string(),
                                 egui::FontId::default(),
@@ -148,7 +148,7 @@ impl AboutModal {
                         ];
                         let mut total_width = 0.0;
                         for text in &badge_texts {
-                            let width = ui.fonts(|f| {
+                            let width = ui.fonts_mut(|f| {
                                 f.layout_no_wrap(
                                     text.to_string(),
                                     egui::FontId::proportional(10.0), // small() size
