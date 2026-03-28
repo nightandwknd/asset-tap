@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.3.5 — 2026-03-28
+
+### Features
+
+- upgrade egui to 0.32 + three-d to git rev ([#5](https://github.com/nightandwknd/asset-tap/pull/5))
+
 ## v26.3.4 — 2026-03-25
 
 ### Bug Fixes
