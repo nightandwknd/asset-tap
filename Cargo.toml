@@ -4,11 +4,11 @@ members = ["cli", "core", "gui"]
 
 [workspace.package]
 version = "26.3.5"
-authors = ["Asset Tap Contributors"]
+authors = ["Night and Wknd"]
 categories = ["multimedia", "graphics", "command-line-utilities"]
 edition = "2021"
 homepage = "https://assettap.dev"
-keywords = ["3d", "ai", "tap", "asset-generation", "blender"]
+keywords = ["3d", "ai", "text-to-3d", "asset-generation", "blender"]
 license = "AGPL-3.0"
 readme = "README.md"
 repository = "https://github.com/nightandwknd/asset-tap"
@@ -42,12 +42,12 @@ dotenvy = "0.15"
 clap = { version = "4", features = ["derive"] }
 indexmap = "2"
 
-# GUI (egui 0.32 uses glow 0.16, matching three-d master)
-eframe = { version = "0.32", features = ["default_fonts", "glow"] }
-egui = "0.32"
-egui_extras = { version = "0.32", features = ["all_loaders"] }
+# GUI (egui 0.33 uses glow 0.16, matching three-d master)
+eframe = { version = "0.33", features = ["default_fonts", "glow"] }
+egui = "0.33"
+egui_extras = { version = "0.33", features = ["all_loaders"] }
 
-# 3D rendering (git master for glow 0.16 + egui 0.32 compat; no release yet)
+# 3D rendering (git master for glow 0.16 compat; three-d pins egui 0.32 but shares glow 0.16)
 gltf = { version = "1.4", features = ["KHR_materials_unlit", "extras"] }
 three-d = { git = "https://github.com/asny/three-d", rev = "da7cef6c5e17" }
 three-d-asset = { version = "0.10", features = ["gltf", "image"] }
@@ -55,8 +55,8 @@ three-d-asset = { version = "0.10", features = ["gltf", "image"] }
 # OpenGL context (must match eframe's glow version)
 glow = "0.16"
 
-# Phosphor icons for GUI (0.10 targets egui 0.32)
-egui-phosphor = { version = "0.10", default-features = false, features = ["regular"] }
+# Phosphor icons for GUI (0.11 targets egui 0.33)
+egui-phosphor = { version = "0.11", default-features = false, features = ["regular"] }
 
 # File dialogs
 rfd = "0.15"

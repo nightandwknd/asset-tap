@@ -158,7 +158,7 @@ impl SettingsModal {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                let screen_rect = ctx.screen_rect();
+                let screen_rect = ctx.content_rect();
 
                 // Allow clicking outside only if output directory is set (required field)
                 let can_close = !self.draft.output_dir.is_empty();
@@ -186,7 +186,7 @@ impl SettingsModal {
 
                 // Wrap content in a scroll area to handle overflow
                 egui::ScrollArea::vertical()
-                    .max_height(ctx.screen_rect().height() - 150.0)
+                    .max_height(ctx.content_rect().height() - 150.0)
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         // Dev mode indicator

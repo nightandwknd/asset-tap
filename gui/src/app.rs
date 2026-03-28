@@ -1416,7 +1416,7 @@ impl App {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .order(egui::Order::Background)
             .show(ctx, |ui| {
-                let screen_rect = ctx.screen_rect();
+                let screen_rect = ctx.content_rect();
                 ui.allocate_response(screen_rect.size(), egui::Sense::hover());
                 ui.painter()
                     .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(200));
@@ -1525,7 +1525,7 @@ impl App {
         }
 
         // Render toasts in bottom-right corner
-        let screen_rect = ctx.screen_rect();
+        let screen_rect = ctx.content_rect();
         let toast_width = 280.0;
         let toast_height = 44.0;
         let padding = 16.0;
@@ -1896,7 +1896,7 @@ impl eframe::App for App {
                 .collapsible(false)
                 .resizable(false)
                 .fixed_size(egui::vec2(700.0, 0.0))
-                .max_height(ctx.screen_rect().height() * 0.9)
+                .max_height(ctx.content_rect().height() * 0.9)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     if regenerating {

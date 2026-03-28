@@ -79,7 +79,7 @@ impl WelcomeModal {
                 .fixed_pos(egui::pos2(0.0, 0.0))
                 .order(egui::Order::Background)
                 .show(ctx, |ui| {
-                    let screen_rect = ctx.screen_rect();
+                    let screen_rect = ctx.content_rect();
 
                     // Allow click-outside to close only if required fields are filled
                     let output_dir_valid = !self.output_dir.as_os_str().is_empty();
