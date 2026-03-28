@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.3.6 — 2026-03-28
+
+### Documentation
+
+- add macos gatekeeper workaround
+
+### Features
+
+- upgrade egui to 0.33 ([#6](https://github.com/nightandwknd/asset-tap/pull/6))
+
 ## v26.3.5 — 2026-03-28
 
 ### Features
