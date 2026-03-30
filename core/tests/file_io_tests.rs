@@ -109,6 +109,7 @@ fn test_bundle_metadata_save_and_load() {
     // Create metadata with generation config
     let config = GenerationConfig {
         prompt: Some("test prompt".to_string()),
+        user_prompt: None,
         template: None,
         existing_image: None,
         image_model: Some("nano-banana".to_string()),
@@ -139,6 +140,78 @@ fn test_bundle_metadata_save_and_load() {
     assert_eq!(loaded_config.image_model, Some("nano-banana".to_string()));
     assert_eq!(loaded_config.model_3d, "trellis-2");
     assert!(loaded.tags.contains(&"test".to_string()));
+
+    // Generator should be set by with_config
+    assert!(loaded.generator.is_some());
+    assert!(loaded.generator.as_ref().unwrap().starts_with("asset-tap/"));
+}
+
+#[test]
+fn test_bundle_metadata_user_prompt_round_trip() {
+    let temp_dir = TempDir::new().unwrap();
+    let bundle_dir = temp_dir.path().join("test_bundle_user_prompt");
+    fs::create_dir_all(&bundle_dir).unwrap();
+
+    // Config with template expansion: user_prompt is the original input,
+    // prompt is the expanded result
+    let config = GenerationConfig {
+        prompt: Some("A humanoid character: a fierce warrior".to_string()),
+        user_prompt: Some("a fierce warrior".to_string()),
+        template: Some("humanoid".to_string()),
+        existing_image: None,
+        image_model: Some("nano-banana".to_string()),
+        model_3d: "trellis-2".to_string(),
+        export_fbx: true,
+    };
+
+    let metadata = BundleMetadata::with_config(config);
+    metadata.save(&bundle_dir).unwrap();
+
+    // Verify round-trip
+    let loaded = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+    let loaded_config = loaded.config.as_ref().unwrap();
+    assert_eq!(
+        loaded_config.prompt,
+        Some("A humanoid character: a fierce warrior".to_string())
+    );
+    assert_eq!(
+        loaded_config.user_prompt,
+        Some("a fierce warrior".to_string())
+    );
+    assert_eq!(loaded_config.template, Some("humanoid".to_string()));
+}
+
+#[test]
+fn test_bundle_metadata_user_prompt_omitted_when_none() {
+    let temp_dir = TempDir::new().unwrap();
+    let bundle_dir = temp_dir.path().join("test_bundle_no_user_prompt");
+    fs::create_dir_all(&bundle_dir).unwrap();
+
+    // Config without template — user_prompt should be None and omitted from JSON
+    let config = GenerationConfig {
+        prompt: Some("a robot".to_string()),
+        user_prompt: None,
+        template: None,
+        existing_image: None,
+        image_model: Some("nano-banana".to_string()),
+        model_3d: "trellis-2".to_string(),
+        export_fbx: true,
+    };
+
+    let metadata = BundleMetadata::with_config(config);
+    metadata.save(&bundle_dir).unwrap();
+
+    // Verify JSON doesn't contain user_prompt key
+    let json_str = fs::read_to_string(bundle_dir.join(bundle_files::METADATA)).unwrap();
+    assert!(
+        !json_str.contains("user_prompt"),
+        "user_prompt should be omitted from JSON when None"
+    );
+
+    // Verify round-trip still works
+    let loaded = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+    let loaded_config = loaded.config.as_ref().unwrap();
+    assert_eq!(loaded_config.user_prompt, None);
 }
 
 // =============================================================================

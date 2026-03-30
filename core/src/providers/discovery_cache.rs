@@ -261,13 +261,13 @@ impl DiscoveryCache {
 
     /// Delete the cache file from disk.
     fn delete_disk_cache(&self) {
-        if let Some(path) = &self.cache_file {
-            if path.exists() {
-                if let Err(e) = std::fs::remove_file(path) {
-                    tracing::warn!("Failed to delete discovery cache file: {}", e);
-                } else {
-                    tracing::debug!("Deleted discovery cache at {:?}", path);
-                }
+        if let Some(path) = &self.cache_file
+            && path.exists()
+        {
+            if let Err(e) = std::fs::remove_file(path) {
+                tracing::warn!("Failed to delete discovery cache file: {}", e);
+            } else {
+                tracing::debug!("Deleted discovery cache at {:?}", path);
             }
         }
     }
@@ -304,6 +304,7 @@ mod tests {
             },
             is_default: false,
             cost_per_run: None,
+            parameters: vec![],
         }
     }
 
@@ -358,15 +359,19 @@ mod tests {
             3600,
         );
 
-        assert!(cache
-            .get("test-provider", ProviderCapability::TextToImage)
-            .is_some());
+        assert!(
+            cache
+                .get("test-provider", ProviderCapability::TextToImage)
+                .is_some()
+        );
 
         cache.invalidate("test-provider", ProviderCapability::TextToImage);
 
-        assert!(cache
-            .get("test-provider", ProviderCapability::TextToImage)
-            .is_none());
+        assert!(
+            cache
+                .get("test-provider", ProviderCapability::TextToImage)
+                .is_none()
+        );
     }
 
     #[test]

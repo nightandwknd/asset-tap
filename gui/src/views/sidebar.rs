@@ -90,15 +90,13 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     // Delete button for custom templates only
                     if let Some(template) =
                         asset_tap_core::templates::get_template_definition(template_name)
+                        && !template.is_builtin
+                        && ui
+                            .small_button(icons::TRASH)
+                            .on_hover_text("Delete template")
+                            .clicked()
                     {
-                        if !template.is_builtin
-                            && ui
-                                .small_button(icons::TRASH)
-                                .on_hover_text("Delete template")
-                                .clicked()
-                        {
-                            delete_custom_template(app, template_name);
-                        }
+                        delete_custom_template(app, template_name);
                     }
                 }
             });
@@ -134,15 +132,15 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
         // Character counter (shown when prompt is getting long)
         let max_len = asset_tap_core::constants::validation::MAX_PROMPT_LENGTH;
-        let prompt_len = app.prompt.len();
-        if prompt_len > max_len * 8 / 10 {
-            let color = if prompt_len > max_len {
+        let effective_len = app.effective_prompt_len();
+        if effective_len > max_len * 8 / 10 {
+            let color = if effective_len > max_len {
                 egui::Color32::RED
             } else {
                 egui::Color32::YELLOW
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                ui.colored_label(color, format!("{}/{}", prompt_len, max_len));
+                ui.colored_label(color, format!("{}/{}", effective_len, max_len));
             });
         }
 
@@ -454,8 +452,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(4.0);
 
         // Use cached provider registry
-        let registry = &app.provider_registry;
-        let available_providers = registry.list_available();
+        let available_providers = app.provider_registry.list_available();
 
         // Track if providers changed to update models
         let old_image_provider = app.image_provider.clone();
@@ -516,14 +513,13 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 ui.end_row();
 
                 // Image model selector
-                if let Some(img_provider) = registry.get(&app.image_provider) {
+                if let Some(img_provider) = app.provider_registry.get(&app.image_provider) {
                     // If provider changed, update model to default
-                    if old_image_provider != app.image_provider {
-                        if let Ok(default_img) =
+                    if old_image_provider != app.image_provider
+                        && let Ok(default_img) =
                             img_provider.get_default_model(ProviderCapability::TextToImage)
-                        {
-                            app.image_model = default_img.id;
-                        }
+                    {
+                        app.image_model = default_img.id;
                     }
 
                     let image_models = img_provider.list_models(ProviderCapability::TextToImage);
@@ -555,6 +551,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
             });
+
+        // Image model settings (directly under image model selector)
+        render_image_model_settings(ui, app, &old_image_provider);
 
         ui.add_space(8.0);
 
@@ -599,14 +598,13 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 ui.end_row();
 
                 // 3D model selector
-                if let Some(model_3d_provider) = registry.get(&app.model_3d_provider) {
+                if let Some(model_3d_provider) = app.provider_registry.get(&app.model_3d_provider) {
                     // If provider changed, update model to default
-                    if old_3d_provider != app.model_3d_provider {
-                        if let Ok(default_3d) =
+                    if old_3d_provider != app.model_3d_provider
+                        && let Ok(default_3d) =
                             model_3d_provider.get_default_model(ProviderCapability::ImageTo3D)
-                        {
-                            app.model_3d = default_3d.id;
-                        }
+                    {
+                        app.model_3d = default_3d.id;
                     }
 
                     let model_3d_models =
@@ -639,6 +637,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
             });
+
+        // 3D model settings (directly under 3D model selector)
+        render_3d_model_settings(ui, app, &old_3d_provider);
 
         // Persist model selections when changed
         let selections_changed = app.app_state.selected_image_provider.as_deref()
@@ -737,10 +738,8 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 app.walkthrough
                     .register_rect(WalkthroughStep::GenerateButton, button_response.rect);
 
-                if !can_generate {
-                    if let Some(reason) = app.generate_disabled_reason() {
-                        button_response = button_response.on_disabled_hover_text(reason);
-                    }
+                if !can_generate && let Some(reason) = app.generate_disabled_reason() {
+                    button_response = button_response.on_disabled_hover_text(reason);
                 }
 
                 if button_response.clicked() {
@@ -864,4 +863,265 @@ fn delete_custom_template(app: &mut App, name: &str) {
                 .push(Toast::info(format!("Failed to delete: {}", e)));
         }
     }
+}
+
+// =============================================================================
+// Model Settings (per-model tunable parameters)
+// =============================================================================
+
+/// Build a composite key for storing per-model parameter overrides.
+fn model_params_key(provider_id: &str, model_id: &str) -> String {
+    format!("{}/{}", provider_id, model_id)
+}
+
+/// Render image model settings panel directly under the image model selector.
+fn render_image_model_settings(ui: &mut egui::Ui, app: &mut App, old_provider: &str) {
+    let provider_changed = old_provider != app.image_provider;
+    let model_changed = app.app_state.selected_image_model.as_deref() != Some(&app.image_model);
+    render_model_settings_panel(
+        ui,
+        app,
+        provider_changed || model_changed,
+        &app.image_provider.clone(),
+        &app.image_model.clone(),
+        ProviderCapability::TextToImage,
+        "image_model_settings",
+        "Image Model Settings",
+        |app| &mut app.image_model_params,
+    );
+}
+
+/// Render 3D model settings panel directly under the 3D model selector.
+fn render_3d_model_settings(ui: &mut egui::Ui, app: &mut App, old_provider: &str) {
+    let provider_changed = old_provider != app.model_3d_provider;
+    let model_changed = app.app_state.selected_3d_model.as_deref() != Some(&app.model_3d);
+    render_model_settings_panel(
+        ui,
+        app,
+        provider_changed || model_changed,
+        &app.model_3d_provider.clone(),
+        &app.model_3d.clone(),
+        ProviderCapability::ImageTo3D,
+        "3d_model_settings",
+        "3D Model Settings",
+        |app| &mut app.model_3d_params,
+    );
+}
+
+/// Shared implementation for rendering a model settings panel.
+///
+/// Loads saved params on selection change, collects parameter definitions from
+/// the registry, renders the collapsible panel, and persists changes.
+#[allow(clippy::too_many_arguments)]
+fn render_model_settings_panel(
+    ui: &mut egui::Ui,
+    app: &mut App,
+    selection_changed: bool,
+    provider_id: &str,
+    model_id: &str,
+    capability: ProviderCapability,
+    panel_id: &str,
+    panel_label: &str,
+    get_params: fn(&mut App) -> &mut std::collections::HashMap<String, serde_json::Value>,
+) {
+    let key = model_params_key(provider_id, model_id);
+
+    // Load saved params when provider/model changes
+    if selection_changed {
+        *get_params(app) = app
+            .app_state
+            .model_parameters
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+    }
+
+    // Collect parameter definitions (immutable borrow ends before mutable use)
+    let param_defs: Vec<asset_tap_core::providers::ParameterDef> = app
+        .provider_registry
+        .get(provider_id)
+        .and_then(|p| {
+            p.list_models(capability)
+                .into_iter()
+                .find(|m| m.id == model_id)
+        })
+        .map(|m| m.parameters)
+        .unwrap_or_default();
+
+    if !param_defs.is_empty() {
+        ui.add_space(4.0);
+        let params = get_params(app);
+        let changed = render_parameter_panel(ui, panel_id, panel_label, &param_defs, params);
+        if changed {
+            let params_clone = get_params(app).clone();
+            app.app_state.model_parameters.insert(key, params_clone);
+            let _ = app.app_state.save();
+        }
+    }
+}
+
+/// Render a collapsible panel with parameter widgets.
+///
+/// Returns true if any parameter value was changed.
+fn render_parameter_panel(
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    parameters: &[asset_tap_core::providers::ParameterDef],
+    values: &mut std::collections::HashMap<String, serde_json::Value>,
+) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(egui::RichText::new(label).size(12.0).weak())
+        .id_salt(id)
+        .default_open(false)
+        .show(ui, |ui| {
+            for param in parameters {
+                changed |= render_parameter_widget(ui, param, values);
+            }
+
+            ui.add_space(4.0);
+            if ui
+                .small_button("Reset to Defaults")
+                .on_hover_text("Clear all overrides and use YAML defaults")
+                .clicked()
+            {
+                values.clear();
+                changed = true;
+            }
+        });
+
+    changed
+}
+
+/// Render a single parameter widget based on its type.
+///
+/// Returns true if the value was changed.
+fn render_parameter_widget(
+    ui: &mut egui::Ui,
+    param: &asset_tap_core::providers::ParameterDef,
+    values: &mut std::collections::HashMap<String, serde_json::Value>,
+) -> bool {
+    use asset_tap_core::providers::ParameterType;
+
+    let mut changed = false;
+
+    ui.horizontal(|ui| match param.param_type {
+        ParameterType::Float => {
+            let default = param.default.as_f64().unwrap_or(0.0);
+            let min = param.min.unwrap_or(0.0);
+            let max = param.max.unwrap_or(100.0);
+            let step = param.step.unwrap_or(0.1);
+
+            let current = values
+                .get(&param.name)
+                .and_then(|v| v.as_f64())
+                .unwrap_or(default);
+            let mut val = current;
+
+            ui.label(&param.label);
+            let slider = egui::Slider::new(&mut val, min..=max)
+                .step_by(step)
+                .min_decimals(1);
+            let response = ui.add(slider);
+            if let Some(ref desc) = param.description {
+                response.on_hover_text(desc);
+            }
+
+            if (val - current).abs() > f64::EPSILON {
+                values.insert(param.name.clone(), serde_json::Value::from(val));
+                changed = true;
+            }
+        }
+        ParameterType::Integer => {
+            let default = param.default.as_i64().unwrap_or(0);
+            let min = param.min.unwrap_or(0.0) as i64;
+            let max = param.max.unwrap_or(100.0) as i64;
+
+            let current = values
+                .get(&param.name)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(default);
+            let mut val = current;
+
+            ui.label(&param.label);
+            let response = ui.add(egui::Slider::new(&mut val, min..=max));
+            if let Some(ref desc) = param.description {
+                response.on_hover_text(desc);
+            }
+
+            if val != current {
+                values.insert(param.name.clone(), serde_json::Value::from(val));
+                changed = true;
+            }
+        }
+        ParameterType::Boolean => {
+            let default = param.default.as_bool().unwrap_or(false);
+            let current = values
+                .get(&param.name)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(default);
+            let mut val = current;
+
+            let response = ui.checkbox(&mut val, &param.label);
+            if let Some(ref desc) = param.description {
+                response.on_hover_text(desc);
+            }
+
+            if val != current {
+                values.insert(param.name.clone(), serde_json::Value::from(val));
+                changed = true;
+            }
+        }
+        ParameterType::String => {
+            let default = param.default.as_str().unwrap_or("").to_string();
+            let current = values
+                .get(&param.name)
+                .and_then(|v| v.as_str())
+                .unwrap_or(&default)
+                .to_string();
+            let mut val = current.clone();
+
+            ui.label(&param.label);
+            let response = ui.text_edit_singleline(&mut val);
+            if let Some(ref desc) = param.description {
+                response.on_hover_text(desc);
+            }
+
+            if val != current {
+                values.insert(param.name.clone(), serde_json::Value::from(val));
+                changed = true;
+            }
+        }
+        ParameterType::Select => {
+            let default = param.default.as_str().unwrap_or("").to_string();
+            let current = values
+                .get(&param.name)
+                .and_then(|v| v.as_str())
+                .unwrap_or(&default)
+                .to_string();
+            let mut selected = current.clone();
+
+            ui.label(&param.label);
+            let combo = egui::ComboBox::from_id_salt(&param.name).selected_text(&selected);
+            let response = combo.show_ui(ui, |ui| {
+                if let Some(ref options) = param.options {
+                    for opt in options {
+                        let opt_str = opt.as_str().unwrap_or("").to_string();
+                        ui.selectable_value(&mut selected, opt_str.clone(), &opt_str);
+                    }
+                }
+            });
+            if let Some(ref desc) = param.description {
+                response.response.on_hover_text(desc);
+            }
+
+            if selected != current {
+                values.insert(param.name.clone(), serde_json::Value::from(selected));
+                changed = true;
+            }
+        }
+    });
+
+    changed
 }

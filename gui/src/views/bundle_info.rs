@@ -12,6 +12,40 @@ use asset_tap_core::constants::files::bundle as bundle_files;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
+/// Duration to show save/add indicators before they fade.
+const SAVE_INDICATOR_SECS: f32 = 2.0;
+
+/// Color for success indicators ("Saved!", "Added!").
+const SUCCESS_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 200, 100);
+
+/// Color for the favorite star when active.
+const FAVORITE_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 200, 50);
+
+/// Show a save/add indicator or a hint label.
+fn save_indicator(
+    ui: &mut egui::Ui,
+    last_time: Option<std::time::Instant>,
+    success_msg: &str,
+    hint_msg: &str,
+) {
+    let show_saved = last_time.is_some_and(|t| t.elapsed().as_secs_f32() < SAVE_INDICATOR_SECS);
+    if show_saved {
+        ui.label(
+            egui::RichText::new(format!("  {} {}", icons::CHECK, success_msg))
+                .size(11.0)
+                .color(SUCCESS_COLOR),
+        );
+        ui.ctx().request_repaint();
+    } else {
+        ui.label(
+            egui::RichText::new(format!("  {}", hint_msg))
+                .size(10.0)
+                .weak()
+                .italics(),
+        );
+    }
+}
+
 /// Actions the bundle info panel can request from the app.
 pub enum BundleInfoAction {
     /// User clicked "Copy to Input" — contains the prompt string.
@@ -34,8 +68,16 @@ pub struct BundleInfoPanel {
     name_has_focus: bool,
     /// Timestamp when the name was last saved (for showing "Saved!" indicator).
     last_save_time: Option<std::time::Instant>,
-    /// Available bundles: (directory path, display name).
-    available_bundles: Vec<(PathBuf, String)>,
+    /// Available bundles: (directory path, display name, is_favorite).
+    available_bundles: Vec<(PathBuf, String, bool)>,
+    /// Tag currently being typed.
+    tag_input: String,
+    /// Notes text being edited.
+    editing_notes: Option<String>,
+    /// Timestamp when a tag was last added (for showing "Added!" indicator).
+    last_tag_save_time: Option<std::time::Instant>,
+    /// Timestamp when notes were last saved (for showing "Saved!" indicator).
+    last_notes_save_time: Option<std::time::Instant>,
 }
 
 impl Default for BundleInfoPanel {
@@ -53,6 +95,10 @@ impl BundleInfoPanel {
             name_has_focus: false,
             last_save_time: None,
             available_bundles: Vec::new(),
+            tag_input: String::new(),
+            editing_notes: None,
+            last_tag_save_time: None,
+            last_notes_save_time: None,
         }
     }
 
@@ -60,8 +106,13 @@ impl BundleInfoPanel {
     pub fn load_bundle(&mut self, bundle_path: PathBuf) -> Result<(), String> {
         match asset_tap_core::bundle::load_bundle(&bundle_path) {
             Ok(bundle) => {
+                self.editing_notes = bundle.metadata.notes.clone();
                 self.current_bundle = Some(bundle);
                 self.editing_name = None;
+                self.tag_input.clear();
+                self.last_save_time = None;
+                self.last_tag_save_time = None;
+                self.last_notes_save_time = None;
                 Ok(())
             }
             Err(e) => Err(format!("Failed to load bundle: {}", e)),
@@ -90,30 +141,39 @@ impl BundleInfoPanel {
                     continue;
                 }
 
-                // Try to read custom name from bundle.json
+                // Try to read custom name and favorite status from bundle.json
                 let bundle_json = path.join(bundle_files::METADATA);
-                let display_name = if bundle_json.exists() {
-                    std::fs::read_to_string(&bundle_json)
+                let (display_name, is_favorite) = if bundle_json.exists() {
+                    let json = std::fs::read_to_string(&bundle_json)
                         .ok()
                         .and_then(|contents| {
                             serde_json::from_str::<serde_json::Value>(&contents).ok()
-                        })
-                        .and_then(|json| json.get("name")?.as_str().map(|s| s.to_string()))
+                        });
+                    let name = json
+                        .as_ref()
+                        .and_then(|j| j.get("name")?.as_str().map(|s| s.to_string()))
                         .filter(|name| !name.is_empty())
-                        .unwrap_or_else(|| dir_name.clone())
+                        .unwrap_or_else(|| dir_name.clone());
+                    let fav = json
+                        .as_ref()
+                        .and_then(|j| j.get("favorite")?.as_bool())
+                        .unwrap_or(false);
+                    (name, fav)
                 } else {
-                    dir_name.clone()
+                    (dir_name.clone(), false)
                 };
 
-                bundles.push((path, display_name));
+                bundles.push((path, display_name, is_favorite));
             }
         }
 
-        // Sort by directory name descending (newest first)
+        // Sort: favorites first, then by directory name descending (newest first)
         bundles.sort_by(|a, b| {
-            let a_name = a.0.file_name().unwrap_or_default();
-            let b_name = b.0.file_name().unwrap_or_default();
-            b_name.cmp(a_name)
+            b.2.cmp(&a.2).then_with(|| {
+                let a_name = a.0.file_name().unwrap_or_default();
+                let b_name = b.0.file_name().unwrap_or_default();
+                b_name.cmp(a_name)
+            })
         });
 
         self.available_bundles = bundles;
@@ -121,10 +181,10 @@ impl BundleInfoPanel {
 
     /// Set the custom name for the current bundle.
     pub fn set_custom_name(&mut self, name: String) -> Result<(), String> {
-        if let Some(ref mut bundle) = self.current_bundle {
-            if let Err(e) = bundle.rename(name) {
-                return Err(format!("Failed to save bundle name: {}", e));
-            }
+        if let Some(ref mut bundle) = self.current_bundle
+            && let Err(e) = bundle.rename(name)
+        {
+            return Err(format!("Failed to save bundle name: {}", e));
         }
         Ok(())
     }
@@ -156,10 +216,16 @@ impl BundleInfoPanel {
                     .and_then(|p| {
                         self.available_bundles
                             .iter()
-                            .find(|(path, _)| path == p)
-                            .map(|(_, name)| name.as_str())
+                            .find(|(path, _, _)| path == p)
+                            .map(|(_, name, fav)| {
+                                if *fav {
+                                    format!("{} {}", icons::STAR, name)
+                                } else {
+                                    name.clone()
+                                }
+                            })
                     })
-                    .unwrap_or("Select bundle...");
+                    .unwrap_or_else(|| "Select bundle...".to_string());
 
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(icons::FOLDER.to_string()).size(13.0));
@@ -170,10 +236,15 @@ impl BundleInfoPanel {
                         .selected_text(current_label);
 
                     combo.show_ui(ui, |ui| {
-                        for (path, name) in &self.available_bundles {
+                        for (path, name, fav) in &self.available_bundles {
                             let is_selected = current_path.as_ref() == Some(path);
+                            let label = if *fav {
+                                format!("{} {}", icons::STAR, name)
+                            } else {
+                                name.clone()
+                            };
                             if ui
-                                .add(egui::Button::selectable(is_selected, name.as_str()))
+                                .add(egui::Button::selectable(is_selected, label))
                                 .clicked()
                                 && !is_selected
                             {
@@ -202,10 +273,23 @@ impl BundleInfoPanel {
                     b.metadata.config.clone(),
                     b.metadata.created_at,
                     b.metadata.model_info.clone(),
+                    b.metadata.generator.clone(),
+                    b.metadata.tags.clone(),
+                    b.metadata.favorite,
                 )
             });
 
-            if let Some((custom_name, dir_name, config, created_at, model_info)) = bundle_data {
+            if let Some((
+                custom_name,
+                dir_name,
+                config,
+                created_at,
+                model_info,
+                generator,
+                tags,
+                favorite,
+            )) = bundle_data
+            {
                 ui.add_space(2.0);
                 ui.separator();
                 ui.add_space(8.0);
@@ -225,8 +309,39 @@ impl BundleInfoPanel {
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut name_text)
                             .hint_text("Enter custom name...")
-                            .desired_width(ui.available_width() - 10.0),
+                            .char_limit(asset_tap_core::constants::validation::MAX_NAME_LENGTH)
+                            .desired_width(ui.available_width() - 35.0),
                     );
+
+                    // Favorite star next to name
+                    if ui
+                        .button(
+                            egui::RichText::new(icons::STAR.to_string())
+                                .size(14.0)
+                                .color(if favorite {
+                                    FAVORITE_COLOR
+                                } else {
+                                    ui.visuals().weak_text_color()
+                                }),
+                        )
+                        .on_hover_text(if favorite {
+                            "Remove from favorites"
+                        } else {
+                            "Mark as favorite"
+                        })
+                        .clicked()
+                        && let Some(ref mut bundle) = self.current_bundle
+                    {
+                        bundle.metadata.toggle_favorite();
+                        let _ = bundle.save();
+                        if let Some(entry) = self
+                            .available_bundles
+                            .iter_mut()
+                            .find(|(p, _, _)| *p == bundle.path)
+                        {
+                            entry.2 = bundle.metadata.favorite;
+                        }
+                    }
 
                     // Track focus state
                     if response.gained_focus() {
@@ -249,14 +364,13 @@ impl BundleInfoPanel {
                             // Mark save time for showing indicator
                             self.last_save_time = Some(std::time::Instant::now());
                             // Update dropdown label to reflect new name
-                            if let Some(ref bundle) = self.current_bundle {
-                                if let Some(entry) = self
+                            if let Some(ref bundle) = self.current_bundle
+                                && let Some(entry) = self
                                     .available_bundles
                                     .iter_mut()
-                                    .find(|(p, _)| *p == bundle.path)
-                                {
-                                    entry.1 = name_text.clone();
-                                }
+                                    .find(|(p, _, _)| *p == bundle.path)
+                            {
+                                entry.1 = name_text.clone();
                             }
                         }
                     }
@@ -267,31 +381,12 @@ impl BundleInfoPanel {
                 ui.add_space(2.0);
 
                 // Show save hint and status
-                ui.horizontal(|ui| {
-                    // Check if we should show "Saved!" indicator (show for 2 seconds after save)
-                    let show_saved = if let Some(save_time) = self.last_save_time {
-                        save_time.elapsed().as_secs_f32() < 2.0
-                    } else {
-                        false
-                    };
-
-                    if show_saved {
-                        ui.label(
-                            egui::RichText::new(format!("  {} Saved!", icons::CHECK))
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(100, 200, 100)),
-                        );
-                        // Request repaint to clear the indicator after timeout
-                        ui.ctx().request_repaint();
-                    } else {
-                        ui.label(
-                            egui::RichText::new("  Press Enter or click away to save")
-                                .size(10.0)
-                                .weak()
-                                .italics(),
-                        );
-                    }
-                });
+                save_indicator(
+                    ui,
+                    self.last_save_time,
+                    "Saved!",
+                    "Press Enter or click away to save",
+                );
 
                 ui.add_space(4.0);
 
@@ -313,47 +408,56 @@ impl BundleInfoPanel {
                 // =================================================================
                 // Prompt Section
                 // =================================================================
-                if let Some(ref config) = config {
-                    if let Some(ref prompt) = config.prompt {
-                        ui.label(egui::RichText::new("Prompt").strong());
-                        ui.add_space(4.0);
+                if let Some(ref config) = config
+                    && let Some(ref prompt) = config.prompt
+                {
+                    ui.label(egui::RichText::new("Prompt").strong());
+                    ui.add_space(4.0);
 
-                        // Show template if present
-                        if let Some(ref template) = config.template {
+                    // Show template and original input if present
+                    if let Some(ref template) = config.template {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Template:").size(12.0).weak());
+                            ui.label(egui::RichText::new(template).size(12.0));
+                        });
+                        ui.add_space(2.0);
+
+                        if let Some(ref user_prompt) = config.user_prompt {
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Template:").size(12.0).weak());
-                                ui.label(egui::RichText::new(template).size(12.0));
+                                ui.label(egui::RichText::new("Original input:").size(12.0).weak());
+                                ui.label(egui::RichText::new(user_prompt).size(12.0));
                             });
                             ui.add_space(2.0);
                         }
-
-                        // Scrollable prompt display
-                        egui::ScrollArea::vertical()
-                            .max_height(80.0)
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut prompt.as_str())
-                                        .interactive(false)
-                                        .desired_width(f32::INFINITY)
-                                        .frame(true),
-                                );
-                            });
-
-                        ui.add_space(4.0);
-
-                        // Copy to Input button - right below the prompt
-                        if ui
-                            .button(format!("{} Copy to Input", icons::COPY))
-                            .on_hover_text("Copy this prompt to the input field")
-                            .clicked()
-                        {
-                            action = Some(BundleInfoAction::CopyPrompt(prompt.clone()));
-                        }
-
-                        ui.add_space(18.0);
-                        ui.separator();
-                        ui.add_space(8.0);
                     }
+
+                    // Scrollable prompt display (expanded prompt)
+                    egui::ScrollArea::vertical()
+                        .max_height(80.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut prompt.as_str())
+                                    .interactive(false)
+                                    .desired_width(f32::INFINITY)
+                                    .frame(true),
+                            );
+                        });
+
+                    ui.add_space(4.0);
+
+                    // Copy to Input — prefer original user input when a template was used
+                    let copy_text = config.user_prompt.as_deref().unwrap_or(prompt).to_string();
+                    if ui
+                        .button(format!("{} Copy to Input", icons::COPY))
+                        .on_hover_text("Copy this prompt to the input field")
+                        .clicked()
+                    {
+                        action = Some(BundleInfoAction::CopyPrompt(copy_text));
+                    }
+
+                    ui.add_space(18.0);
+                    ui.separator();
+                    ui.add_space(8.0);
                 }
 
                 // =================================================================
@@ -375,6 +479,15 @@ impl BundleInfoPanel {
                         .size(13.0),
                     );
                 });
+
+                // Generator
+                if let Some(ref generator_id) = generator {
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Generator:").size(13.0).weak());
+                        ui.label(egui::RichText::new(generator_id).size(13.0));
+                    });
+                }
 
                 ui.add_space(4.0);
 
@@ -400,14 +513,14 @@ impl BundleInfoPanel {
 
                 // Model names (if available)
                 if let Some(ref config) = config {
-                    if let Some(ref image_model) = config.image_model {
-                        if !image_model.is_empty() {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Image Model:").size(13.0).weak());
-                                ui.label(egui::RichText::new(image_model).size(13.0));
-                            });
-                            ui.add_space(2.0);
-                        }
+                    if let Some(ref image_model) = config.image_model
+                        && !image_model.is_empty()
+                    {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Image Model:").size(13.0).weak());
+                            ui.label(egui::RichText::new(image_model).size(13.0));
+                        });
+                        ui.add_space(2.0);
                     }
                     if !config.model_3d.is_empty() {
                         ui.horizontal(|ui| {
@@ -421,24 +534,149 @@ impl BundleInfoPanel {
                 ui.separator();
                 ui.add_space(8.0);
 
+                // =================================================================
+                // Tags & Notes Section
+                // =================================================================
+
+                // Tags
+                ui.label(egui::RichText::new("Tags").size(13.0).strong());
+                ui.add_space(4.0);
+
+                // Display existing tags as removable chips
+                if !tags.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        let mut tag_to_remove = None;
+                        for tag in &tags {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                ui.label(egui::RichText::new(tag).size(12.0));
+                                if ui
+                                    .small_button(icons::XMARK.to_string())
+                                    .on_hover_text("Remove tag")
+                                    .clicked()
+                                {
+                                    tag_to_remove = Some(tag.clone());
+                                }
+                            });
+                        }
+                        if let Some(tag) = tag_to_remove
+                            && let Some(ref mut bundle) = self.current_bundle
+                        {
+                            bundle.metadata.remove_tag(&tag);
+                            let _ = bundle.save();
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
+
+                // Add tag input
+                let max_tags = asset_tap_core::constants::validation::MAX_TAGS;
+                if tags.len() < max_tags {
+                    ui.horizontal(|ui| {
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.tag_input)
+                                .hint_text("Add tag...")
+                                .char_limit(asset_tap_core::constants::validation::MAX_TAG_LENGTH)
+                                .desired_width(ui.available_width() - 40.0),
+                        );
+
+                        let submit = response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            && !self.tag_input.trim().is_empty();
+
+                        if submit {
+                            if let Some(ref mut bundle) = self.current_bundle {
+                                bundle.metadata.add_tag(self.tag_input.trim());
+                                let _ = bundle.save();
+                                self.last_tag_save_time = Some(std::time::Instant::now());
+                            }
+                            self.tag_input.clear();
+                        }
+                    });
+
+                    // Save hint / indicator
+                    save_indicator(ui, self.last_tag_save_time, "Added!", "Press Enter to add");
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!("Maximum {} tags reached", max_tags))
+                            .size(11.0)
+                            .weak()
+                            .italics(),
+                    );
+                }
+
+                ui.add_space(8.0);
+
+                // Notes
+                ui.label(egui::RichText::new("Notes").size(13.0).strong());
+                ui.add_space(4.0);
+
+                let mut notes_text = self.editing_notes.clone().unwrap_or_default();
+                let notes_response = ui.add(
+                    egui::TextEdit::multiline(&mut notes_text)
+                        .hint_text("Add notes...")
+                        .char_limit(asset_tap_core::constants::validation::MAX_NOTES_LENGTH)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3),
+                );
+
+                // Save notes when focus is lost and content changed
+                if notes_response.lost_focus() {
+                    let new_notes = if notes_text.trim().is_empty() {
+                        None
+                    } else {
+                        Some(notes_text.clone())
+                    };
+                    if let Some(ref mut bundle) = self.current_bundle
+                        && bundle.metadata.notes != new_notes
+                    {
+                        bundle.metadata.notes = new_notes;
+                        let _ = bundle.save();
+                        self.last_notes_save_time = Some(std::time::Instant::now());
+                    }
+                }
+                self.editing_notes = Some(notes_text);
+
+                // Save hint / indicator
+                save_indicator(
+                    ui,
+                    self.last_notes_save_time,
+                    "Saved!",
+                    "Click away to save",
+                );
+
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+
                 // Export Bundle button
                 if let Some(ref bundle) = self.current_bundle {
                     let bundle_path = bundle.path.clone();
-                    let default_name = bundle.display_name();
-                    if ui
-                        .button(format!("{} Export Bundle", icons::DOWNLOAD))
-                        .on_hover_text("Save entire bundle as a zip archive")
-                        .clicked()
-                    {
-                        let filename = format!("{}.zip", sanitize_filename(default_name));
-                        if let Some(dest) = rfd::FileDialog::new()
-                            .set_file_name(&filename)
-                            .add_filter("ZIP Archive", &["zip"])
-                            .save_file()
+                    let has_name = bundle.metadata.name.is_some();
+                    let display_name = bundle.display_name().to_string();
+
+                    let export_button = ui.add_enabled(
+                        has_name,
+                        egui::Button::new(format!("{} Export Bundle", icons::DOWNLOAD)),
+                    );
+
+                    if has_name {
+                        if export_button
+                            .on_hover_text("Save entire bundle as a zip archive")
+                            .clicked()
                         {
-                            action =
-                                Some(BundleInfoAction::ExportBundle(bundle_path.clone(), dest));
+                            let filename = format!("{}.zip", sanitize_filename(&display_name));
+                            if let Some(dest) = rfd::FileDialog::new()
+                                .set_file_name(&filename)
+                                .add_filter("ZIP Archive", &["zip"])
+                                .save_file()
+                            {
+                                action =
+                                    Some(BundleInfoAction::ExportBundle(bundle_path.clone(), dest));
+                            }
                         }
+                    } else {
+                        export_button.on_disabled_hover_text("Name this bundle before exporting");
                     }
                 }
             }

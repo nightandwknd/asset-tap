@@ -368,10 +368,11 @@ pub fn cleanup_old_app_logs_in(
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
         // Match files like "app.log.2026-02-14"
-        if let Some(date_suffix) = name.strip_prefix("app.log.") {
-            if date_suffix < cutoff_str.as_str() && std::fs::remove_file(entry.path()).is_ok() {
-                deleted += 1;
-            }
+        if let Some(date_suffix) = name.strip_prefix("app.log.")
+            && date_suffix < cutoff_str.as_str()
+            && std::fs::remove_file(entry.path()).is_ok()
+        {
+            deleted += 1;
         }
     }
 

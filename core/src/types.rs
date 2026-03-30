@@ -345,12 +345,11 @@ impl ApiError {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
             // fal.ai format: {"detail": [{"msg": "...", "loc": [...]}]}
             if let Some(detail) = json.get("detail") {
-                if let Some(arr) = detail.as_array() {
-                    if let Some(first) = arr.first() {
-                        if let Some(msg) = first.get("msg").and_then(|m| m.as_str()) {
-                            return msg.to_string();
-                        }
-                    }
+                if let Some(arr) = detail.as_array()
+                    && let Some(first) = arr.first()
+                    && let Some(msg) = first.get("msg").and_then(|m| m.as_str())
+                {
+                    return msg.to_string();
                 }
                 if let Some(s) = detail.as_str() {
                     return s.to_string();

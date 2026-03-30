@@ -2,7 +2,7 @@
 
 use super::dynamic_provider::DynamicProvider;
 use super::traits::{Provider, ProviderCapability};
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use indexmap::IndexMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -383,7 +383,9 @@ impl ProviderRegistry {
             // Set dummy API keys for all provider env vars if not present
             for env_var in &provider.metadata().required_env_vars {
                 if std::env::var(env_var).is_err() {
-                    std::env::set_var(env_var, "mock-api-key");
+                    // SAFETY: Mock mode runs single-threaded before any provider
+                    // threads are spawned. No concurrent env reads are possible.
+                    unsafe { std::env::set_var(env_var, "mock-api-key") };
                 }
             }
 
@@ -656,6 +658,7 @@ mod tests {
                 },
                 is_default: false,
                 cost_per_run: None,
+                parameters: vec![],
             }],
             image_to_3d: vec![],
         };

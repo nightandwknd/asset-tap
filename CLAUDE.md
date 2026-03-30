@@ -97,6 +97,32 @@ text_to_image:
       field: "image_url"   # JSONPath extraction
 ```
 
+**Per-model tunable parameters:**
+
+Models can declare user-tunable parameters in YAML. These are exposed as sliders/checkboxes/dropdowns in the GUI sidebar and merged into the API request body at runtime:
+
+```yaml
+text_to_image:
+  - id: "model-id"
+    # ... request/response config ...
+    parameters:  # Optional: user-tunable fields
+      - name: "guidance_scale"   # Must match a key in request.body
+        label: "Guidance Scale"  # GUI label
+        description: "Higher = stricter prompt adherence"
+        type: float              # float, integer, boolean, string, select
+        default: 3.5
+        min: 1.0
+        max: 20.0
+        step: 0.5
+      - name: "topology"
+        label: "Topology"
+        type: select
+        default: "triangle"
+        options: ["triangle", "quad"]
+```
+
+Parameter overrides are validated against declared names before injection (undeclared keys are ignored). Values persist per provider+model in `state.json` under `model_parameters`.
+
 **Response types:**
 
 - `Json` - Extract URL from JSON, download file
@@ -187,6 +213,15 @@ output/YYYY-MM-DD_HHMMSS/
 
 **CRITICAL:** Filenames are ALWAYS standard (`bundle.json`, `image.png`, `model.glb`, `model.fbx`). Don't create custom names - breaks loading logic.
 
+**Bundle naming & export:** Bundles require a custom name before export. In the GUI, the Export button is disabled until a name is set. In the CLI, use `--name`:
+
+```bash
+asset-tap -y "a robot" --name "My Robot"                          # Name at generation
+asset-tap --export-bundle output/2025-01-15_143022 --name "My Robot"  # Name + export
+```
+
+**Model info:** `bundle.json` includes `model_info` (vertex count, triangle count, file size) populated automatically at pipeline time via `extract_model_info()` — no need to wait for the GUI viewer.
+
 ### Dev vs Release Modes
 
 **Dev mode** (`cfg!(debug_assertions)`):
@@ -229,6 +264,8 @@ output/YYYY-MM-DD_HHMMSS/
   - `confirmation_dialog` - Confirmation prompts
 
 **Important:** `Arc<Mutex<SharedModelViewer>>` shares 3D viewer between egui and three-d contexts.
+
+**Modal backdrops:** All modals use the shared `views::modal_backdrop()` helper with `BackdropClick` enum (`Close`, `CloseIf(bool)`, `Block`). Never hand-roll backdrop Area code — use the helper.
 
 **Desktop integration:** `APP_ID` (`com.nightandwknd.asset-tap`) is set via `with_app_id()` on the viewport builder so the window manager matches the running window to the `.desktop` file from the installer. Must match `identifier` in `gui/Cargo.toml`.
 

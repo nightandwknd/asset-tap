@@ -51,13 +51,13 @@ pub async fn download_file(url: &str, destination: &Path) -> Result<Vec<u8>> {
     let response = reqwest::get(url).await?.error_for_status()?;
 
     // Enforce size limit
-    if let Some(len) = response.content_length() {
-        if len > MAX_DOWNLOAD_SIZE {
-            return Err(crate::types::Error::Pipeline(format!(
-                "Download too large ({} bytes, max {} bytes)",
-                len, MAX_DOWNLOAD_SIZE
-            )));
-        }
+    if let Some(len) = response.content_length()
+        && len > MAX_DOWNLOAD_SIZE
+    {
+        return Err(crate::types::Error::Pipeline(format!(
+            "Download too large ({} bytes, max {} bytes)",
+            len, MAX_DOWNLOAD_SIZE
+        )));
     }
 
     let bytes = response.bytes().await?;

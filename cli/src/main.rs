@@ -10,7 +10,7 @@ use asset_tap_core::{
     constants::http::env,
     convert::{convert_existing_models, convert_glb_to_fbx, is_blender_available},
     format_progress,
-    pipeline::{run_pipeline, PipelineConfig},
+    pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
     providers::{ProviderCapability, ProviderRegistry},
     settings::{get_output_dir, is_dev_mode},
@@ -97,7 +97,11 @@ struct Cli {
     #[arg(long)]
     approve: bool,
 
-    /// Export a bundle directory as a zip archive
+    /// Set a custom name for the generated bundle (or name an existing bundle with --export-bundle)
+    #[arg(short = 'n', long, value_name = "NAME")]
+    name: Option<String>,
+
+    /// Export a bundle directory as a zip archive (requires --name if bundle is unnamed)
     #[arg(long, value_name = "BUNDLE_DIR")]
     export_bundle: Option<PathBuf>,
 
@@ -125,11 +129,14 @@ fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    // Set mock env vars before tokio runtime starts (thread-safe)
+    // Set mock env vars before tokio runtime starts
     if cli.mock {
-        std::env::set_var(env::MOCK_API, "1");
-        if cli.mock_delay {
-            std::env::set_var(env::MOCK_DELAY, "1");
+        // SAFETY: Called before tokio runtime starts — single-threaded, no concurrent env reads.
+        unsafe {
+            std::env::set_var(env::MOCK_API, "1");
+            if cli.mock_delay {
+                std::env::set_var(env::MOCK_DELAY, "1");
+            }
         }
     }
 
@@ -159,7 +166,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     // Handle --export-bundle flag (no registry needed)
     if let Some(ref bundle_dir) = cli.export_bundle {
-        return handle_export_bundle(bundle_dir, &cli.output);
+        return handle_export_bundle(bundle_dir, &cli.output, cli.name.as_deref());
     }
 
     // Handle --convert-fbx flag (no registry needed)
@@ -240,6 +247,20 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Pipeline task failed: {}", e))??;
 
+    // Apply --name to the generated bundle
+    if let Some(ref name) = cli.name
+        && let Some(ref dir) = output.output_dir
+    {
+        match asset_tap_core::bundle::load_bundle(dir) {
+            Ok(mut bundle) => {
+                if let Err(e) = bundle.rename(name.clone()) {
+                    tracing::warn!("Failed to set bundle name: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!("Failed to load bundle for naming: {}", e),
+        }
+    }
+
     // Print summary
     print_summary(&output);
 
@@ -250,18 +271,14 @@ fn build_config(
     cli: &Cli,
     settings: &asset_tap_core::settings::Settings,
 ) -> anyhow::Result<PipelineConfig> {
-    // Get prompt (apply template if specified)
-    let prompt = match (&cli.prompt, &cli.template) {
-        (Some(p), Some(t)) => {
-            apply_template(t, p).ok_or_else(|| anyhow::anyhow!("Unknown template: {}", t))?
-        }
-        (Some(p), None) => p.clone(),
-        (None, _) if cli.image.is_some() => String::new(), // No prompt needed if using existing image
+    // Get user input and expand template if specified
+    let user_input = match (&cli.prompt, &cli.template) {
+        (Some(p), _) => p.trim().to_string(),
+        (None, _) if cli.image.is_some() => String::new(),
         (None, _) if cli.yes => {
             anyhow::bail!("Prompt required in non-interactive mode (-y)")
         }
         (None, _) => {
-            // Interactive prompt
             print!("Describe what you want to create: ");
             io::stdout().flush()?;
             let mut input = String::new();
@@ -270,7 +287,11 @@ fn build_config(
         }
     };
 
-    let prompt = prompt.trim().to_string();
+    let prompt = if let Some(ref t) = cli.template {
+        apply_template(t, &user_input).ok_or_else(|| anyhow::anyhow!("Unknown template: {}", t))?
+    } else {
+        user_input.clone()
+    };
 
     // Determine output directory: --output flag > settings/dev mode default
     let output_dir = cli.output.clone().unwrap_or_else(get_output_dir);
@@ -290,7 +311,14 @@ fn build_config(
         config = config.with_existing_image(image);
     } else {
         if !prompt.is_empty() {
-            config = config.with_prompt(prompt);
+            config = config.with_prompt(&prompt);
+        }
+        // Store original user input and template name when a template was used
+        if let Some(ref t) = cli.template {
+            if !user_input.is_empty() {
+                config = config.with_user_prompt(&user_input);
+            }
+            config = config.with_template(t);
         }
         if let Some(ref model) = cli.image_model {
             config = config.with_image_model(model);
@@ -312,10 +340,10 @@ fn build_config(
     }
 
     // Apply custom Blender path from settings
-    if let Some(ref blender) = settings.blender_path {
-        if !blender.is_empty() {
-            config = config.with_blender_path(blender);
-        }
+    if let Some(ref blender) = settings.blender_path
+        && !blender.is_empty()
+    {
+        config = config.with_blender_path(blender);
     }
 
     Ok(config)
@@ -337,10 +365,10 @@ fn validate_requirements(
     }
 
     // Validate output directory is not empty
-    if let Some(ref dir) = config.output_dir {
-        if dir.as_os_str().is_empty() {
-            anyhow::bail!("Output directory cannot be empty");
-        }
+    if let Some(ref dir) = config.output_dir
+        && dir.as_os_str().is_empty()
+    {
+        anyhow::bail!("Output directory cannot be empty");
     }
 
     // Validate API key is available (check environment) - skip in mock mode
@@ -359,10 +387,10 @@ fn validate_requirements(
                     env_vars.push(var.clone());
                 }
             }
-            if let Some(url) = &meta.api_key_url {
-                if !key_urls.contains(url) {
-                    key_urls.push(url.clone());
-                }
+            if let Some(url) = &meta.api_key_url
+                && !key_urls.contains(url)
+            {
+                key_urls.push(url.clone());
             }
         }
         let env_list = env_vars.join(", ");
@@ -406,6 +434,7 @@ fn handle_convert_webp(output_override: &Option<PathBuf>) -> anyhow::Result<()> 
 fn handle_export_bundle(
     bundle_dir: &PathBuf,
     output_override: &Option<PathBuf>,
+    name: Option<&str>,
 ) -> anyhow::Result<()> {
     use asset_tap_core::bundle::{export_bundle_zip, load_bundle};
 
@@ -420,18 +449,27 @@ fn handle_export_bundle(
         anyhow::bail!("Bundle directory not found: {}", bundle_path.display());
     }
 
-    // Determine default zip filename from bundle display name
-    let default_name = match load_bundle(&bundle_path) {
-        Ok(bundle) => bundle.display_name().to_string(),
-        Err(_) => bundle_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("bundle")
-            .to_string(),
-    };
+    // Load bundle and apply --name if provided
+    let mut bundle = load_bundle(&bundle_path)?;
+    if let Some(name) = name {
+        bundle
+            .rename(name.to_string())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        println!("  Bundle named: {}", name);
+    }
+
+    // Require a name before export
+    if bundle.metadata.name.is_none() {
+        anyhow::bail!(
+            "Bundle has no name. Use --name to set one:\n  \
+             asset-tap --export-bundle {} --name \"My Asset\"",
+            bundle_dir.display()
+        );
+    }
+    let default_name = bundle.display_name().to_string();
 
     // Determine output path
-    let dest = if let Some(ref out) = output_override {
+    let dest = if let Some(out) = output_override {
         if out.extension().and_then(|e| e.to_str()) == Some("zip") {
             out.clone()
         } else {

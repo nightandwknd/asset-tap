@@ -5,12 +5,12 @@ use crate::constants::files::bundle as bundle_files;
 use crate::constants::http::{headers, mime};
 use crate::constants::polling;
 use crate::types::{Progress, Stage};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::multipart;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -212,6 +212,7 @@ impl HttpProviderClient {
         &self,
         prompt: &str,
         model_id: &str,
+        params: Option<&HashMap<String, serde_json::Value>>,
         progress: UnboundedSender<Progress>,
     ) -> Result<Vec<u8>> {
         tracing::debug!(
@@ -237,7 +238,7 @@ impl HttpProviderClient {
             tx: progress,
             stage: Stage::ImageGeneration,
         });
-        self.execute_model(model, &[("prompt", prompt)], polling_progress)
+        self.execute_model(model, &[("prompt", prompt)], params, polling_progress)
             .await
     }
 
@@ -246,6 +247,7 @@ impl HttpProviderClient {
         &self,
         image_path: &Path,
         model_id: &str,
+        params: Option<&HashMap<String, serde_json::Value>>,
         progress: UnboundedSender<Progress>,
     ) -> Result<Vec<u8>> {
         let model = self
@@ -259,7 +261,7 @@ impl HttpProviderClient {
             tx: progress,
             stage: Stage::Model3DGeneration,
         });
-        self.execute_model_with_file(model, image_path, polling_progress)
+        self.execute_model_with_file(model, image_path, params, polling_progress)
             .await
     }
 
@@ -268,13 +270,14 @@ impl HttpProviderClient {
         &self,
         model: &ModelConfig,
         image_url: &str,
+        params: Option<&HashMap<String, serde_json::Value>>,
         progress: UnboundedSender<Progress>,
     ) -> Result<Vec<u8>> {
         let polling_progress = Some(PollingProgress {
             tx: progress,
             stage: Stage::Model3DGeneration,
         });
-        self.execute_model(model, &[("image_url", image_url)], polling_progress)
+        self.execute_model(model, &[("image_url", image_url)], params, polling_progress)
             .await
     }
 
@@ -304,6 +307,7 @@ impl HttpProviderClient {
         &self,
         model: &ModelConfig,
         variables: &[(&str, &str)],
+        params: Option<&HashMap<String, serde_json::Value>>,
         polling_progress: Option<PollingProgress>,
     ) -> Result<Vec<u8>> {
         // Build endpoint URL
@@ -332,15 +336,35 @@ impl HttpProviderClient {
 
         // If model has no Authorization header, inject provider-level auth.
         // This ensures discovered models (which have empty headers) still authenticate.
-        if !model.request.headers.contains_key(headers::AUTHORIZATION) {
-            if let Some(auth_value) = self.config.format_auth_header() {
-                request = request.header(headers::AUTHORIZATION, auth_value);
-            }
+        if !model.request.headers.contains_key(headers::AUTHORIZATION)
+            && let Some(auth_value) = self.config.format_auth_header()
+        {
+            request = request.header(headers::AUTHORIZATION, auth_value);
         }
 
         // Add body if present
         if let Some(body_template) = &model.request.body {
-            let body = self.interpolate_json(body_template, variables)?;
+            let mut body = self.interpolate_json(body_template, variables)?;
+
+            // Merge user parameter overrides into the body.
+            // Only allow keys that are declared in the model's `parameters` list
+            // to prevent injection of arbitrary fields (e.g., overriding prompt or auth).
+            if let (Some(params), Some(obj)) = (params, body.as_object_mut()) {
+                let allowed: std::collections::HashSet<&str> =
+                    model.parameters.iter().map(|p| p.name.as_str()).collect();
+                for (key, value) in params {
+                    if allowed.contains(key.as_str()) {
+                        obj.insert(key.clone(), value.clone());
+                    } else {
+                        tracing::warn!(
+                            "Ignoring undeclared parameter '{}' for model '{}'",
+                            key,
+                            model.id
+                        );
+                    }
+                }
+            }
+
             request = request.json(&body);
         }
 
@@ -382,6 +406,7 @@ impl HttpProviderClient {
         &self,
         model: &ModelConfig,
         file_path: &Path,
+        _params: Option<&HashMap<String, serde_json::Value>>,
         polling_progress: Option<PollingProgress>,
     ) -> Result<Vec<u8>> {
         let url = self.resolve_url(&model.endpoint);
@@ -424,10 +449,10 @@ impl HttpProviderClient {
         }
 
         // If model has no Authorization header, inject provider-level auth
-        if !model.request.headers.contains_key(headers::AUTHORIZATION) {
-            if let Some(auth_value) = self.config.format_auth_header() {
-                request = request.header(headers::AUTHORIZATION, auth_value);
-            }
+        if !model.request.headers.contains_key(headers::AUTHORIZATION)
+            && let Some(auth_value) = self.config.format_auth_header()
+        {
+            request = request.header(headers::AUTHORIZATION, auth_value);
         }
 
         // Send request
@@ -564,10 +589,10 @@ impl HttpProviderClient {
         }
 
         // If no Authorization header from model, inject provider-level auth
-        if !resolved.contains_key(headers::AUTHORIZATION) {
-            if let Some(auth_value) = self.config.format_auth_header() {
-                resolved.insert(headers::AUTHORIZATION.to_string(), auth_value);
-            }
+        if !resolved.contains_key(headers::AUTHORIZATION)
+            && let Some(auth_value) = self.config.format_auth_header()
+        {
+            resolved.insert(headers::AUTHORIZATION.to_string(), auth_value);
         }
 
         resolved
@@ -792,26 +817,26 @@ impl HttpProviderClient {
                 return self.download_file(&result_url).await;
             }
 
-            if let Some(ref failure_value) = polling.failure_value {
-                if status == *failure_value {
-                    let error_detail = json
-                        .get("error")
-                        .and_then(|e| e.as_str())
-                        .unwrap_or(&status);
-                    tracing::error!(
-                        http.url = %full_status_url,
-                        error.detail = %error_detail,
-                        "Generation failed: {}", error_detail
-                    );
-                    return Err(HttpError {
-                        url: full_status_url.clone(),
-                        method: "GET".to_string(),
-                        status_code: None,
-                        body: error_detail.to_string(),
-                        is_queue_failure: true,
-                    }
-                    .into());
+            if let Some(ref failure_value) = polling.failure_value
+                && status == *failure_value
+            {
+                let error_detail = json
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or(&status);
+                tracing::error!(
+                    http.url = %full_status_url,
+                    error.detail = %error_detail,
+                    "Generation failed: {}", error_detail
+                );
+                return Err(HttpError {
+                    url: full_status_url.clone(),
+                    method: "GET".to_string(),
+                    status_code: None,
+                    body: error_detail.to_string(),
+                    is_queue_failure: true,
                 }
+                .into());
             }
 
             tracing::debug!(
@@ -888,14 +913,14 @@ impl HttpProviderClient {
         }
 
         // Enforce size limit to prevent resource exhaustion
-        if let Some(len) = response.content_length() {
-            if len > MAX_DOWNLOAD_SIZE {
-                return Err(anyhow!(
-                    "Download too large ({} bytes, max {} bytes)",
-                    len,
-                    MAX_DOWNLOAD_SIZE
-                ));
-            }
+        if let Some(len) = response.content_length()
+            && len > MAX_DOWNLOAD_SIZE
+        {
+            return Err(anyhow!(
+                "Download too large ({} bytes, max {} bytes)",
+                len,
+                MAX_DOWNLOAD_SIZE
+            ));
         }
 
         let bytes = response.bytes().await.context("Failed to read download")?;
@@ -1154,7 +1179,7 @@ mod tests {
 
     #[test]
     fn test_interpolate() {
-        std::env::set_var("TEST_KEY", "secret123");
+        unsafe { std::env::set_var("TEST_KEY", "secret123") };
 
         let config = ProviderConfig {
             config_version: 0,

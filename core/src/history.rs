@@ -67,8 +67,12 @@ pub struct GenerationRecord {
 /// Serializable version of pipeline configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationConfig {
-    /// Text prompt used.
+    /// Text prompt used (after template expansion, if any).
     pub prompt: Option<String>,
+
+    /// Original user input before template expansion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_prompt: Option<String>,
 
     /// Template name used for prompt (if any).
     pub template: Option<String>,
@@ -90,6 +94,7 @@ impl From<&PipelineConfig> for GenerationConfig {
     fn from(config: &PipelineConfig) -> Self {
         Self {
             prompt: config.prompt.clone(),
+            user_prompt: config.user_prompt.clone(),
             template: config.template.clone(),
             existing_image: config.image_url.clone(),
             image_model: config.image_model.clone(),
@@ -400,10 +405,10 @@ fn estimate_cost(
     let mut total = 0.0;
 
     // Image generation cost (if not using existing image)
-    if config.image_url.is_none() {
-        if let Some(ref model_id) = config.image_model {
-            total += lookup_cost(model_id);
-        }
+    if config.image_url.is_none()
+        && let Some(ref model_id) = config.image_model
+    {
+        total += lookup_cost(model_id);
     }
 
     // 3D generation cost
@@ -443,6 +448,7 @@ mod tests {
             duration_ms: None,
             config: GenerationConfig {
                 prompt: Some("a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back".to_string()),
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: Some("nano-banana".to_string()),
@@ -592,6 +598,7 @@ mod tests {
             duration_ms: Some(1000),
             config: GenerationConfig {
                 prompt: None,
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,
@@ -611,6 +618,7 @@ mod tests {
             duration_ms: Some(2000),
             config: GenerationConfig {
                 prompt: None,
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,
@@ -640,6 +648,7 @@ mod tests {
             duration_ms: None,
             config: GenerationConfig {
                 prompt: None,
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,
@@ -680,6 +689,7 @@ mod tests {
             duration_ms: None,
             config: GenerationConfig {
                 prompt: prompt.map(String::from),
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,
@@ -728,6 +738,7 @@ mod tests {
             duration_ms: None,
             config: GenerationConfig {
                 prompt: None,
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,
@@ -761,6 +772,7 @@ mod tests {
             duration_ms: None,
             config: GenerationConfig {
                 prompt: Some("test prompt".to_string()),
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: None,

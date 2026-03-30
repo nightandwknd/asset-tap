@@ -3,6 +3,7 @@
 use crate::types::{Progress, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Capabilities that a provider can support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -53,6 +54,10 @@ pub struct ModelInfo {
     /// Estimated cost per run in USD (from provider YAML config)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_per_run: Option<f64>,
+
+    /// User-tunable parameters for this model (from provider YAML).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<crate::providers::config::ParameterDef>,
 }
 
 /// Result from image generation.
@@ -158,11 +163,13 @@ pub trait Provider: Send + Sync {
     /// # Arguments
     /// * `prompt` - The text description
     /// * `model_id` - The model to use (must support TextToImage)
+    /// * `params` - Optional parameter overrides (from GUI model settings panel)
     /// * `progress_tx` - Optional channel for progress updates
     async fn text_to_image(
         &self,
         prompt: &str,
         model_id: &str,
+        params: Option<&HashMap<String, serde_json::Value>>,
         progress_tx: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
     ) -> Result<ImageGenerationResult>;
 
@@ -171,11 +178,13 @@ pub trait Provider: Send + Sync {
     /// # Arguments
     /// * `image_data` - Raw image data bytes
     /// * `model_id` - The model to use (must support ImageTo3D)
+    /// * `params` - Optional parameter overrides (from GUI model settings panel)
     /// * `progress_tx` - Optional channel for progress updates
     async fn image_to_3d(
         &self,
         image_data: &[u8],
         model_id: &str,
+        params: Option<&HashMap<String, serde_json::Value>>,
         progress_tx: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
     ) -> Result<Model3DGenerationResult>;
 }

@@ -115,7 +115,7 @@ fn test_app_state_round_trip() {
 #[test]
 fn test_model_registry() {
     // Set fake API key so provider is available
-    std::env::set_var("FAL_KEY", "test-key");
+    unsafe { std::env::set_var("FAL_KEY", "test-key") };
 
     let registry = ProviderRegistry::new();
 
@@ -238,7 +238,7 @@ fn test_all_stages_have_display_names() {
 #[test]
 fn test_config_version_upgrade_flow() {
     use asset_tap_core::config_version::{
-        determine_action, extract_version, write_with_backup, VersionAction,
+        VersionAction, determine_action, extract_version, write_with_backup,
     };
     use std::fs;
     use tempfile::TempDir;

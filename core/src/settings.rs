@@ -30,7 +30,7 @@
 //! - [`pipeline::PipelineConfig`](crate::pipeline::PipelineConfig) - Pipeline execution configuration
 //! - [`providers::ProviderRegistry`](crate::providers::ProviderRegistry) - Provider management
 
-use crate::constants::files::{config as config_files, dev_dirs, APP_DISPLAY_NAME, APP_NAME};
+use crate::constants::files::{APP_DISPLAY_NAME, APP_NAME, config as config_files, dev_dirs};
 use crate::convert::find_blender;
 use crate::providers::ProviderRegistry;
 use serde::{Deserialize, Serialize};
@@ -244,20 +244,19 @@ impl Settings {
         registry: &ProviderRegistry,
     ) -> Option<String> {
         // Check settings first (persisted keys from GUI)
-        if let Some(key) = self.provider_api_keys.get(provider_id) {
-            if !key.is_empty() {
-                return Some(key.clone());
-            }
+        if let Some(key) = self.provider_api_keys.get(provider_id)
+            && !key.is_empty()
+        {
+            return Some(key.clone());
         }
 
         // Fall back to environment variables (works in all modes — dev, release, CLI)
         let mapping = get_provider_env_var_mapping(registry);
-        if let Some(env_var) = mapping.get(provider_id) {
-            if let Ok(key) = std::env::var(env_var) {
-                if !key.is_empty() {
-                    return Some(key);
-                }
-            }
+        if let Some(env_var) = mapping.get(provider_id)
+            && let Ok(key) = std::env::var(env_var)
+            && !key.is_empty()
+        {
+            return Some(key);
         }
 
         None
@@ -332,10 +331,10 @@ impl Settings {
     /// Priority: settings file (if set) > auto-detect
     pub fn get_blender_path(&self) -> Option<String> {
         // If user has set a custom path, use it
-        if let Some(ref path) = self.blender_path {
-            if !path.is_empty() {
-                return Some(path.clone());
-            }
+        if let Some(ref path) = self.blender_path
+            && !path.is_empty()
+        {
+            return Some(path.clone());
         }
         // Otherwise, auto-detect
         find_blender()
@@ -348,10 +347,10 @@ impl Settings {
         let mapping = get_provider_env_var_mapping(registry);
         mapping.iter().any(|(provider_id, env_var)| {
             // Check settings first
-            if let Some(key) = self.provider_api_keys.get(provider_id) {
-                if !key.is_empty() {
-                    return true;
-                }
+            if let Some(key) = self.provider_api_keys.get(provider_id)
+                && !key.is_empty()
+            {
+                return true;
             }
             // Fall back to environment variable
             std::env::var(env_var)
@@ -543,7 +542,7 @@ mod tests {
 
         if let Some((provider_id, env_var)) = provider_info {
             // Pre-set the env var
-            std::env::set_var(&env_var, "env-key-value");
+            unsafe { std::env::set_var(&env_var, "env-key-value") };
 
             let mut settings = Settings::default();
             settings.sync_from_env(&registry);
@@ -565,7 +564,7 @@ mod tests {
             }
 
             // Clean up
-            std::env::remove_var(&env_var);
+            unsafe { std::env::remove_var(&env_var) };
         }
     }
 
@@ -583,7 +582,7 @@ mod tests {
 
         if let Some((provider_id, env_var)) = provider_info {
             // Clean up any existing value
-            std::env::remove_var(&env_var);
+            unsafe { std::env::remove_var(&env_var) };
 
             let mut settings = Settings::default();
             settings.set_provider_api_key(&provider_id, "synced-key");
@@ -595,7 +594,7 @@ mod tests {
             // and we just removed it, so it should set it.
 
             // Clean up
-            std::env::remove_var(&env_var);
+            unsafe { std::env::remove_var(&env_var) };
         }
     }
 

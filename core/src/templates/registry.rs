@@ -4,8 +4,8 @@ use super::config::TemplateDefinition;
 use super::interpolation::interpolate;
 use crate::constants::files;
 use crate::settings::{config_dir, is_dev_mode};
-use anyhow::{anyhow, Result};
-use include_dir::{include_dir, Dir};
+use anyhow::{Result, anyhow};
+use include_dir::{Dir, include_dir};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -211,11 +211,11 @@ impl TemplateRegistry {
         }
 
         // Delete file
-        if let Some(path) = &template.source_path {
-            if path.exists() {
-                std::fs::remove_file(path)
-                    .map_err(|e| anyhow!("Failed to delete template file: {}", e))?;
-            }
+        if let Some(path) = &template.source_path
+            && path.exists()
+        {
+            std::fs::remove_file(path)
+                .map_err(|e| anyhow!("Failed to delete template file: {}", e))?;
         }
 
         // Remove from registry

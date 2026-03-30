@@ -3,7 +3,7 @@
 //! Allows defining providers via YAML/JSON configuration files.
 
 use crate::constants::polling;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -104,6 +104,68 @@ pub struct ModelConfig {
     /// Estimated cost per run in USD (for cost tracking in history).
     #[serde(default)]
     pub cost_per_run: Option<f64>,
+
+    /// User-tunable parameters for this model.
+    /// Declared in YAML, exposed in GUI as sliders/checkboxes/dropdowns.
+    #[serde(default)]
+    pub parameters: Vec<ParameterDef>,
+}
+
+/// Definition of a user-tunable model parameter.
+///
+/// Declared in provider YAML under a model's `parameters` list.
+/// Each parameter maps to a key in the request body that can be
+/// overridden at runtime via the GUI or CLI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParameterDef {
+    /// Parameter name (must match a key in the request body).
+    pub name: String,
+
+    /// Human-readable label shown in the GUI.
+    pub label: String,
+
+    /// Tooltip description explaining what this parameter does.
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// Parameter type (determines which GUI widget is rendered).
+    #[serde(rename = "type")]
+    pub param_type: ParameterType,
+
+    /// Default value (used when user hasn't overridden).
+    pub default: serde_json::Value,
+
+    /// Minimum value (for float/integer sliders).
+    #[serde(default)]
+    pub min: Option<f64>,
+
+    /// Maximum value (for float/integer sliders).
+    #[serde(default)]
+    pub max: Option<f64>,
+
+    /// Step increment (for float/integer sliders).
+    #[serde(default)]
+    pub step: Option<f64>,
+
+    /// Allowed values (for select/dropdown type).
+    #[serde(default)]
+    pub options: Option<Vec<serde_json::Value>>,
+}
+
+/// Type of a tunable parameter (determines GUI widget).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ParameterType {
+    /// Floating-point slider.
+    Float,
+    /// Integer slider.
+    Integer,
+    /// Checkbox.
+    Boolean,
+    /// Text input.
+    String,
+    /// Dropdown from predefined options.
+    Select,
 }
 
 fn default_http_method() -> HttpMethod {
@@ -659,9 +721,136 @@ mod tests {
             },
             is_default: false,
             cost_per_run: None,
+            parameters: vec![],
         });
 
         // Should pass
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parameter_def_deserialization() {
+        let yaml = r#"
+        provider:
+            id: "test"
+            name: "Test"
+            description: "Test"
+            env_vars: ["KEY"]
+        text_to_image:
+            -   id: "model-1"
+                name: "Model 1"
+                description: "Test model"
+                endpoint: "/generate"
+                method: POST
+                request:
+                    body:
+                        prompt: "${prompt}"
+                        guidance_scale: 3.5
+                response:
+                    response_type: json
+                    field: "url"
+                parameters:
+                    -   name: "guidance_scale"
+                        label: "Guidance Scale"
+                        description: "Controls adherence to prompt"
+                        type: float
+                        default: 3.5
+                        min: 1.0
+                        max: 20.0
+                        step: 0.5
+                    -   name: "steps"
+                        label: "Steps"
+                        type: integer
+                        default: 28
+                        min: 1
+                        max: 50
+        "#;
+
+        let config: ProviderConfig = serde_yaml_ng::from_str(yaml).unwrap();
+        let model = &config.text_to_image[0];
+        assert_eq!(model.parameters.len(), 2);
+
+        let guidance = &model.parameters[0];
+        assert_eq!(guidance.name, "guidance_scale");
+        assert_eq!(guidance.label, "Guidance Scale");
+        assert_eq!(guidance.param_type, ParameterType::Float);
+        assert_eq!(guidance.default, serde_json::json!(3.5));
+        assert_eq!(guidance.min, Some(1.0));
+        assert_eq!(guidance.max, Some(20.0));
+        assert_eq!(guidance.step, Some(0.5));
+
+        let steps = &model.parameters[1];
+        assert_eq!(steps.param_type, ParameterType::Integer);
+        assert_eq!(steps.default, serde_json::json!(28));
+        assert!(steps.description.is_none());
+    }
+
+    #[test]
+    fn test_parameter_def_optional_fields() {
+        let yaml = r#"
+        provider:
+            id: "test"
+            name: "Test"
+            description: "Test"
+            env_vars: ["KEY"]
+        text_to_image:
+            -   id: "model-1"
+                name: "Model 1"
+                description: "Test"
+                endpoint: "/gen"
+                request:
+                    body:
+                        prompt: "${prompt}"
+                response:
+                    response_type: json
+                parameters:
+                    -   name: "enable_pbr"
+                        label: "PBR"
+                        type: boolean
+                        default: true
+                    -   name: "topology"
+                        label: "Topology"
+                        type: select
+                        default: "triangle"
+                        options: ["triangle", "quad"]
+        "#;
+
+        let config: ProviderConfig = serde_yaml_ng::from_str(yaml).unwrap();
+        let params = &config.text_to_image[0].parameters;
+
+        let pbr = &params[0];
+        assert_eq!(pbr.param_type, ParameterType::Boolean);
+        assert_eq!(pbr.default, serde_json::json!(true));
+        assert!(pbr.min.is_none());
+
+        let topo = &params[1];
+        assert_eq!(topo.param_type, ParameterType::Select);
+        let opts = topo.options.as_ref().unwrap();
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0], serde_json::json!("triangle"));
+    }
+
+    #[test]
+    fn test_model_without_parameters_backwards_compatible() {
+        let yaml = r#"
+        provider:
+            id: "test"
+            name: "Test"
+            description: "Test"
+            env_vars: ["KEY"]
+        text_to_image:
+            -   id: "model-1"
+                name: "Model 1"
+                description: "Test"
+                endpoint: "/gen"
+                request:
+                    body:
+                        prompt: "${prompt}"
+                response:
+                    response_type: json
+        "#;
+
+        let config: ProviderConfig = serde_yaml_ng::from_str(yaml).unwrap();
+        assert!(config.text_to_image[0].parameters.is_empty());
     }
 }

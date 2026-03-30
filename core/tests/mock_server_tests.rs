@@ -63,40 +63,40 @@ fn test_mock_mode_detection() {
     use asset_tap_core::api::is_mock_mode;
 
     // Test various values
-    std::env::remove_var(env::MOCK_API);
+    unsafe { std::env::remove_var(env::MOCK_API) };
     assert!(!is_mock_mode());
 
-    std::env::set_var(env::MOCK_API, "1");
+    unsafe { std::env::set_var(env::MOCK_API, "1") };
     assert!(is_mock_mode());
 
-    std::env::set_var(env::MOCK_API, "true");
+    unsafe { std::env::set_var(env::MOCK_API, "true") };
     assert!(is_mock_mode());
 
-    std::env::set_var(env::MOCK_API, "0");
+    unsafe { std::env::set_var(env::MOCK_API, "0") };
     assert!(!is_mock_mode());
 
-    std::env::set_var(env::MOCK_API, "false");
+    unsafe { std::env::set_var(env::MOCK_API, "false") };
     assert!(!is_mock_mode());
 
     // Cleanup
-    std::env::remove_var(env::MOCK_API);
+    unsafe { std::env::remove_var(env::MOCK_API) };
 }
 
 #[test]
 fn test_mock_delay_detection() {
     use asset_tap_core::api::is_mock_delay_enabled;
 
-    std::env::remove_var(env::MOCK_DELAY);
+    unsafe { std::env::remove_var(env::MOCK_DELAY) };
     assert!(!is_mock_delay_enabled());
 
-    std::env::set_var(env::MOCK_DELAY, "1");
+    unsafe { std::env::set_var(env::MOCK_DELAY, "1") };
     assert!(is_mock_delay_enabled());
 
-    std::env::set_var(env::MOCK_DELAY, "true");
+    unsafe { std::env::set_var(env::MOCK_DELAY, "true") };
     assert!(is_mock_delay_enabled());
 
     // Cleanup
-    std::env::remove_var(env::MOCK_DELAY);
+    unsafe { std::env::remove_var(env::MOCK_DELAY) };
 }
 
 // =============================================================================
@@ -286,10 +286,12 @@ async fn test_simulated_processing_failure() {
         .unwrap();
     let poll2_body: serde_json::Value = poll2.json().await.unwrap();
     assert_eq!(poll2_body["status"], "FAILED");
-    assert!(poll2_body["error"]
-        .as_str()
-        .unwrap()
-        .contains("GPU out of memory"));
+    assert!(
+        poll2_body["error"]
+            .as_str()
+            .unwrap()
+            .contains("GPU out of memory")
+    );
 }
 
 // =============================================================================

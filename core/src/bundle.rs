@@ -36,7 +36,7 @@ use crate::constants::validation;
 use crate::history::GenerationConfig;
 use crate::state::ModelInfo;
 use chrono::{DateTime, Utc};
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -47,9 +47,60 @@ static EMBEDDED_BUNDLES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../bundles"
 /// Metadata filename within each bundle directory.
 const BUNDLE_METADATA_FILE: &str = bundle_files::METADATA;
 
+/// Generator string stamped into every bundle created by this build.
+const GENERATOR: &str = concat!("asset-tap/", env!("CARGO_PKG_VERSION"));
+
+/// Returns the generator identifier for the current build (e.g. "asset-tap/26.3.6").
+pub fn generator_string() -> &'static str {
+    GENERATOR
+}
+
 /// Re-export standard file names for convenience.
 pub mod files {
     pub use crate::constants::files::bundle::*;
+}
+
+/// Extract model statistics (vertex/triangle count, file size) from a GLB file.
+///
+/// Parses the GLB via `gltf::import_slice` and counts vertices/triangles from
+/// mesh accessor metadata. Returns `None` if the file cannot be read or parsed.
+pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
+    let metadata = std::fs::metadata(glb_path).ok()?;
+    let file_size = metadata.len();
+    let format = glb_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("unknown")
+        .to_uppercase();
+
+    let glb_data = std::fs::read(glb_path).ok()?;
+    let (document, _, _) = gltf::import_slice(&glb_data).ok()?;
+
+    let mut vertex_count: usize = 0;
+    let mut triangle_count: usize = 0;
+
+    for mesh in document.meshes() {
+        for primitive in mesh.primitives() {
+            // Vertex count from POSITION accessor
+            if let Some(accessor) = primitive.get(&gltf::Semantic::Positions) {
+                vertex_count += accessor.count();
+            }
+
+            // Triangle count from index accessor or vertex count
+            if let Some(indices) = primitive.indices() {
+                triangle_count += indices.count() / 3;
+            } else if let Some(accessor) = primitive.get(&gltf::Semantic::Positions) {
+                triangle_count += accessor.count() / 3;
+            }
+        }
+    }
+
+    Some(ModelInfo {
+        file_size,
+        format,
+        vertex_count,
+        triangle_count,
+    })
 }
 
 /// Metadata stored in bundle.json within each generation directory.
@@ -83,6 +134,10 @@ pub struct BundleMetadata {
 
     /// Notes or description added by user.
     pub notes: Option<String>,
+
+    /// Generator identifier, e.g. "asset-tap/26.3.6".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generator: Option<String>,
 }
 
 impl Default for BundleMetadata {
@@ -97,6 +152,7 @@ impl Default for BundleMetadata {
             tags: Vec::new(),
             favorite: false,
             notes: None,
+            generator: None,
         }
     }
 }
@@ -111,6 +167,7 @@ impl BundleMetadata {
     pub fn with_config(config: GenerationConfig) -> Self {
         Self {
             config: Some(config),
+            generator: Some(GENERATOR.to_string()),
             ..Default::default()
         }
     }
@@ -249,14 +306,14 @@ impl BundleMetadata {
         }
 
         // Validate duration
-        if let Some(duration) = self.duration_ms {
-            if duration > validation::MAX_DURATION_MS {
-                issues.push(format!(
-                    "Duration {} ms exceeds maximum, clamping",
-                    duration
-                ));
-                self.duration_ms = Some(validation::MAX_DURATION_MS);
-            }
+        if let Some(duration) = self.duration_ms
+            && duration > validation::MAX_DURATION_MS
+        {
+            issues.push(format!(
+                "Duration {} ms exceeds maximum, clamping",
+                duration
+            ));
+            self.duration_ms = Some(validation::MAX_DURATION_MS);
         }
 
         // Validate timestamp (not too far in the future)
@@ -761,10 +818,10 @@ fn infer_metadata_from_dir(bundle_dir: &Path) -> BundleMetadata {
     let mut metadata = BundleMetadata::default();
 
     // Try to parse timestamp from directory name
-    if let Some(name) = bundle_dir.file_name().and_then(|n| n.to_str()) {
-        if let Some(dt) = parse_timestamp_dir_name(name) {
-            metadata.created_at = dt;
-        }
+    if let Some(name) = bundle_dir.file_name().and_then(|n| n.to_str())
+        && let Some(dt) = parse_timestamp_dir_name(name)
+    {
+        metadata.created_at = dt;
     }
 
     metadata
@@ -1266,5 +1323,111 @@ mod tests {
         let result =
             export_bundle_zip(&tmp.path().join("nonexistent"), &tmp.path().join("out.zip"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_model_info_nonexistent_file() {
+        let result = extract_model_info(Path::new("/nonexistent/model.glb"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_model_info_invalid_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("invalid.glb");
+        std::fs::write(&path, b"not a valid glb").unwrap();
+        let result = extract_model_info(&path);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_model_info_valid_glb() {
+        // Build a minimal valid GLB with a single triangle (3 vertices, 1 triangle)
+        let gltf_json = serde_json::json!({
+            "asset": { "version": "2.0" },
+            "scene": 0,
+            "scenes": [{ "nodes": [0] }],
+            "nodes": [{ "mesh": 0 }],
+            "meshes": [{
+                "primitives": [{
+                    "attributes": { "POSITION": 0 },
+                    "indices": 1
+                }]
+            }],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                    "max": [1.0, 1.0, 0.0],
+                    "min": [0.0, 0.0, 0.0]
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5123,
+                    "count": 3,
+                    "type": "SCALAR"
+                }
+            ],
+            "bufferViews": [
+                { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+                { "buffer": 0, "byteOffset": 36, "byteLength": 6, "target": 34963 }
+            ],
+            "buffers": [{ "byteLength": 44 }]
+        });
+
+        let json_bytes = serde_json::to_vec(&gltf_json).unwrap();
+        // Pad JSON to 4-byte alignment
+        let json_padded_len = (json_bytes.len() + 3) & !3;
+        let mut json_chunk = json_bytes.clone();
+        json_chunk.resize(json_padded_len, 0x20); // pad with spaces
+
+        // Binary data: 3 vertices (3 * 3 * 4 = 36 bytes) + 3 indices (3 * 2 = 6 bytes) + 2 pad
+        let mut bin_data: Vec<u8> = Vec::new();
+        // Vertex 0: (0, 0, 0)
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        // Vertex 1: (1, 0, 0)
+        bin_data.extend_from_slice(&1.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        // Vertex 2: (0, 1, 0)
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&1.0f32.to_le_bytes());
+        bin_data.extend_from_slice(&0.0f32.to_le_bytes());
+        // Indices: 0, 1, 2
+        bin_data.extend_from_slice(&0u16.to_le_bytes());
+        bin_data.extend_from_slice(&1u16.to_le_bytes());
+        bin_data.extend_from_slice(&2u16.to_le_bytes());
+        // Pad to 4-byte alignment
+        bin_data.resize((bin_data.len() + 3) & !3, 0);
+
+        // Build GLB: header + JSON chunk + BIN chunk
+        let total_len = 12 + 8 + json_chunk.len() + 8 + bin_data.len();
+        let mut glb = Vec::with_capacity(total_len);
+        // GLB header
+        glb.extend_from_slice(b"glTF");
+        glb.extend_from_slice(&2u32.to_le_bytes()); // version
+        glb.extend_from_slice(&(total_len as u32).to_le_bytes());
+        // JSON chunk
+        glb.extend_from_slice(&(json_chunk.len() as u32).to_le_bytes());
+        glb.extend_from_slice(&0x4E4F534Au32.to_le_bytes()); // "JSON"
+        glb.extend_from_slice(&json_chunk);
+        // BIN chunk
+        glb.extend_from_slice(&(bin_data.len() as u32).to_le_bytes());
+        glb.extend_from_slice(&0x004E4942u32.to_le_bytes()); // "BIN\0"
+        glb.extend_from_slice(&bin_data);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test.glb");
+        std::fs::write(&path, &glb).unwrap();
+
+        let info = extract_model_info(&path).expect("Should parse valid GLB");
+        assert_eq!(info.vertex_count, 3);
+        assert_eq!(info.triangle_count, 1);
+        assert_eq!(info.format, "GLB");
+        assert!(info.file_size > 0);
     }
 }

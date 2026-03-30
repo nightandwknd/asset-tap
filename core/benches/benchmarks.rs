@@ -5,7 +5,7 @@
 //! These benchmarks measure the performance of CPU-bound operations.
 //! Network operations (API calls) are not benchmarked as they depend on external services.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 use asset_tap_core::{
     config::generate_timestamp,
@@ -124,6 +124,7 @@ fn bench_history_operations(c: &mut Criterion) {
             },
             config: GenerationConfig {
                 prompt: Some(format!("test prompt {} with robot character", i)),
+                user_prompt: None,
                 template: None,
                 existing_image: None,
                 image_model: Some("nano-banana".to_string()),

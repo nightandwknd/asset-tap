@@ -9,7 +9,7 @@ use asset_tap_core::settings::get_output_dir;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 /// Thumbnail data loaded in background
@@ -350,19 +350,13 @@ impl LibraryBrowser {
 
                             // Check for textures directory
                             if file_path.is_dir() {
-                                if let Some(name) = file_path.file_name() {
-                                    if name == bundle_files::TEXTURES_DIR
-                                        && matches!(
-                                            asset_type,
-                                            AssetType::Textures | AssetType::All
-                                        )
-                                    {
-                                        if let Some(item) =
-                                            Self::create_textures_item_static(&file_path, &path)
-                                        {
-                                            items.push(item);
-                                        }
-                                    }
+                                if let Some(name) = file_path.file_name()
+                                    && name == bundle_files::TEXTURES_DIR
+                                    && matches!(asset_type, AssetType::Textures | AssetType::All)
+                                    && let Some(item) =
+                                        Self::create_textures_item_static(&file_path, &path)
+                                {
+                                    items.push(item);
                                 }
                                 continue;
                             }
@@ -386,12 +380,10 @@ impl LibraryBrowser {
                                 // Check for models
                                 else if is_model
                                     && matches!(asset_type, AssetType::Models | AssetType::All)
-                                {
-                                    if let Some(item) =
+                                    && let Some(item) =
                                         Self::create_item_static(file_path, AssetType::Models)
-                                    {
-                                        items.push(item);
-                                    }
+                                {
+                                    items.push(item);
                                 }
                             }
                         }
@@ -598,23 +590,10 @@ impl LibraryBrowser {
         let mut result = None;
         let mut should_close = false;
 
-        // Check for clicks outside the modal to close it
-        let modal_id = egui::Id::new("library_modal");
-
-        // Draw a semi-transparent backdrop that closes the modal when clicked
-        egui::Area::new(modal_id.with("backdrop"))
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.content_rect();
-                let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
-                if response.clicked() {
-                    should_close = true;
-                }
-                // Draw semi-transparent backdrop
-                ui.painter()
-                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(100));
-            });
+        // Draw backdrop (click-outside to close)
+        if super::modal_backdrop(ctx, "library_backdrop", 100, super::BackdropClick::Close) {
+            should_close = true;
+        }
 
         // 5 icons: 140px each + 10px spacing = 740px content
         egui::Window::new("Asset Library")

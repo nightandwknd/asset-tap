@@ -9,8 +9,8 @@
 use super::fixtures::{MockFixtures, SampleFiles};
 use super::server::{MockServerConfig, SimulatedFailure};
 use crate::constants::http::mime;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
@@ -111,11 +111,10 @@ async fn setup_status_polling(
                 after_polls,
                 ref message,
             }) = failure
+                && count >= after_polls
             {
-                if count >= after_polls {
-                    return ResponseTemplate::new(200)
-                        .set_body_json(MockFixtures::generic_status_failed(message));
-                }
+                return ResponseTemplate::new(200)
+                    .set_body_json(MockFixtures::generic_status_failed(message));
             }
 
             // Determine status based on poll count

@@ -43,22 +43,22 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         if ui
             .add(egui::Button::selectable(
-                app.preview_tab == PreviewTab::Image,
-                format!("{} Image", icons::IMAGE),
-            ))
-            .clicked()
-        {
-            app.preview_tab = PreviewTab::Image;
-        }
-
-        if ui
-            .add(egui::Button::selectable(
                 app.preview_tab == PreviewTab::Model3D,
                 format!("{} 3D Model", icons::CUBE),
             ))
             .clicked()
         {
             app.preview_tab = PreviewTab::Model3D;
+        }
+
+        if ui
+            .add(egui::Button::selectable(
+                app.preview_tab == PreviewTab::Image,
+                format!("{} Image", icons::IMAGE),
+            ))
+            .clicked()
+        {
+            app.preview_tab = PreviewTab::Image;
         }
 
         if ui
@@ -88,13 +88,12 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     }
                 })
             });
-            if let Some(folder) = folder_to_open {
-                if ui
+            if let Some(folder) = folder_to_open
+                && ui
                     .button(format!("{} Show Folder", icons::FOLDER_OPEN))
                     .clicked()
-                {
-                    crate::app::open_with_system(&folder, Some(&mut app.toasts));
-                }
+            {
+                crate::app::open_with_system(&folder, Some(&mut app.toasts));
             }
 
             // Context-aware library browser button (appears on right)
@@ -285,18 +284,17 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                 viewer.poll_async_load();
 
                 // Save model info to state when loading completes
-                if let Some(ref info) = viewer.model_info {
-                    if app.app_state.model_info.as_ref().map(|i| i.file_size)
+                if let Some(ref info) = viewer.model_info
+                    && app.app_state.model_info.as_ref().map(|i| i.file_size)
                         != Some(info.file_size)
-                    {
-                        app.app_state.model_info = Some(asset_tap_core::state::ModelInfo {
-                            file_size: info.file_size,
-                            format: info.format.clone(),
-                            vertex_count: info.vertex_count,
-                            triangle_count: info.triangle_count,
-                        });
-                        let _ = app.app_state.save();
-                    }
+                {
+                    app.app_state.model_info = Some(asset_tap_core::state::ModelInfo {
+                        file_size: info.file_size,
+                        format: info.format.clone(),
+                        vertex_count: info.vertex_count,
+                        triangle_count: info.triangle_count,
+                    });
+                    let _ = app.app_state.save();
                 }
             }
 
@@ -752,35 +750,35 @@ fn render_model_action_buttons(
                 );
             }
 
-            if response.clicked() && app.pending_fbx_conversion.is_none() {
-                if let Some(ref glb) = glb_path {
-                    app.start_fbx_conversion(glb.clone());
-                }
+            if response.clicked()
+                && app.pending_fbx_conversion.is_none()
+                && let Some(ref glb) = glb_path
+            {
+                app.start_fbx_conversion(glb.clone());
             }
         }
 
-        if let Some(ref glb) = glb_path {
-            if glb != path && ui.button(format!("{} Open GLB", icons::FILE)).clicked() {
-                crate::app::open_with_system(glb, Some(&mut app.toasts));
-            }
+        if let Some(ref glb) = glb_path
+            && glb != path
+            && ui.button(format!("{} Open GLB", icons::FILE)).clicked()
+        {
+            crate::app::open_with_system(glb, Some(&mut app.toasts));
         }
 
         if ui
             .button(format!("{} Export GLB", icons::DOWNLOAD))
             .on_hover_text("Save a copy to a custom location")
             .clicked()
-        {
-            if let Some(dest) = rfd::FileDialog::new()
+            && let Some(dest) = rfd::FileDialog::new()
                 .set_file_name(bundle_files::MODEL_GLB)
                 .add_filter("GLB", &["glb"])
                 .save_file()
-            {
-                match std::fs::copy(path, &dest) {
-                    Ok(_) => app.toasts.push(crate::app::Toast::success("GLB exported")),
-                    Err(e) => app
-                        .toasts
-                        .push(crate::app::Toast::error(format!("Export failed: {}", e))),
-                }
+        {
+            match std::fs::copy(path, &dest) {
+                Ok(_) => app.toasts.push(crate::app::Toast::success("GLB exported")),
+                Err(e) => app
+                    .toasts
+                    .push(crate::app::Toast::error(format!("Export failed: {}", e))),
             }
         }
 
@@ -819,11 +817,7 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                     .is_some_and(|ext| {
                         matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg")
                     });
-                if is_texture {
-                    Some(path)
-                } else {
-                    None
-                }
+                if is_texture { Some(path) } else { None }
             })
             .collect();
         texture_paths.sort();
@@ -886,21 +880,19 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                 .button(format!("{} Export Textures", icons::DOWNLOAD))
                 .on_hover_text("Save textures as a zip archive")
                 .clicked()
-            {
-                if let Some(dest) = rfd::FileDialog::new()
+                && let Some(dest) = rfd::FileDialog::new()
                     .set_file_name(archive::TEXTURES_ZIP)
                     .add_filter("ZIP Archive", &["zip"])
                     .save_file()
-                {
-                    match export_textures_zip(&texture_paths, &dest) {
-                        Ok(count) => app.toasts.push(crate::app::Toast::success(format!(
-                            "Exported {} textures",
-                            count
-                        ))),
-                        Err(e) => app
-                            .toasts
-                            .push(crate::app::Toast::error(format!("Export failed: {}", e))),
-                    }
+            {
+                match export_textures_zip(&texture_paths, &dest) {
+                    Ok(count) => app.toasts.push(crate::app::Toast::success(format!(
+                        "Exported {} textures",
+                        count
+                    ))),
+                    Err(e) => app
+                        .toasts
+                        .push(crate::app::Toast::error(format!("Export failed: {}", e))),
                 }
             }
         });

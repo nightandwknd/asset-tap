@@ -116,19 +116,13 @@ impl ConfirmationDialog {
         let mut result = None;
         let mut should_close = false;
 
-        // Semi-transparent backdrop
-        let modal_id = egui::Id::new("confirmation_dialog");
-        egui::Area::new(modal_id.with("backdrop"))
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.content_rect();
-                // Don't allow click-outside to close - user must explicitly confirm or cancel
-                ui.allocate_response(screen_rect.size(), egui::Sense::hover());
-                // Draw semi-transparent backdrop (darker for better contrast)
-                ui.painter()
-                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(200));
-            });
+        // Semi-transparent backdrop (no click-outside — user must explicitly confirm or cancel)
+        super::modal_backdrop(
+            ctx,
+            "confirmation_dialog_backdrop",
+            200,
+            super::BackdropClick::Block,
+        );
 
         // Dialog window
         egui::Window::new("Load Associated Assets")
