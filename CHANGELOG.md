@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.1 — 2026-04-01
+
+### Features
+
+- strip mock mode from release builds ([#8](https://github.com/nightandwknd/asset-tap/pull/8))
+
 ## v26.3.6 — 2026-03-28
 
 ### Documentation
