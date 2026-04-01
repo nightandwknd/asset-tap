@@ -567,9 +567,11 @@ Provider configs are validated on load. Common errors:
 
 3. **Use mock mode** to verify config parsing and pipeline plumbing (no API costs):
    ```bash
-   MOCK_API=1 cargo run --bin asset-tap-gui
+   make mock ARGS='-p your-provider -y "test"'
+   # Or build with the feature explicitly:
+   cargo run --features mock --bin asset-tap -- --mock -p your-provider -y "test"
    ```
-   Mock mode returns generic synthetic responses — it validates that your YAML loads and the pipeline runs, but does not test your provider's actual response format.
+   Mock mode requires the `mock` Cargo feature (not included in release builds). It returns generic synthetic responses — it validates that your YAML loads and the pipeline runs, but does not test your provider's actual response format.
 
 4. **Test with real API** to validate response field extraction — start with text-to-image (faster/cheaper)
 
@@ -582,7 +584,7 @@ Provider configs are validated on load. Common errors:
    - The `include_dir!` macro automatically discovers and embeds all `*.yaml` files
    - No code changes needed!
 3. Verify provider loads: `cargo run --bin asset-tap -- --list-providers`
-4. Test in mock mode to confirm config parsing: `MOCK_API=1 cargo run --bin asset-tap-gui`
+4. Test in mock mode to confirm config parsing: `make mock ARGS='-p your-provider -y "test"'`
 5. Set required environment variables and test with real API to validate response parsing
 
 **To add a provider for personal use only (not embedded):**

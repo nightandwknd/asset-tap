@@ -1,3 +1,4 @@
+#![cfg(feature = "mock")]
 //! Pipeline execution tests.
 //!
 //! These tests validate the core pipeline orchestration using mock providers.

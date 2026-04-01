@@ -43,24 +43,24 @@ cli: ## Build and run CLI (use ARGS= for arguments)
 gui: ## Build and run GUI (release)
 	cargo run --release --bin asset-tap-gui
 
-dev: ## Run GUI in debug mode (faster builds)
-	cargo run --bin asset-tap-gui
+dev: ## Run GUI in debug mode (faster builds, mock enabled)
+	cargo run --features mock --bin asset-tap-gui
 
 # =============================================================================
 # Mock Mode (no API costs)
 # =============================================================================
 
 mock: ## Run CLI in mock mode (use ARGS= for prompt)
-	cargo run --bin asset-tap -- --mock $(ARGS)
+	cargo run --features mock --bin asset-tap -- --mock $(ARGS)
 
 mock-delay: ## Run CLI in mock mode with realistic delays
-	cargo run --bin asset-tap -- --mock --mock-delay $(ARGS)
+	cargo run --features mock --bin asset-tap -- --mock --mock-delay $(ARGS)
 
 mock-gui: ## Run GUI in mock mode
-	MOCK_API=1 cargo run --bin asset-tap-gui
+	MOCK_API=1 cargo run --features mock --bin asset-tap-gui
 
 mock-gui-delay: ## Run GUI in mock mode with realistic delays
-	MOCK_API=1 MOCK_DELAY=1 cargo run --bin asset-tap-gui
+	MOCK_API=1 MOCK_DELAY=1 cargo run --features mock --bin asset-tap-gui
 
 refresh-models: ## [Dev] Refresh provider models from discovery APIs
 	cargo run --bin refresh-models -p asset-tap-core
@@ -75,7 +75,7 @@ ifndef CHECK_NEXTEST
 	@echo "Installing cargo-nextest..."
 	@cargo install cargo-nextest --locked
 endif
-	cargo nextest run --workspace
+	cargo nextest run --workspace --all-features
 
 test-core: ## Test core library only
 	@rm -f core/custom_templates.json
@@ -83,7 +83,7 @@ ifndef CHECK_NEXTEST
 	@echo "Installing cargo-nextest..."
 	@cargo install cargo-nextest --locked
 endif
-	cargo nextest run -p asset-tap-core
+	cargo nextest run -p asset-tap-core --all-features
 
 test-cli: ## Test CLI only
 	cargo test -p asset-tap
@@ -98,9 +98,10 @@ test-integration: ## Run integration tests only
 	cargo test -p asset-tap-core --test integration_tests
 
 test-mock: ## Run mock API integration tests
-	cargo test -p asset-tap-core --test mock_server_tests
+	cargo test -p asset-tap-core --features mock --test mock_server_tests
 
-test-cli-comprehensive: build-cli ## Run comprehensive CLI tests in mock mode
+test-cli-comprehensive: ## Run comprehensive CLI tests in mock mode
+	cargo build --release --features mock -p asset-tap
 	@echo "Running comprehensive CLI test suite..."
 	@./scripts/test_cli.sh
 
@@ -116,7 +117,7 @@ ifndef CHECK_NEXTEST
 	@echo "Installing cargo-nextest..."
 	@cargo install cargo-nextest --locked
 endif
-	cargo llvm-cov nextest --workspace --ignore-filename-regex 'gui/'
+	cargo llvm-cov nextest --workspace --all-features --ignore-filename-regex 'gui/'
 
 coverage-html: ## Generate HTML coverage report
 ifndef CHECK_LLVM_COV
@@ -127,13 +128,13 @@ ifndef CHECK_NEXTEST
 	@echo "Installing cargo-nextest..."
 	@cargo install cargo-nextest --locked
 endif
-	cargo llvm-cov nextest --workspace --ignore-filename-regex 'gui/' --html --open
+	cargo llvm-cov nextest --workspace --all-features --ignore-filename-regex 'gui/' --html --open
 
 check: ## Check code (fast compile check)
-	cargo check --workspace --all-targets
+	cargo check --workspace --all-targets --all-features
 
 clippy: ## Run linter (clippy)
-	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 fmt: ## Format all code (Rust + other files)
 	cargo fmt --all
@@ -168,7 +169,7 @@ ifndef CHECK_UDEPS
 	@echo "Installing cargo-udeps..."
 	@cargo install cargo-udeps
 endif
-	cargo +nightly udeps --workspace
+	cargo +nightly udeps --workspace --all-features
 
 # =============================================================================
 # Documentation
@@ -211,7 +212,7 @@ endif
 # =============================================================================
 
 clippy-fix: ## Auto-fix clippy warnings where possible
-	cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings
+	cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged -- -D warnings
 
 verify: fmt clippy-fix check test ## Run all quality checks with auto-fixes
 

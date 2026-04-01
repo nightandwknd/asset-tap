@@ -123,6 +123,8 @@ make watch-gui
 
 ### Mock Mode (Zero-Cost Development)
 
+Mock mode is an opt-in Cargo feature (`mock`) that is **not included in release builds**. The Makefile targets enable it automatically.
+
 Test without consuming API credits:
 
 ```bash
@@ -135,9 +137,9 @@ make mock ARGS='--mock-delay -y "test"'
 # GUI in mock mode
 make mock-gui
 
-# Or set environment variables
-MOCK_API=1 cargo run --bin asset-tap-gui
-MOCK_API=1 MOCK_DELAY=1 cargo run --bin asset-tap -- -y "test"
+# Or build with the feature explicitly
+cargo run --features mock --bin asset-tap -- --mock -y "test"
+cargo run --features mock --bin asset-tap-gui  # then set MOCK_API=1
 ```
 
 Mock mode redirects all API requests to a local `wiremock` server that returns generic synthetic data (test PNG/GLB files). It validates pipeline and configuration plumbing, but does not test provider-specific response parsing.
@@ -355,7 +357,7 @@ export MY_API_KEY="test-key"
 make cli ARGS='--list-providers'
 
 # Verify provider loads in mock mode (validates config parsing, not API responses)
-MOCK_API=1 make cli ARGS='-p my-provider -y "test"'
+make mock ARGS='-p my-provider -y "test"'
 
 # Test with real API to validate response field extraction
 make cli ARGS='-p my-provider -y "test"'

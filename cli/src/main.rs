@@ -2,12 +2,13 @@
 //!
 //! Generate 3D models from text prompts.
 
+#[cfg(feature = "mock")]
+use asset_tap_core::constants::http::env;
 use asset_tap_core::{
     config::{
         get_default_image_to_3d_model, get_default_text_to_image_model, list_image_to_3d_models,
         list_text_to_image_models,
     },
-    constants::http::env,
     convert::{convert_existing_models, convert_glb_to_fbx, is_blender_available},
     format_progress,
     pipeline::{run_pipeline, PipelineConfig},
@@ -82,10 +83,12 @@ struct Cli {
     inspect_template: Option<String>,
 
     /// Run in mock mode (simulated API responses, no costs)
+    #[cfg(feature = "mock")]
     #[arg(long)]
     mock: bool,
 
     /// Add realistic delays in mock mode (simulates queue/processing time)
+    #[cfg(feature = "mock")]
     #[arg(long, requires = "mock")]
     mock_delay: bool,
 
@@ -126,6 +129,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Set mock env vars before tokio runtime starts (thread-safe)
+    #[cfg(feature = "mock")]
     if cli.mock {
         std::env::set_var(env::MOCK_API, "1");
         if cli.mock_delay {
@@ -168,6 +172,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     }
 
     // Handle mock mode
+    #[cfg(feature = "mock")]
     if cli.mock {
         println!(
             "🎭 Running in mock mode{}",
@@ -344,6 +349,7 @@ fn validate_requirements(
     }
 
     // Validate API key is available (check environment) - skip in mock mode
+    #[cfg(feature = "mock")]
     if asset_tap_core::api::is_mock_mode() {
         return Ok(());
     }
