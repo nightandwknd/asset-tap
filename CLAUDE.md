@@ -282,11 +282,13 @@ No code changes needed! The `include_dir!` macro discovers all `.yaml` files at 
 
 ### Testing Provider Changes
 
-**Mock mode** validates config loading and pipeline plumbing (no API costs):
+**Mock mode** validates config loading and pipeline plumbing (no API costs). It is an opt-in Cargo feature (`mock`) — **not included in release builds**. Use the Makefile targets (which enable it automatically):
 
 ```bash
-MOCK_API=1 cargo run --bin asset-tap-gui
-cargo run --bin asset-tap -- --mock -y "test"  # CLI --mock flag
+make mock ARGS='-y "test"'      # CLI mock mode
+make mock-gui                    # GUI mock mode
+# Or build with the feature explicitly:
+cargo run --features mock --bin asset-tap -- --mock -y "test"
 ```
 
 Mock mode redirects all requests to a local `wiremock` server returning generic synthetic data. It verifies that YAML parses, models register, and the pipeline runs — but does **not** validate provider-specific response parsing. To test response field extraction (`response.field`), use the real API.
@@ -311,7 +313,7 @@ make test  # Uses cargo-nextest (single-threaded via .config/nextest.toml)
 
 **Template tests:** Require single-threaded execution due to shared `.dev/templates/` file access. Configured automatically in `.config/nextest.toml`.
 
-**Mock tests:** Use `MOCK_API=1` to avoid API costs.
+**Mock tests:** `make test` uses `--all-features` to include mock tests. For running mock tests individually: `make test-mock`.
 
 **Test organization:**
 
@@ -496,7 +498,7 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 
 1. Edit YAML in `providers/` or `templates/`
 2. Rebuild to embed configs (auto-discovered by `include_dir!`)
-3. Test in mock mode (validates config loading), then real API (validates response parsing)
+3. Test in mock mode via `make mock` (validates config loading), then real API (validates response parsing)
 
 **GUI changes:**
 

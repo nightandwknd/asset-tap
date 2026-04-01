@@ -180,8 +180,8 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --package asset-tap     --target ${{ matrix.target }}
-          cargo build --release --package asset-tap-gui --target ${{ matrix.target }}
+          cargo build --release --features mock --package asset-tap     --target ${{ matrix.target }}
+          cargo build --release --features mock --package asset-tap-gui --target ${{ matrix.target }}
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -253,6 +253,7 @@ jobs:
           version: '0.0.0-pr.${{ github.event.pull_request.number }}'
           artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
           upload-binaries: 'true'
+          cargo-flags: '--features mock'
 
   build-windows:
     name: Build & Package (Windows)
@@ -266,6 +267,7 @@ jobs:
           platform: windows
           version: '0.0.0-pr.${{ github.event.pull_request.number }}'
           artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
+          cargo-flags: '--features mock'
 
   # ─── Layer 2: CLI tests (consumes Linux binary) ────────────────────
   cli-test:

@@ -169,19 +169,30 @@ Some 3D models contain WebP textures that aren't supported by all tools. Convert
 asset-tap --convert-webp
 ```
 
-## Mock Mode
+## Mock Mode (Development Only)
 
-Test the full pipeline without consuming API credits. Mock mode redirects all API requests to a local server that returns synthetic data (test images and 3D models). This verifies that your configuration, pipeline, and file output work correctly.
+Mock mode is a development feature for testing the full pipeline without consuming API credits. It is **not available in release builds** — it requires building from source with the `mock` Cargo feature enabled.
+
+When building from source, use the Makefile targets:
 
 ```bash
 # Instant mock responses
-asset-tap --mock -y "test prompt"
+make mock ARGS='-y "test prompt"'
 
 # With realistic delays
-asset-tap --mock --mock-delay -y "test prompt"
+make mock ARGS='--mock-delay -y "test prompt"'
+
+# GUI in mock mode
+make mock-gui
 ```
 
-**Note:** Mock mode returns generic responses regardless of which provider or model you select. It validates the pipeline and configuration plumbing, not provider-specific response parsing. To verify a custom provider's response format, test against the real API.
+Or build with the feature explicitly:
+
+```bash
+cargo run --features mock --bin asset-tap -- --mock -y "test prompt"
+```
+
+Mock mode redirects all API requests to a local server that returns synthetic data (test images and 3D models). It validates the pipeline and configuration plumbing, not provider-specific response parsing. To verify a custom provider's response format, test against the real API.
 
 ## Complete Flag Reference
 
@@ -203,5 +214,3 @@ asset-tap --mock --mock-delay -y "test prompt"
 | `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                     |
 | `--approve`          |       | Require image approval before 3D generation                   |
 | `--export-bundle`    |       | Export a bundle directory as a zip archive                    |
-| `--mock`             |       | Run in mock mode (no API costs)                               |
-| `--mock-delay`       |       | Add realistic delays in mock mode                             |

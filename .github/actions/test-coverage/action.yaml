@@ -39,7 +39,7 @@ runs:
         fi
 
         set +e
-        cargo llvm-cov nextest --workspace "${IGNORE_ARGS[@]}" \
+        cargo llvm-cov nextest --workspace --all-features "${IGNORE_ARGS[@]}" \
           --json --output-path coverage.json \
           --test-threads=1 \
           --profile ci

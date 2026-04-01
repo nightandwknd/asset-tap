@@ -277,6 +277,7 @@ impl ProviderRegistry {
 
     /// Load a provider from a config file.
     fn load_provider_config(&self, path: &std::path::Path) -> anyhow::Result<DynamicProvider> {
+        #[allow(unused_mut)]
         let mut provider = if path.extension().and_then(|s| s.to_str()) == Some("json") {
             DynamicProvider::from_json_file(path)?
         } else {

@@ -52,6 +52,7 @@ fn extract_host(url: &str) -> Option<String> {
 /// to prevent SSRF attacks via malicious API responses.
 fn validate_download_url(url: &str) -> Result<()> {
     // Skip validation in mock mode (mock server runs on localhost)
+    #[cfg(feature = "mock")]
     if crate::api::is_mock_mode() {
         return Ok(());
     }

@@ -1,3 +1,4 @@
+#![cfg(feature = "mock")]
 //! Mock server functionality tests.
 //!
 //! These tests validate that the mock API server works correctly
