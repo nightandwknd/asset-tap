@@ -29,6 +29,10 @@ inputs:
     description: Override version in Cargo.toml before building (e.g., "0.0.0-pr.7"). Skipped if empty.
     required: false
     default: ''
+  cargo-flags:
+    description: Additional flags to pass to cargo build (e.g., "--features mock")
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -58,7 +62,7 @@ runs:
       if: inputs.platform == 'macos' && inputs.universal != 'true'
       shell: bash
       run: |
-        cargo build --release --workspace
+        cargo build --release --workspace ${{ inputs.cargo-flags }}
         (cd gui && cargo packager --release --formats app)
         ./scripts/package-macos.sh
 
@@ -76,7 +80,7 @@ runs:
       if: inputs.platform == 'linux'
       shell: bash
       run: |
-        cargo build --release --workspace
+        cargo build --release --workspace ${{ inputs.cargo-flags }}
         ./scripts/package-linux.sh
 
     # ── Build & Package: Windows ───────────────────────────────────────
@@ -84,7 +88,7 @@ runs:
       if: inputs.platform == 'windows'
       shell: bash
       run: |
-        cargo build --release --workspace
+        cargo build --release --workspace ${{ inputs.cargo-flags }}
         (cd gui && cargo packager --release --formats nsis)
 
     - name: Create CLI archive (Windows)

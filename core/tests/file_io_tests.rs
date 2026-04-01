@@ -3,18 +3,20 @@
 //! These tests validate file download, bundle creation, and file system operations.
 
 use asset_tap_core::{
-    api::download_file, bundle::BundleMetadata, config::generate_timestamp,
-    constants::files::bundle as bundle_files, history::GenerationConfig,
+    bundle::BundleMetadata, config::generate_timestamp, constants::files::bundle as bundle_files,
+    history::GenerationConfig,
 };
 use std::fs;
 use tempfile::TempDir;
 
 // =============================================================================
-// File Download Tests
+// File Download Tests (require mock feature for wiremock)
 // =============================================================================
 
+#[cfg(feature = "mock")]
 #[tokio::test]
 async fn test_download_file_success() {
+    use asset_tap_core::api::download_file;
     // Use a local mock server instead of network dependency
     let temp_dir = TempDir::new().unwrap();
     let dest_path = temp_dir.path().join("downloaded.bin");
@@ -41,8 +43,11 @@ async fn test_download_file_success() {
     assert_eq!(bytes, file_contents, "Returned bytes should match file");
 }
 
+#[cfg(feature = "mock")]
 #[tokio::test]
 async fn test_download_file_to_nested_directory() {
+    use asset_tap_core::api::download_file;
+
     let temp_dir = TempDir::new().unwrap();
     let nested_path = temp_dir
         .path()
@@ -70,8 +75,11 @@ async fn test_download_file_to_nested_directory() {
     );
 }
 
+#[cfg(feature = "mock")]
 #[tokio::test]
 async fn test_download_file_invalid_url() {
+    use asset_tap_core::api::download_file;
+
     let temp_dir = TempDir::new().unwrap();
     let dest_path = temp_dir.path().join("failed.bin");
 
@@ -81,8 +89,11 @@ async fn test_download_file_invalid_url() {
     assert!(result.is_err(), "Download should fail for invalid URL");
 }
 
+#[cfg(feature = "mock")]
 #[tokio::test]
 async fn test_download_file_404() {
+    use asset_tap_core::api::download_file;
+
     let mock_server = wiremock::MockServer::start().await;
     // No routes mounted — any request returns 404
 

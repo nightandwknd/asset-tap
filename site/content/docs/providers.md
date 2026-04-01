@@ -206,14 +206,16 @@ provider:
 # 1. Verify the provider loads and config is valid
 asset-tap --list-providers
 
-# 2. Verify it appears in mock mode (confirms config parsing)
-asset-tap --mock -p my-provider -y "test prompt"
+# 2. Verify it works in mock mode (confirms config parsing)
+# Mock mode requires building from source with the mock feature:
+make mock ARGS='-p my-provider -y "test prompt"'
+# Or: cargo run --features mock --bin asset-tap -- --mock -p my-provider -y "test prompt"
 
 # 3. Test with real API (required to validate response parsing)
 asset-tap -p my-provider -y "a red cube"
 ```
 
-**Note:** Mock mode verifies that your provider **loads and configures correctly** (YAML parsing, model registration, endpoint routing), but returns generic synthetic responses. To validate that response field extraction works with your provider's actual API, test against the real API.
+**Note:** Mock mode is a development feature (not available in release builds). It verifies that your provider **loads and configures correctly** (YAML parsing, model registration, endpoint routing), but returns generic synthetic responses. To validate that response field extraction works with your provider's actual API, test against the real API.
 
 ---
 
@@ -362,4 +364,4 @@ image_to_3d:
 - **Verify JSONPath** expressions against actual API responses
 - **Use reasonable polling intervals** to respect rate limits
 - **Set adequate `max_attempts`** based on typical operation time
-- **Test in mock mode first** to verify config loads, then test with real API to validate response parsing
+- **Test in mock mode first** (`make mock`) to verify config loads, then test with real API to validate response parsing

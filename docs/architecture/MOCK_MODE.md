@@ -2,18 +2,21 @@
 
 Mock mode enables full pipeline execution without API costs, providing instant feedback for development, testing, and CI/CD.
 
+> **Note:** Mock mode is an opt-in Cargo feature (`--features mock`). It is **not compiled into release builds**. To use mock mode, build from source with the feature enabled or use the Makefile targets (which enable it automatically).
+
 ## Overview
 
-When `MOCK_API=1` is set (or `--mock` flag is used), the application starts a local [wiremock](https://crates.io/crates/wiremock) server and redirects all provider API traffic to it. The mock server returns synthetic responses that exercise the full pipeline: image generation, file upload, and 3D model generation.
+When `MOCK_API=1` is set (or `--mock` flag is used in a mock-enabled build), the application starts a local [wiremock](https://crates.io/crates/wiremock) server and redirects all provider API traffic to it. The mock server returns synthetic responses that exercise the full pipeline: image generation, file upload, and 3D model generation.
 
 ## How It Works
 
 ### Activation
 
-Mock mode is triggered by:
+Mock mode requires the `mock` Cargo feature to be compiled in. It is triggered by:
 
-- **CLI**: `--mock` flag or `MOCK_API=1` environment variable
-- **GUI**: `MOCK_API=1` environment variable (e.g., `make mock-gui`)
+- **CLI**: `--mock` flag or `MOCK_API=1` environment variable (requires `--features mock` build)
+- **GUI**: `MOCK_API=1` environment variable (requires `--features mock` build)
+- **Makefile**: `make mock`, `make mock-gui` (automatically enables the feature)
 
 ### Provider Redirection
 

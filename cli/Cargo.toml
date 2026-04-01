@@ -19,7 +19,7 @@ name = "asset-tap"
 path = "src/main.rs"
 
 [features]
-default = ["mock"]
+default = []
 mock = ["asset-tap-core/mock"]
 
 [dependencies]

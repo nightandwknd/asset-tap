@@ -40,7 +40,7 @@ name = "asset-tap-gui"
 path = "src/main.rs"
 
 [features]
-default = ["mock"]
+default = []
 mock = ["asset-tap-core/mock"]
 
 [dependencies]
