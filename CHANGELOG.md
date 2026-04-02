@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.3 — 2026-04-02
+
+### Other
+
+- add dependabot config; simplify workflow needs chains ([#9](https://github.com/nightandwknd/asset-tap/pull/9))
+
 ## v26.4.2 — 2026-04-02
 
 ### Features
