@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.2 — 2026-04-02
+
+### Features
+
+- model tunable parameters, param cli flag, bundle improvements, rust toolchain pin ([#7](https://github.com/nightandwknd/asset-tap/pull/7))
+
 ## v26.4.1 — 2026-04-01
 
 ### Features
