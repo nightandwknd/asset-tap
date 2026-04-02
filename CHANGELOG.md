@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.5 — 2026-04-02
+
+### Chores
+
+- bump tracing-subscriber in the tracing group ([#12](https://github.com/nightandwknd/asset-tap/pull/12)) _(deps)_
+
 ## v26.4.4 — 2026-04-02
 
 ### Chores
