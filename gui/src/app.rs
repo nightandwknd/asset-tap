@@ -28,13 +28,13 @@ use crate::views::library::LibraryBrowser;
 use crate::views::settings::SettingsModal;
 use crate::views::walkthrough::Walkthrough;
 use crate::views::welcome_modal::WelcomeModal;
-use asset_tap_core::constants::files::{bundle as bundle_files, DEMO_DIR};
+use asset_tap_core::constants::files::{DEMO_DIR, bundle as bundle_files};
 use asset_tap_core::{
     bundle::load_bundle,
     history::{ErrorInfo, GenerationHistory},
-    pipeline::{run_pipeline, PipelineConfig},
+    pipeline::{PipelineConfig, run_pipeline},
     providers::ProviderCapability,
-    settings::{is_dev_mode, Settings},
+    settings::{Settings, is_dev_mode},
     state::AppState,
     templates::list_templates,
     types::{ApprovalResponse, PipelineOutput, Progress, Stage},
@@ -149,6 +149,9 @@ pub struct App {
     /// Selected prompt template.
     pub template: Option<String>,
 
+    /// Cached effective prompt length: (prompt, template, result).
+    cached_effective_prompt_len: (String, Option<String>, usize),
+
     /// Selected provider for image generation.
     pub image_provider: String,
 
@@ -160,6 +163,12 @@ pub struct App {
 
     /// Selected 3D model.
     pub model_3d: String,
+
+    /// Current parameter overrides for the selected image model.
+    pub image_model_params: std::collections::HashMap<String, serde_json::Value>,
+
+    /// Current parameter overrides for the selected 3D model.
+    pub model_3d_params: std::collections::HashMap<String, serde_json::Value>,
 
     /// Whether to export FBX.
     pub export_fbx: bool,
@@ -461,9 +470,9 @@ impl App {
 
         // Restore preview tab
         let preview_tab = match app_state.preview_tab.as_str() {
-            "Model3D" => PreviewTab::Model3D,
+            "Image" => PreviewTab::Image,
             "Textures" => PreviewTab::Textures,
-            _ => PreviewTab::Image,
+            _ => PreviewTab::Model3D,
         };
 
         // Try to restore the current generation being viewed using standardized bundle loading
@@ -480,10 +489,13 @@ impl App {
             // Configuration defaults (from settings or registry)
             prompt,
             template: None,
+            cached_effective_prompt_len: (String::new(), None, 0),
             image_provider,
             image_model,
             model_3d_provider,
             model_3d,
+            image_model_params: std::collections::HashMap::new(),
+            model_3d_params: std::collections::HashMap::new(),
             export_fbx: settings.export_fbx_default,
             existing_image: None,
 
@@ -558,10 +570,10 @@ impl App {
         }
 
         // Restore bundle info panel from current generation
-        if let Some(ref current_gen) = app.app_state.current_generation {
-            if let Err(e) = app.bundle_info_panel.load_bundle(current_gen.clone()) {
-                tracing::warn!("Failed to load bundle metadata on startup: {}", e);
-            }
+        if let Some(ref current_gen) = app.app_state.current_generation
+            && let Err(e) = app.bundle_info_panel.load_bundle(current_gen.clone())
+        {
+            tracing::warn!("Failed to load bundle metadata on startup: {}", e);
         }
 
         // Discovery is disabled — using curated static models from provider YAML.
@@ -577,12 +589,12 @@ impl App {
             // If no generation is loaded, try to auto-load the demo bundle
             if app.output.is_none() {
                 let demo_dir = app.settings.output_dir.join(DEMO_DIR);
-                if demo_dir.exists() {
-                    if let Ok(bundle) = load_bundle(&demo_dir) {
-                        app.output = Some(PipelineOutput::from(bundle));
-                        app.app_state.current_generation = Some(demo_dir.clone());
-                        let _ = app.bundle_info_panel.load_bundle(demo_dir);
-                    }
+                if demo_dir.exists()
+                    && let Ok(bundle) = load_bundle(&demo_dir)
+                {
+                    app.output = Some(PipelineOutput::from(bundle));
+                    app.app_state.current_generation = Some(demo_dir.clone());
+                    let _ = app.bundle_info_panel.load_bundle(demo_dir);
                 }
             }
 
@@ -626,14 +638,34 @@ impl App {
         self.toasts.retain(|t| t.is_visible());
     }
 
+    /// Returns the effective prompt length, accounting for template expansion.
+    /// Cached to avoid repeated registry lookups + interpolation per frame.
+    pub fn effective_prompt_len(&mut self) -> usize {
+        if self.prompt == self.cached_effective_prompt_len.0
+            && self.template == self.cached_effective_prompt_len.1
+        {
+            return self.cached_effective_prompt_len.2;
+        }
+        let key = (self.prompt.clone(), self.template.clone());
+        let result = if let Some(ref template) = self.template {
+            asset_tap_core::templates::apply_template(template, &self.prompt)
+                .map_or(self.prompt.len(), |expanded| expanded.len())
+        } else {
+            self.prompt.len()
+        };
+        self.cached_effective_prompt_len = (key.0, key.1, result);
+        result
+    }
+
     /// Check if the pipeline can be started.
-    pub fn can_generate(&self) -> bool {
-        let state = self.state.lock().unwrap();
+    pub fn can_generate(&mut self) -> bool {
+        let running = self.state.lock().unwrap().running;
         let has_image_model = self.existing_image.is_some()
             || (!self.image_provider.is_empty() && !self.image_model.is_empty());
-        !state.running
+        !running
             && (!self.prompt.is_empty() || self.existing_image.is_some())
-            && self.prompt.len() <= asset_tap_core::constants::validation::MAX_PROMPT_LENGTH
+            && self.effective_prompt_len()
+                <= asset_tap_core::constants::validation::MAX_PROMPT_LENGTH
             && self.settings.has_required_api_keys(&self.provider_registry)
             && has_image_model
             && !self.model_3d_provider.is_empty()
@@ -641,20 +673,26 @@ impl App {
     }
 
     /// Get the reason why generation is disabled (if applicable).
-    pub fn generate_disabled_reason(&self) -> Option<String> {
-        let state = self.state.lock().unwrap();
-        if state.running {
+    pub fn generate_disabled_reason(&mut self) -> Option<String> {
+        let running = self.state.lock().unwrap().running;
+        if running {
             return Some("Generation in progress".to_string());
         }
         if self.prompt.is_empty() && self.existing_image.is_none() {
             return Some("Enter a prompt or select an image".to_string());
         }
         let max_len = asset_tap_core::constants::validation::MAX_PROMPT_LENGTH;
-        if self.prompt.len() > max_len {
+        let effective_len = self.effective_prompt_len();
+        if effective_len > max_len {
             return Some(format!(
-                "Prompt too long ({}/{} characters)",
-                self.prompt.len(),
-                max_len
+                "Prompt too long ({}/{} characters{})",
+                effective_len,
+                max_len,
+                if self.template.is_some() {
+                    " after template expansion"
+                } else {
+                    ""
+                }
             ));
         }
         if !self.settings.has_required_api_keys(&self.provider_registry) {
@@ -694,7 +732,9 @@ impl App {
             .with_image_provider(&self.image_provider)
             .with_3d_provider(&self.model_3d_provider)
             .with_3d_model(&self.model_3d)
-            .with_output_dir(self.settings.output_dir.clone());
+            .with_output_dir(self.settings.output_dir.clone())
+            .with_image_model_params(self.image_model_params.clone())
+            .with_3d_model_params(self.model_3d_params.clone());
 
         let prompt = if let Some(ref image) = self.existing_image {
             // Using a reference image — skip prompt/template since image generation is bypassed
@@ -711,6 +751,11 @@ impl App {
 
             if !prompt.is_empty() {
                 config = config.with_prompt(prompt.clone());
+            }
+
+            // Store original user input when a template was used
+            if self.template.is_some() && !self.prompt.is_empty() {
+                config = config.with_user_prompt(&self.prompt);
             }
 
             // Store the template name in config
@@ -734,10 +779,10 @@ impl App {
             config = config.without_fbx();
         }
 
-        if let Some(ref blender) = self.settings.blender_path {
-            if !blender.is_empty() {
-                config = config.with_blender_path(blender);
-            }
+        if let Some(ref blender) = self.settings.blender_path
+            && !blender.is_empty()
+        {
+            config = config.with_blender_path(blender);
         }
 
         // Enable approval if required by settings (and image is being generated, not using existing)
@@ -1023,11 +1068,10 @@ impl App {
         if let Some(ext) = std::path::Path::new(&path)
             .extension()
             .and_then(|e| e.to_str())
+            && valid_extensions.contains(&ext.to_lowercase().as_str())
         {
-            if valid_extensions.contains(&ext.to_lowercase().as_str()) {
-                self.existing_image = Some(path);
-                return true;
-            }
+            self.existing_image = Some(path);
+            return true;
         }
         false
     }
@@ -1410,17 +1454,13 @@ impl App {
         let mut confirmed = false;
         let mut cancelled = false;
 
-        // Semi-transparent backdrop
-        let modal_id = egui::Id::new("clear_history_confirmation");
-        egui::Area::new(modal_id.with("backdrop"))
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.content_rect();
-                ui.allocate_response(screen_rect.size(), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(200));
-            });
+        // Semi-transparent backdrop (no click-outside — user must confirm or cancel)
+        views::modal_backdrop(
+            ctx,
+            "clear_history_backdrop",
+            200,
+            views::BackdropClick::Block,
+        );
 
         // Dialog window
         egui::Window::new("Clear Prompt History")
@@ -1718,12 +1758,12 @@ impl eframe::App for App {
             asset_tap_core::ensure_default_bundles_exist(&self.settings.output_dir);
             if self.output.is_none() {
                 let demo_dir = self.settings.output_dir.join(DEMO_DIR);
-                if demo_dir.exists() {
-                    if let Ok(bundle) = load_bundle(&demo_dir) {
-                        self.output = Some(PipelineOutput::from(bundle));
-                        self.app_state.current_generation = Some(demo_dir.clone());
-                        let _ = self.bundle_info_panel.load_bundle(demo_dir);
-                    }
+                if demo_dir.exists()
+                    && let Ok(bundle) = load_bundle(&demo_dir)
+                {
+                    self.output = Some(PipelineOutput::from(bundle));
+                    self.app_state.current_generation = Some(demo_dir.clone());
+                    let _ = self.bundle_info_panel.load_bundle(demo_dir);
                 }
             }
             self.bundle_info_panel
@@ -1891,6 +1931,14 @@ impl eframe::App for App {
             (state.awaiting_approval.clone(), state.regenerating_image)
         };
         if approval_data.is_some() || regenerating {
+            // Backdrop (no click-outside — user must approve, reject, or regenerate)
+            views::modal_backdrop(
+                ctx,
+                "image_approval_backdrop",
+                200,
+                views::BackdropClick::Block,
+            );
+
             // Render approval panel as a modal window
             egui::Window::new("Review Generated Image")
                 .collapsible(false)
@@ -1902,18 +1950,18 @@ impl eframe::App for App {
                     if regenerating {
                         // Show loading state while regenerating
                         views::image_approval::render_regenerating(ui);
-                    } else if let Some(ref data) = approval_data {
-                        if let Some(action) = views::image_approval::render(ui, self, data) {
-                            match action {
-                                views::image_approval::ApprovalAction::Approve => {
-                                    self.approve_generated_image();
-                                }
-                                views::image_approval::ApprovalAction::Reject => {
-                                    self.reject_generated_image();
-                                }
-                                views::image_approval::ApprovalAction::Regenerate => {
-                                    self.regenerate_image();
-                                }
+                    } else if let Some(ref data) = approval_data
+                        && let Some(action) = views::image_approval::render(ui, self, data)
+                    {
+                        match action {
+                            views::image_approval::ApprovalAction::Approve => {
+                                self.approve_generated_image();
+                            }
+                            views::image_approval::ApprovalAction::Reject => {
+                                self.reject_generated_image();
+                            }
+                            views::image_approval::ApprovalAction::Regenerate => {
+                                self.regenerate_image();
                             }
                         }
                     }

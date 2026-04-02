@@ -37,20 +37,9 @@ impl AboutModal {
         let mut should_close = false;
 
         // Draw backdrop
-        egui::Area::new(egui::Id::new("about_backdrop"))
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.content_rect();
-                if ui
-                    .allocate_response(screen_rect.size(), egui::Sense::click())
-                    .clicked()
-                {
-                    should_close = true;
-                }
-                ui.painter()
-                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(180));
-            });
+        if super::modal_backdrop(ctx, "about_backdrop", 180, super::BackdropClick::Close) {
+            should_close = true;
+        }
 
         // Modal window
         egui::Window::new("About")

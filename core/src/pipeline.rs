@@ -51,15 +51,19 @@ use crate::history::GenerationConfig;
 use crate::providers::{DynamicProvider, Provider, ProviderCapability, ProviderRegistry};
 use crate::types::{ApprovalResponse, Error, PipelineOutput, Progress, Result, Stage};
 use chrono::Utc;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Configuration for a pipeline run.
 #[derive(Debug, Clone, Default)]
 pub struct PipelineConfig {
-    /// Text prompt describing what to create.
+    /// Text prompt describing what to create (after template expansion, if any).
     pub prompt: Option<String>,
+
+    /// Original user input before template expansion.
+    pub user_prompt: Option<String>,
 
     /// Template name used for prompt (if any).
     pub template: Option<String>,
@@ -98,6 +102,12 @@ pub struct PipelineConfig {
     /// This is set internally by run_pipeline and should not be set by users.
     #[doc(hidden)]
     pub approval_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::types::ApprovalResponse>>,
+
+    /// User-tuned parameter overrides for the image generation model.
+    pub image_model_params: HashMap<String, serde_json::Value>,
+
+    /// User-tuned parameter overrides for the 3D generation model.
+    pub model_3d_params: HashMap<String, serde_json::Value>,
 }
 
 impl PipelineConfig {
@@ -161,6 +171,12 @@ impl PipelineConfig {
         self
     }
 
+    /// Set the original user prompt (before template expansion).
+    pub fn with_user_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.user_prompt = Some(prompt.into());
+        self
+    }
+
     /// Set the template name.
     pub fn with_template(mut self, template: impl Into<String>) -> Self {
         self.template = Some(template.into());
@@ -197,6 +213,18 @@ impl PipelineConfig {
         let p = provider.into();
         self.image_provider = Some(p.clone());
         self.model_3d_provider = Some(p);
+        self
+    }
+
+    /// Set parameter overrides for the image generation model.
+    pub fn with_image_model_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
+        self.image_model_params = params;
+        self
+    }
+
+    /// Set parameter overrides for the 3D generation model.
+    pub fn with_3d_model_params(mut self, params: HashMap<String, serde_json::Value>) -> Self {
+        self.model_3d_params = params;
         self
     }
 
@@ -442,6 +470,7 @@ fn log_stage_error(
 ///
 /// Returns the raw image bytes and the resolved image model ID (if generation occurred).
 /// Updates `output.image_path` and `output.image_url` as side effects.
+#[allow(clippy::too_many_arguments)]
 async fn generate_image_stage(
     config: &PipelineConfig,
     image_provider: &Arc<dyn Provider>,
@@ -450,6 +479,7 @@ async fn generate_image_stage(
     progress_tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
     approval_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ApprovalResponse>,
     cancel_flag: &Arc<AtomicBool>,
+    image_params: Option<&HashMap<String, serde_json::Value>>,
 ) -> Result<(Vec<u8>, Option<String>)> {
     let mut resolved_image_model = config.image_model.clone();
 
@@ -499,7 +529,7 @@ async fn generate_image_stage(
     let _ = progress_tx.send(Progress::started(Stage::ImageGeneration));
 
     let mut result = image_provider
-        .text_to_image(prompt, &model_id, Some(progress_tx.clone()))
+        .text_to_image(prompt, &model_id, image_params, Some(progress_tx.clone()))
         .await
         .inspect_err(|e| {
             log_stage_error(
@@ -560,7 +590,7 @@ async fn generate_image_stage(
                     let _ = progress_tx.send(Progress::started(Stage::ImageGeneration));
 
                     result = image_provider
-                        .text_to_image(prompt, &model_id, Some(progress_tx.clone()))
+                        .text_to_image(prompt, &model_id, image_params, Some(progress_tx.clone()))
                         .await?;
 
                     // Overwrite image on disk
@@ -593,6 +623,7 @@ async fn generate_3d_stage(
     gen_dir: &std::path::Path,
     prompt: Option<&str>,
     progress_tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
+    model_3d_params: Option<&HashMap<String, serde_json::Value>>,
 ) -> Result<(PathBuf, String)> {
     let model_3d_id = if !config.model_3d.is_empty() {
         config.model_3d.clone()
@@ -605,7 +636,12 @@ async fn generate_3d_stage(
     let _ = progress_tx.send(Progress::started(Stage::Model3DGeneration));
 
     let model_result = model_3d_provider
-        .image_to_3d(image_data, &model_3d_id, Some(progress_tx.clone()))
+        .image_to_3d(
+            image_data,
+            &model_3d_id,
+            model_3d_params,
+            Some(progress_tx.clone()),
+        )
         .await
         .inspect_err(|e| {
             log_stage_error(
@@ -720,6 +756,11 @@ async fn run_pipeline_internal(
     }
 
     // Stage 1: Get or generate image
+    let image_params = if config.image_model_params.is_empty() {
+        None
+    } else {
+        Some(&config.image_model_params)
+    };
     let (image_data, resolved_image_model) = generate_image_stage(
         &config,
         &image_provider,
@@ -728,6 +769,7 @@ async fn run_pipeline_internal(
         &progress_tx,
         &mut approval_rx,
         &cancel_flag,
+        image_params,
     )
     .await?;
 
@@ -737,6 +779,11 @@ async fn run_pipeline_internal(
     }
 
     // Stage 2: Generate 3D model
+    let model_3d_params = if config.model_3d_params.is_empty() {
+        None
+    } else {
+        Some(&config.model_3d_params)
+    };
     let (model_path, resolved_3d_model) = generate_3d_stage(
         &config,
         &model_3d_provider,
@@ -744,6 +791,7 @@ async fn run_pipeline_internal(
         &gen_dir,
         output.prompt.as_deref(),
         &progress_tx,
+        model_3d_params,
     )
     .await?;
     output.model_path = Some(model_path.clone());
@@ -763,6 +811,9 @@ async fn run_pipeline_internal(
         );
     }
 
+    // Extract model stats from the GLB before saving metadata
+    let model_info = crate::bundle::extract_model_info(&model_path);
+
     // Save bundle metadata
     let mut gen_config = GenerationConfig::from(&config);
     gen_config.image_model = resolved_image_model;
@@ -773,11 +824,12 @@ async fn run_pipeline_internal(
         name: None,
         created_at: Utc::now(),
         config: Some(gen_config),
-        model_info: None,
+        model_info,
         duration_ms: None,
         tags: Vec::new(),
         favorite: false,
         notes: None,
+        generator: Some(crate::bundle::generator_string().to_string()),
     };
 
     if let Err(e) = metadata.save(&gen_dir) {

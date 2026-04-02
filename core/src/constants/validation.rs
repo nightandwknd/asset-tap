@@ -7,16 +7,16 @@
 pub const MAX_VERSION: u32 = 100;
 
 /// Maximum length of bundle name
-pub const MAX_NAME_LENGTH: usize = 500;
+pub const MAX_NAME_LENGTH: usize = 128;
 
 /// Maximum length of notes field
-pub const MAX_NOTES_LENGTH: usize = 10_000;
+pub const MAX_NOTES_LENGTH: usize = 2_000;
 
 /// Maximum number of tags allowed
-pub const MAX_TAGS: usize = 100;
+pub const MAX_TAGS: usize = 10;
 
 /// Maximum length of a single tag
-pub const MAX_TAG_LENGTH: usize = 100;
+pub const MAX_TAG_LENGTH: usize = 32;
 
 /// One day in seconds (used for time calculations)
 pub const ONE_DAY_SECS: i64 = 86_400;

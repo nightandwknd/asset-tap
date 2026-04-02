@@ -16,6 +16,7 @@
 use crate::constants::files::dev_dirs;
 use crate::settings::is_dev_mode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// State filename.
@@ -90,6 +91,9 @@ pub struct AppState {
 
     /// Last selected 3D model.
     pub selected_3d_model: Option<String>,
+
+    /// Per-model parameter overrides, keyed by "{provider_id}/{model_id}".
+    pub model_parameters: HashMap<String, HashMap<String, serde_json::Value>>,
 }
 
 impl Default for AppState {
@@ -110,6 +114,7 @@ impl Default for AppState {
             selected_image_model: None,
             selected_3d_provider: None,
             selected_3d_model: None,
+            model_parameters: HashMap::new(),
         }
     }
 }
@@ -262,6 +267,7 @@ mod tests {
             selected_image_model: Some("nano-banana-2".to_string()),
             selected_3d_provider: Some("fal.ai".to_string()),
             selected_3d_model: Some("trellis-2".to_string()),
+            model_parameters: HashMap::new(),
         };
 
         let json = serde_json::to_string(&state).unwrap();

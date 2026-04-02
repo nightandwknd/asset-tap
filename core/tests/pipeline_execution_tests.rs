@@ -5,7 +5,7 @@
 
 use asset_tap_core::{
     constants::{files::bundle as bundle_files, http::env},
-    pipeline::{run_pipeline, PipelineConfig},
+    pipeline::{PipelineConfig, run_pipeline},
     providers::ProviderRegistry,
 };
 use std::path::PathBuf;
@@ -17,14 +17,18 @@ use tempfile::TempDir;
 
 /// Set up test environment with mock mode enabled.
 fn setup_mock_env() -> TempDir {
-    std::env::set_var(env::MOCK_API, "1");
-    std::env::set_var("FAL_KEY", "test-key-for-mock-mode");
+    unsafe {
+        std::env::set_var(env::MOCK_API, "1");
+        std::env::set_var("FAL_KEY", "test-key-for-mock-mode");
+    }
     TempDir::new().expect("Failed to create temp directory")
 }
 
 fn cleanup_mock_env() {
-    std::env::remove_var(env::MOCK_API);
-    std::env::remove_var("FAL_KEY");
+    unsafe {
+        std::env::remove_var(env::MOCK_API);
+        std::env::remove_var("FAL_KEY");
+    }
 }
 
 // =============================================================================
@@ -375,8 +379,10 @@ async fn test_multiple_pipelines_concurrent() {
 #[tokio::test]
 async fn test_pipeline_without_providers() {
     // Ensure mock mode is OFF so providers aren't auto-configured with fake keys
-    std::env::remove_var(env::MOCK_API);
-    std::env::remove_var("FAL_KEY");
+    unsafe {
+        std::env::remove_var(env::MOCK_API);
+        std::env::remove_var("FAL_KEY");
+    }
 
     let temp_dir = TempDir::new().unwrap();
 

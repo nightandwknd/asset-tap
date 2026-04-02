@@ -13,7 +13,64 @@ pub mod template_editor;
 pub mod walkthrough;
 pub mod welcome_modal;
 
+use eframe::egui;
 use std::path::Path;
+
+/// Behavior when the user clicks outside a modal backdrop.
+pub enum BackdropClick {
+    /// Clicking outside closes the modal.
+    Close,
+    /// Clicking outside closes the modal only if the condition is true.
+    CloseIf(bool),
+    /// Clicking outside does nothing (user must interact with the modal).
+    Block,
+}
+
+/// Render a semi-transparent modal backdrop that covers the entire screen.
+///
+/// Returns `true` if the user clicked outside (and the backdrop is configured to close).
+/// Use this before rendering the modal window itself.
+pub fn modal_backdrop(ctx: &egui::Context, id: &str, alpha: u8, click: BackdropClick) -> bool {
+    let mut clicked_outside = false;
+
+    egui::Area::new(egui::Id::new(id))
+        .fixed_pos(egui::pos2(0.0, 0.0))
+        .order(egui::Order::Background)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.content_rect();
+
+            match click {
+                BackdropClick::Close => {
+                    if ui
+                        .allocate_response(screen_rect.size(), egui::Sense::click())
+                        .clicked()
+                    {
+                        clicked_outside = true;
+                    }
+                }
+                BackdropClick::CloseIf(can_close) => {
+                    if can_close {
+                        if ui
+                            .allocate_response(screen_rect.size(), egui::Sense::click())
+                            .clicked()
+                        {
+                            clicked_outside = true;
+                        }
+                    } else {
+                        ui.allocate_response(screen_rect.size(), egui::Sense::hover());
+                    }
+                }
+                BackdropClick::Block => {
+                    ui.allocate_response(screen_rect.size(), egui::Sense::hover());
+                }
+            }
+
+            ui.painter()
+                .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(alpha));
+        });
+
+    clicked_outside
+}
 
 /// Convert a file path to a properly formatted file:// URI.
 ///

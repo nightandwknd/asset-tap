@@ -24,8 +24,11 @@ output/
   "name": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
   "created_at": "2024-12-29T15:30:45Z",
 
+  "generator": "asset-tap/26.3.6",
+
   "config": {
     "prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+    "user_prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
     "image_model": "nano-banana-2",
     "model_3d": "trellis-2",
     "provider": "fal.ai",
@@ -81,11 +84,17 @@ output/
 
 ## Metadata Fields
 
+### generator
+
+Identifies which application and version created this bundle (e.g. `"asset-tap/26.3.6"`). Useful for tracking, metrics, and certifying bundle origin. Omitted for bundles created before this field was added.
+
 ### config
 
 Generation configuration:
 
-- `prompt` - User's text prompt
+- `prompt` - Text prompt sent to the API (after template expansion, if any)
+- `user_prompt` - Original user input before template expansion (omitted when no template was used)
+- `template` - Template name used for prompt expansion (omitted when no template was used)
 - `image_model` - Image generation model used
 - `model_3d` - 3D generation model used
 - `provider` - Provider ID (from provider config)

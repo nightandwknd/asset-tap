@@ -11,15 +11,16 @@ use asset_tap_core::{
     },
     convert::{convert_existing_models, convert_glb_to_fbx, is_blender_available},
     format_progress,
-    pipeline::{run_pipeline, PipelineConfig},
+    pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
-    providers::{ProviderCapability, ProviderRegistry},
+    providers::{ParameterType, ProviderCapability, ProviderRegistry},
     settings::{get_output_dir, is_dev_mode},
     templates::{apply_template, list_templates},
     types::Progress,
 };
 
 use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -100,13 +101,21 @@ struct Cli {
     #[arg(long)]
     approve: bool,
 
-    /// Export a bundle directory as a zip archive
+    /// Set a custom name for the generated bundle (or name an existing bundle with --export-bundle)
+    #[arg(short = 'n', long, value_name = "NAME")]
+    name: Option<String>,
+
+    /// Export a bundle directory as a zip archive (requires --name if bundle is unnamed)
     #[arg(long, value_name = "BUNDLE_DIR")]
     export_bundle: Option<PathBuf>,
 
     /// Convert a specific GLB file or bundle directory to FBX (requires Blender)
     #[arg(long, value_name = "PATH")]
     convert_fbx: Option<PathBuf>,
+
+    /// Set model parameter overrides (repeatable, e.g. --param guidance_scale=7.0 --param topology=quad)
+    #[arg(long = "param", value_name = "KEY=VALUE")]
+    params: Vec<String>,
 }
 
 /// Print ASCII art banner
@@ -131,9 +140,12 @@ fn main() -> anyhow::Result<()> {
     // Set mock env vars before tokio runtime starts (thread-safe)
     #[cfg(feature = "mock")]
     if cli.mock {
-        std::env::set_var(env::MOCK_API, "1");
-        if cli.mock_delay {
-            std::env::set_var(env::MOCK_DELAY, "1");
+        // SAFETY: Called before tokio runtime starts — single-threaded, no concurrent env reads.
+        unsafe {
+            std::env::set_var(env::MOCK_API, "1");
+            if cli.mock_delay {
+                std::env::set_var(env::MOCK_DELAY, "1");
+            }
         }
     }
 
@@ -163,7 +175,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     // Handle --export-bundle flag (no registry needed)
     if let Some(ref bundle_dir) = cli.export_bundle {
-        return handle_export_bundle(bundle_dir, &cli.output);
+        return handle_export_bundle(bundle_dir, &cli.output, cli.name.as_deref());
     }
 
     // Handle --convert-fbx flag (no registry needed)
@@ -215,6 +227,36 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Validate required settings
     validate_requirements(&config, &settings, &registry)?;
 
+    // Parse and validate --param overrides
+    if !cli.params.is_empty() {
+        let parsed = parse_param_values(&cli.params)?;
+
+        // Resolve effective model IDs for validation
+        let effective_image_model = config
+            .image_model
+            .clone()
+            .or_else(|| get_default_text_to_image_model(&registry));
+        let effective_3d_model = if config.model_3d.is_empty() {
+            get_default_image_to_3d_model(&registry).unwrap_or_default()
+        } else {
+            config.model_3d.clone()
+        };
+
+        let (image_params, model_3d_params) = route_params(
+            &parsed,
+            &registry,
+            effective_image_model.as_deref(),
+            &effective_3d_model,
+        )?;
+
+        if !image_params.is_empty() {
+            config = config.with_image_model_params(image_params);
+        }
+        if !model_3d_params.is_empty() {
+            config = config.with_3d_model_params(model_3d_params);
+        }
+    }
+
     // Seed demo bundles for new installs
     asset_tap_core::ensure_default_bundles_exist(&settings.output_dir);
     // Enable approval if: --approve flag OR settings require it (but not in auto-confirm mode)
@@ -245,28 +287,214 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Pipeline task failed: {}", e))??;
 
+    // Apply --name to the generated bundle
+    if let Some(ref name) = cli.name
+        && let Some(ref dir) = output.output_dir
+    {
+        match asset_tap_core::bundle::load_bundle(dir) {
+            Ok(mut bundle) => {
+                if let Err(e) = bundle.rename(name.clone()) {
+                    tracing::warn!("Failed to set bundle name: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!("Failed to load bundle for naming: {}", e),
+        }
+    }
+
     // Print summary
     print_summary(&output);
 
     Ok(())
 }
 
+/// Parse `KEY=VALUE` strings into a JSON value map.
+///
+/// Values are parsed as: booleans ("true"/"false"), integers, floats, or strings.
+fn parse_param_values(raw: &[String]) -> anyhow::Result<HashMap<String, serde_json::Value>> {
+    let mut map = HashMap::new();
+    for entry in raw {
+        let (key, val) = entry.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("Invalid --param format: '{}' (expected KEY=VALUE)", entry)
+        })?;
+        let key = key.trim().to_string();
+        let val = val.trim();
+        if key.is_empty() {
+            anyhow::bail!("Empty parameter name in --param '{}'", entry);
+        }
+        let json_val = match val {
+            "true" => serde_json::Value::Bool(true),
+            "false" => serde_json::Value::Bool(false),
+            _ => {
+                if let Ok(i) = val.parse::<i64>() {
+                    serde_json::json!(i)
+                } else if let Ok(f) = val.parse::<f64>() {
+                    if !f.is_finite() {
+                        anyhow::bail!(
+                            "Invalid parameter value for '{}': must be a finite number, got '{}'",
+                            key,
+                            val
+                        );
+                    }
+                    serde_json::json!(f)
+                } else {
+                    serde_json::Value::String(val.to_string())
+                }
+            }
+        };
+        map.insert(key, json_val);
+    }
+    Ok(map)
+}
+
+/// Coerce a parsed JSON value to match the declared parameter type.
+///
+/// For example, `--param guidance_scale=7` parses as integer but the model
+/// declares it as `float` — this converts `7` to `7.0` so the API gets the
+/// expected type.
+fn coerce_param_value(
+    key: &str,
+    value: &serde_json::Value,
+    expected: &ParameterType,
+) -> anyhow::Result<serde_json::Value> {
+    match expected {
+        ParameterType::Float => match value {
+            serde_json::Value::Number(n) => {
+                let f = n.as_f64().ok_or_else(|| {
+                    anyhow::anyhow!("Parameter '{}' expects a float, got '{}'", key, value)
+                })?;
+                Ok(serde_json::json!(f))
+            }
+            _ => anyhow::bail!("Parameter '{}' expects a float, got '{}'", key, value),
+        },
+        ParameterType::Integer => match value {
+            serde_json::Value::Number(n) => {
+                let i = n.as_i64().ok_or_else(|| {
+                    anyhow::anyhow!("Parameter '{}' expects an integer, got '{}'", key, value)
+                })?;
+                Ok(serde_json::json!(i))
+            }
+            _ => anyhow::bail!("Parameter '{}' expects an integer, got '{}'", key, value),
+        },
+        ParameterType::Boolean => match value {
+            serde_json::Value::Bool(_) => Ok(value.clone()),
+            _ => anyhow::bail!("Parameter '{}' expects true/false, got '{}'", key, value),
+        },
+        ParameterType::String | ParameterType::Select => match value {
+            serde_json::Value::String(_) => Ok(value.clone()),
+            _ => anyhow::bail!("Parameter '{}' expects a string, got '{}'", key, value),
+        },
+    }
+}
+
+/// Validate, coerce, and route parsed parameters to image and/or 3D models.
+///
+/// Each parameter must be declared by at least one of the two active models.
+/// Values are coerced to match the declared type (e.g., integer → float).
+/// Returns `(image_params, model_3d_params)`.
+fn route_params(
+    params: &HashMap<String, serde_json::Value>,
+    registry: &ProviderRegistry,
+    image_model_id: Option<&str>,
+    model_3d_id: &str,
+) -> anyhow::Result<(
+    HashMap<String, serde_json::Value>,
+    HashMap<String, serde_json::Value>,
+)> {
+    if params.is_empty() {
+        return Ok((HashMap::new(), HashMap::new()));
+    }
+
+    let providers = registry.list_all();
+
+    // Look up full model info (with parameter defs) for each active model
+    let image_model =
+        image_model_id.and_then(|id| providers.iter().find_map(|p| p.get_model(id).ok()));
+
+    let model_3d = if model_3d_id.is_empty() {
+        None
+    } else {
+        providers.iter().find_map(|p| p.get_model(model_3d_id).ok())
+    };
+
+    // Build name → ParameterDef lookup for each model
+    let image_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = image_model
+        .as_ref()
+        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
+        .unwrap_or_default();
+
+    let model_3d_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = model_3d
+        .as_ref()
+        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
+        .unwrap_or_default();
+
+    let mut image_params = HashMap::new();
+    let mut model_3d_params = HashMap::new();
+
+    for (key, value) in params {
+        let in_image = image_param_defs.get(key.as_str());
+        let in_3d = model_3d_param_defs.get(key.as_str());
+
+        match (in_image, in_3d) {
+            (Some(def), None) => {
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                image_params.insert(key.clone(), coerced);
+            }
+            (None, Some(def)) => {
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                model_3d_params.insert(key.clone(), coerced);
+            }
+            (Some(_), Some(def)) => {
+                eprintln!(
+                    "  ⚠️  Parameter '{}' is declared by both image and 3D models; routing to 3D model",
+                    key
+                );
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                model_3d_params.insert(key.clone(), coerced);
+            }
+            (None, None) => {
+                let mut valid: Vec<&str> = image_param_defs
+                    .keys()
+                    .chain(model_3d_param_defs.keys())
+                    .copied()
+                    .collect();
+                valid.sort();
+                valid.dedup();
+
+                let valid_list = if valid.is_empty() {
+                    "  (none — selected models have no tunable parameters)".to_string()
+                } else {
+                    valid
+                        .iter()
+                        .map(|p| format!("  - {}", p))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+
+                anyhow::bail!(
+                    "Unknown parameter '{}' for the selected models.\n\n\
+                     Valid parameters:\n{}",
+                    key,
+                    valid_list
+                );
+            }
+        }
+    }
+
+    Ok((image_params, model_3d_params))
+}
+
 fn build_config(
     cli: &Cli,
     settings: &asset_tap_core::settings::Settings,
 ) -> anyhow::Result<PipelineConfig> {
-    // Get prompt (apply template if specified)
-    let prompt = match (&cli.prompt, &cli.template) {
-        (Some(p), Some(t)) => {
-            apply_template(t, p).ok_or_else(|| anyhow::anyhow!("Unknown template: {}", t))?
-        }
-        (Some(p), None) => p.clone(),
-        (None, _) if cli.image.is_some() => String::new(), // No prompt needed if using existing image
+    // Get user input and expand template if specified
+    let user_input = match (&cli.prompt, &cli.template) {
+        (Some(p), _) => p.trim().to_string(),
+        (None, _) if cli.image.is_some() => String::new(),
         (None, _) if cli.yes => {
             anyhow::bail!("Prompt required in non-interactive mode (-y)")
         }
         (None, _) => {
-            // Interactive prompt
             print!("Describe what you want to create: ");
             io::stdout().flush()?;
             let mut input = String::new();
@@ -275,7 +503,11 @@ fn build_config(
         }
     };
 
-    let prompt = prompt.trim().to_string();
+    let prompt = if let Some(ref t) = cli.template {
+        apply_template(t, &user_input).ok_or_else(|| anyhow::anyhow!("Unknown template: {}", t))?
+    } else {
+        user_input.clone()
+    };
 
     // Determine output directory: --output flag > settings/dev mode default
     let output_dir = cli.output.clone().unwrap_or_else(get_output_dir);
@@ -295,7 +527,14 @@ fn build_config(
         config = config.with_existing_image(image);
     } else {
         if !prompt.is_empty() {
-            config = config.with_prompt(prompt);
+            config = config.with_prompt(&prompt);
+        }
+        // Store original user input and template name when a template was used
+        if let Some(ref t) = cli.template {
+            if !user_input.is_empty() {
+                config = config.with_user_prompt(&user_input);
+            }
+            config = config.with_template(t);
         }
         if let Some(ref model) = cli.image_model {
             config = config.with_image_model(model);
@@ -317,10 +556,10 @@ fn build_config(
     }
 
     // Apply custom Blender path from settings
-    if let Some(ref blender) = settings.blender_path {
-        if !blender.is_empty() {
-            config = config.with_blender_path(blender);
-        }
+    if let Some(ref blender) = settings.blender_path
+        && !blender.is_empty()
+    {
+        config = config.with_blender_path(blender);
     }
 
     Ok(config)
@@ -342,10 +581,10 @@ fn validate_requirements(
     }
 
     // Validate output directory is not empty
-    if let Some(ref dir) = config.output_dir {
-        if dir.as_os_str().is_empty() {
-            anyhow::bail!("Output directory cannot be empty");
-        }
+    if let Some(ref dir) = config.output_dir
+        && dir.as_os_str().is_empty()
+    {
+        anyhow::bail!("Output directory cannot be empty");
     }
 
     // Validate API key is available (check environment) - skip in mock mode
@@ -365,10 +604,10 @@ fn validate_requirements(
                     env_vars.push(var.clone());
                 }
             }
-            if let Some(url) = &meta.api_key_url {
-                if !key_urls.contains(url) {
-                    key_urls.push(url.clone());
-                }
+            if let Some(url) = &meta.api_key_url
+                && !key_urls.contains(url)
+            {
+                key_urls.push(url.clone());
             }
         }
         let env_list = env_vars.join(", ");
@@ -412,6 +651,7 @@ fn handle_convert_webp(output_override: &Option<PathBuf>) -> anyhow::Result<()> 
 fn handle_export_bundle(
     bundle_dir: &PathBuf,
     output_override: &Option<PathBuf>,
+    name: Option<&str>,
 ) -> anyhow::Result<()> {
     use asset_tap_core::bundle::{export_bundle_zip, load_bundle};
 
@@ -426,18 +666,27 @@ fn handle_export_bundle(
         anyhow::bail!("Bundle directory not found: {}", bundle_path.display());
     }
 
-    // Determine default zip filename from bundle display name
-    let default_name = match load_bundle(&bundle_path) {
-        Ok(bundle) => bundle.display_name().to_string(),
-        Err(_) => bundle_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("bundle")
-            .to_string(),
-    };
+    // Load bundle and apply --name if provided
+    let mut bundle = load_bundle(&bundle_path)?;
+    if let Some(name) = name {
+        bundle
+            .rename(name.to_string())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        println!("  Bundle named: {}", name);
+    }
+
+    // Require a name before export
+    if bundle.metadata.name.is_none() {
+        anyhow::bail!(
+            "Bundle has no name. Use --name to set one:\n  \
+             asset-tap --export-bundle {} --name \"My Asset\"",
+            bundle_dir.display()
+        );
+    }
+    let default_name = bundle.display_name().to_string();
 
     // Determine output path
-    let dest = if let Some(ref out) = output_override {
+    let dest = if let Some(out) = output_override {
         if out.extension().and_then(|e| e.to_str()) == Some("zip") {
             out.clone()
         } else {

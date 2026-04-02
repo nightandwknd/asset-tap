@@ -1,6 +1,7 @@
 //! Tests for dynamic model discovery system.
 
 use asset_tap_core::providers::{
+    ProviderCapability, ProviderConfig,
     config::{
         DiscoveryConfig, DiscoveryEndpoint, DiscoveryFieldMapping, HttpMethod,
         ProviderMetadataConfig, RequestTemplate, ResponseTemplate, ResponseType,
@@ -8,7 +9,6 @@ use asset_tap_core::providers::{
     discovery::ModelDiscoveryClient,
     discovery_cache::DiscoveryCache,
     openapi::OpenApiParser,
-    ProviderCapability, ProviderConfig,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -292,17 +292,21 @@ fn test_discovery_cache_invalidate() {
     );
 
     // Verify it's there
-    assert!(cache
-        .get("test-provider", ProviderCapability::TextToImage)
-        .is_some());
+    assert!(
+        cache
+            .get("test-provider", ProviderCapability::TextToImage)
+            .is_some()
+    );
 
     // Invalidate
     cache.invalidate("test-provider", ProviderCapability::TextToImage);
 
     // Should be gone
-    assert!(cache
-        .get("test-provider", ProviderCapability::TextToImage)
-        .is_none());
+    assert!(
+        cache
+            .get("test-provider", ProviderCapability::TextToImage)
+            .is_none()
+    );
 }
 
 #[test]
@@ -428,6 +432,7 @@ fn create_test_model(id: &str) -> asset_tap_core::providers::config::ModelConfig
         },
         is_default: false,
         cost_per_run: None,
+        parameters: vec![],
     }
 }
 

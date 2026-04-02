@@ -359,6 +359,40 @@ else
 fi
 echo "" | tee -a "$LOG_FILE"
 
+echo "=== 14. PARAMETER OVERRIDE TESTS ===" | tee -a "$LOG_FILE"
+
+run_test "Param: float override (guidance_scale)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7.0 'test'" 0
+
+run_test "Param: integer override (num_inference_steps)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param num_inference_steps=10 'test'" 0
+
+run_test "Param: multiple params" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7.0 --param num_inference_steps=10 'test'" 0
+
+run_test "Param: 3D model select param (topology=quad)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad 'test'" 0
+
+run_test "Param: 3D model boolean param (enable_pbr=false)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param enable_pbr=false 'test'" 0
+
+run_test "Param: integer coerced to float for float param" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7 'test'" 0
+
+run_test "Param: invalid param name (should fail)" \
+    "$CLI --mock -y --no-fbx --param totally_fake=42 'test'" 1
+
+run_test "Param: malformed format without equals (should fail)" \
+    "$CLI --mock -y --no-fbx --param 'no_equals_sign' 'test'" 1
+
+run_test "Param: type mismatch string for float param (should fail)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=high 'test'" 1
+
+run_test "Param: NaN rejected (should fail)" \
+    "$CLI --mock -y --no-fbx --param guidance_scale=NaN 'test'" 1
+
+echo "" | tee -a "$LOG_FILE"
+
 echo "" | tee -a "$LOG_FILE"
 echo "======================================" | tee -a "$LOG_FILE"
 echo "TEST SUMMARY" | tee -a "$LOG_FILE"

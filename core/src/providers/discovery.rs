@@ -85,17 +85,17 @@ impl ModelDiscoveryClient {
         }
 
         // Add schema expansion parameter if enabled
-        if endpoint.fetch_schemas {
-            if let Some(param) = &endpoint.schema_expand_param {
-                request = request.query(&[(param.as_str(), "openapi-3.0")]);
-            }
+        if endpoint.fetch_schemas
+            && let Some(param) = &endpoint.schema_expand_param
+        {
+            request = request.query(&[(param.as_str(), "openapi-3.0")]);
         }
 
         // Add authentication if required
-        if discovery.require_auth {
-            if let Some(auth_value) = self.config.format_auth_header() {
-                request = request.header(headers::AUTHORIZATION, auth_value);
-            }
+        if discovery.require_auth
+            && let Some(auth_value) = self.config.format_auth_header()
+        {
+            request = request.header(headers::AUTHORIZATION, auth_value);
         }
 
         // Execute request
@@ -243,6 +243,7 @@ impl ModelDiscoveryClient {
             },
             is_default: false,
             cost_per_run: None,
+            parameters: vec![],
         })
     }
 
@@ -283,17 +284,15 @@ impl ModelDiscoveryClient {
         // Filter by status if configured
         if let (Some(status_field), Some(active_value)) =
             (&mapping.status_field, &mapping.active_status_value)
+            && let Some(status) = Self::extract_field(data, status_field).and_then(|v| v.as_str())
+            && status != active_value
         {
-            if let Some(status) = Self::extract_field(data, status_field).and_then(|v| v.as_str()) {
-                if status != active_value {
-                    return Err(anyhow::anyhow!(
-                        "Model '{}' has status '{}' (expected '{}')",
-                        id,
-                        status,
-                        active_value
-                    ));
-                }
-            }
+            return Err(anyhow::anyhow!(
+                "Model '{}' has status '{}' (expected '{}')",
+                id,
+                status,
+                active_value
+            ));
         }
 
         // Extract optional description
@@ -305,26 +304,25 @@ impl ModelDiscoveryClient {
             .map(|s| s.to_string());
 
         // Try to generate ModelConfig from OpenAPI schema if available
-        if endpoint.fetch_schemas {
-            if let Some(openapi_field) = &mapping.openapi_field {
-                if let Some(openapi) = Self::extract_field(data, openapi_field) {
-                    match OpenApiParser::parse_model(
-                        id.clone(),
-                        name.clone(),
-                        description.clone(),
-                        openapi,
-                        self.config.provider.base_url.as_deref().unwrap_or_default(),
-                    ) {
-                        Ok(model) => return Ok(model),
-                        Err(e) => {
-                            tracing::debug!(
-                                "Failed to parse OpenAPI for model '{}': {}. Falling back to basic template.",
-                                id,
-                                e
-                            );
-                            // Continue to fallback below
-                        }
-                    }
+        if endpoint.fetch_schemas
+            && let Some(openapi_field) = &mapping.openapi_field
+            && let Some(openapi) = Self::extract_field(data, openapi_field)
+        {
+            match OpenApiParser::parse_model(
+                id.clone(),
+                name.clone(),
+                description.clone(),
+                openapi,
+                self.config.provider.base_url.as_deref().unwrap_or_default(),
+            ) {
+                Ok(model) => return Ok(model),
+                Err(e) => {
+                    tracing::debug!(
+                        "Failed to parse OpenAPI for model '{}': {}. Falling back to basic template.",
+                        id,
+                        e
+                    );
+                    // Continue to fallback below
                 }
             }
         }

@@ -3,7 +3,7 @@
 use crate::icons;
 use crate::style::RichTextExt;
 use asset_tap_core::convert::find_blender;
-use asset_tap_core::settings::{is_dev_mode, settings_file_path, Settings};
+use asset_tap_core::settings::{Settings, is_dev_mode, settings_file_path};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -143,37 +143,26 @@ impl SettingsModal {
         }
 
         // Auto-clear status messages after 3 seconds
-        if let Some((_, _, timestamp)) = &self.status_message {
-            if timestamp.elapsed().as_secs() >= 3 {
-                self.status_message = None;
-            }
+        if let Some((_, _, timestamp)) = &self.status_message
+            && timestamp.elapsed().as_secs() >= 3
+        {
+            self.status_message = None;
         }
 
         let mut saved = false;
         let mut should_close = false;
         let mut clicked_cancel = false;
 
-        // Draw backdrop (click outside to close and discard changes)
-        egui::Area::new(egui::Id::new("settings_backdrop"))
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.content_rect();
-
-                // Allow clicking outside only if output directory is set (required field)
-                let can_close = !self.draft.output_dir.is_empty();
-                if can_close {
-                    let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
-                    if response.clicked() {
-                        should_close = true;
-                    }
-                } else {
-                    ui.allocate_response(screen_rect.size(), egui::Sense::hover());
-                }
-
-                ui.painter()
-                    .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(180));
-            });
+        // Draw backdrop (click outside to close only if output directory is set)
+        let can_close = !self.draft.output_dir.is_empty();
+        if super::modal_backdrop(
+            ctx,
+            "settings_backdrop",
+            180,
+            super::BackdropClick::CloseIf(can_close),
+        ) {
+            should_close = true;
+        }
 
         // Modal window
         egui::Window::new(format!("{} Settings", icons::GEAR))
@@ -219,14 +208,13 @@ impl SettingsModal {
                                     .desired_width(380.0)
                                     .hint_text("Where generated assets are saved"),
                             );
-                            if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse for output directory").clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
+                            if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse for output directory").clicked()
+                                && let Some(path) = rfd::FileDialog::new()
                                     .set_directory(&self.draft.output_dir)
                                     .pick_folder()
                                 {
                                     self.draft.output_dir = path.display().to_string();
                                 }
-                            }
                         });
 
                         ui.add_space(4.0);
@@ -253,22 +241,20 @@ impl SettingsModal {
                                     .desired_width(380.0)
                                     .hint_text(hint),
                             );
-                            if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse for Blender executable").clicked() {
-                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse for Blender executable").clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_file() {
                                     self.draft.blender_path = path.display().to_string();
                                 }
-                            }
                         });
 
-                        if let Some(ref detected) = self.draft.blender_auto_detected {
-                            if self.draft.blender_path.is_empty() {
+                        if let Some(ref detected) = self.draft.blender_auto_detected
+                            && self.draft.blender_path.is_empty() {
                                 ui.label(
                                     egui::RichText::new(format!("Using: {}", detected))
                                         .small()
                                         .color(egui::Color32::from_rgb(100, 200, 100)),
                                 );
                             }
-                        }
 
                         ui.add_space(8.0);
                         ui.separator();
@@ -499,11 +485,9 @@ impl SettingsModal {
                                 .link(egui::RichText::new(&path_str).small())
                                 .on_hover_text("Open settings file location")
                                 .clicked()
-                            {
-                                if let Some(parent) = path.parent() {
+                                && let Some(parent) = path.parent() {
                                     crate::app::open_with_system(parent, None);
                                 }
-                            }
                         });
 
                         // =============================================================

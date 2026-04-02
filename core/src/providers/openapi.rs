@@ -51,6 +51,7 @@ impl OpenApiParser {
             response,
             is_default: false,
             cost_per_run: None,
+            parameters: vec![],
         })
     }
 
@@ -77,10 +78,10 @@ impl OpenApiParser {
         // Handle allOf with a single $ref (common fal.ai pattern for File references)
         if let Some(all_of) = schema.get("allOf").and_then(|a| a.as_array()) {
             for item in all_of {
-                if let Some(ref_path) = item.get("$ref").and_then(|r| r.as_str()) {
-                    if let Some(resolved) = Self::resolve_ref(openapi, ref_path) {
-                        return resolved;
-                    }
+                if let Some(ref_path) = item.get("$ref").and_then(|r| r.as_str())
+                    && let Some(resolved) = Self::resolve_ref(openapi, ref_path)
+                {
+                    return resolved;
                 }
             }
         }
@@ -113,19 +114,20 @@ impl OpenApiParser {
 
         for (path, methods) in paths_obj.iter() {
             // Match: /requests/{request_id} but NOT /status or /cancel
-            if path.contains("/requests/") && !path.contains("/status") && !path.contains("/cancel")
+            if path.contains("/requests/")
+                && !path.contains("/status")
+                && !path.contains("/cancel")
+                && let Some(get_op) = methods.get("get")
             {
-                if let Some(get_op) = methods.get("get") {
-                    // Extract response schema: responses -> 200 -> content -> application/json -> schema
-                    let schema = get_op
-                        .get("responses")
-                        .and_then(|r| r.get("200"))
-                        .and_then(|r| r.get("content"))
-                        .and_then(|c| c.get("application/json"))
-                        .and_then(|aj| aj.get("schema"))?;
+                // Extract response schema: responses -> 200 -> content -> application/json -> schema
+                let schema = get_op
+                    .get("responses")
+                    .and_then(|r| r.get("200"))
+                    .and_then(|r| r.get("content"))
+                    .and_then(|c| c.get("application/json"))
+                    .and_then(|aj| aj.get("schema"))?;
 
-                    return Some(Self::resolve_schema(openapi, schema));
-                }
+                return Some(Self::resolve_schema(openapi, schema));
             }
         }
 
@@ -166,12 +168,12 @@ impl OpenApiParser {
         // Priority 3: `model_urls.glb` (alternative 3D model format)
         if let Some(urls_prop) = properties.get("model_urls") {
             let resolved = Self::resolve_schema(openapi, urls_prop);
-            if let Some(inner_props) = resolved.get("properties").and_then(|p| p.as_object()) {
-                if let Some(glb_prop) = inner_props.get("glb") {
-                    let glb_resolved = Self::resolve_schema(openapi, glb_prop);
-                    if Self::has_url_property(glb_resolved, openapi) {
-                        return Some("model_urls.glb.url".to_string());
-                    }
+            if let Some(inner_props) = resolved.get("properties").and_then(|p| p.as_object())
+                && let Some(glb_prop) = inner_props.get("glb")
+            {
+                let glb_resolved = Self::resolve_schema(openapi, glb_prop);
+                if Self::has_url_property(glb_resolved, openapi) {
+                    return Some("model_urls.glb.url".to_string());
                 }
             }
         }
@@ -215,12 +217,12 @@ impl OpenApiParser {
             let resolved = Self::resolve_schema(openapi, prop);
 
             // Check if it's an array of File-like objects
-            if resolved.get("type").and_then(|t| t.as_str()) == Some("array") {
-                if let Some(items) = resolved.get("items") {
-                    let items_resolved = Self::resolve_schema(openapi, items);
-                    if Self::has_url_property(items_resolved, openapi) {
-                        return Some(format!("{}[0].url", key));
-                    }
+            if resolved.get("type").and_then(|t| t.as_str()) == Some("array")
+                && let Some(items) = resolved.get("items")
+            {
+                let items_resolved = Self::resolve_schema(openapi, items);
+                if Self::has_url_property(items_resolved, openapi) {
+                    return Some(format!("{}[0].url", key));
                 }
             }
 

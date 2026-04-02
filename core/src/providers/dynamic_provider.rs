@@ -295,41 +295,41 @@ impl DynamicProvider {
         };
 
         // Also override upload endpoint if it's an absolute URL
-        if let Some(ref mut upload) = config.provider.upload {
-            if upload.endpoint.starts_with("http://") || upload.endpoint.starts_with("https://") {
-                let path = extract_path(&upload.endpoint);
-                tracing::debug!(
-                    "Overriding upload endpoint from {} to {}",
-                    upload.endpoint,
-                    path
-                );
-                upload.endpoint = path;
-            }
+        if let Some(ref mut upload) = config.provider.upload
+            && (upload.endpoint.starts_with("http://") || upload.endpoint.starts_with("https://"))
+        {
+            let path = extract_path(&upload.endpoint);
+            tracing::debug!(
+                "Overriding upload endpoint from {} to {}",
+                upload.endpoint,
+                path
+            );
+            upload.endpoint = path;
         }
 
         // Also override discovery endpoints if they're absolute URLs
         if let Some(ref mut discovery) = config.provider.discovery {
-            if let Some(ref mut tti) = discovery.text_to_image {
-                if tti.endpoint.starts_with("http://") || tti.endpoint.starts_with("https://") {
-                    let path = extract_path(&tti.endpoint);
-                    tracing::debug!(
-                        "Overriding text_to_image discovery endpoint from {} to {}",
-                        tti.endpoint,
-                        path
-                    );
-                    tti.endpoint = path;
-                }
+            if let Some(ref mut tti) = discovery.text_to_image
+                && (tti.endpoint.starts_with("http://") || tti.endpoint.starts_with("https://"))
+            {
+                let path = extract_path(&tti.endpoint);
+                tracing::debug!(
+                    "Overriding text_to_image discovery endpoint from {} to {}",
+                    tti.endpoint,
+                    path
+                );
+                tti.endpoint = path;
             }
-            if let Some(ref mut i3d) = discovery.image_to_3d {
-                if i3d.endpoint.starts_with("http://") || i3d.endpoint.starts_with("https://") {
-                    let path = extract_path(&i3d.endpoint);
-                    tracing::debug!(
-                        "Overriding image_to_3d discovery endpoint from {} to {}",
-                        i3d.endpoint,
-                        path
-                    );
-                    i3d.endpoint = path;
-                }
+            if let Some(ref mut i3d) = discovery.image_to_3d
+                && (i3d.endpoint.starts_with("http://") || i3d.endpoint.starts_with("https://"))
+            {
+                let path = extract_path(&i3d.endpoint);
+                tracing::debug!(
+                    "Overriding image_to_3d discovery endpoint from {} to {}",
+                    i3d.endpoint,
+                    path
+                );
+                i3d.endpoint = path;
             }
         }
 
@@ -540,6 +540,7 @@ impl Provider for DynamicProvider {
                 endpoint: m.endpoint.clone(),
                 metadata: None,
                 cost_per_run: m.cost_per_run,
+                parameters: m.parameters.clone(),
             })
             .collect()
     }
@@ -548,6 +549,7 @@ impl Provider for DynamicProvider {
         &self,
         prompt: &str,
         model_id: &str,
+        params: Option<&std::collections::HashMap<String, serde_json::Value>>,
         progress_tx: Option<UnboundedSender<Progress>>,
     ) -> Result<ImageGenerationResult> {
         tracing::debug!(
@@ -565,7 +567,7 @@ impl Provider for DynamicProvider {
         let client = self.client.lock().unwrap().clone();
 
         let data = client
-            .generate_image(prompt, model_id, progress)
+            .generate_image(prompt, model_id, params, progress)
             .await
             .map_err(|e| convert_http_error(e, &self.metadata.name))?;
 
@@ -583,6 +585,7 @@ impl Provider for DynamicProvider {
         &self,
         image_data: &[u8],
         model_id: &str,
+        params: Option<&std::collections::HashMap<String, serde_json::Value>>,
         progress_tx: Option<UnboundedSender<Progress>>,
     ) -> Result<Model3DGenerationResult> {
         let model = {
@@ -618,6 +621,7 @@ impl Provider for DynamicProvider {
                 .execute_model_with_url(
                     &model,
                     &image_url,
+                    params,
                     progress_tx.ok_or_else(|| {
                         crate::types::Error::Pipeline("Progress channel required".to_string())
                     })?,
@@ -640,20 +644,19 @@ impl Provider for DynamicProvider {
                 crate::types::Error::Pipeline(format!("Failed to write temp file: {}", e))
             })?;
 
-            let result = client
+            // temp_file is automatically deleted on drop
+
+            client
                 .generate_3d(
                     temp_file.path(),
                     model_id,
+                    params,
                     progress_tx.ok_or_else(|| {
                         crate::types::Error::Pipeline("Progress channel required".to_string())
                     })?,
                 )
                 .await
-                .map_err(|e| convert_http_error(e, &self.metadata.name))?;
-
-            // temp_file is automatically deleted on drop
-
-            result
+                .map_err(|e| convert_http_error(e, &self.metadata.name))?
         };
 
         Ok(Model3DGenerationResult {
@@ -707,6 +710,7 @@ mod tests {
                 },
                 is_default: false,
                 cost_per_run: None,
+                parameters: vec![],
             }],
             image_to_3d: vec![],
         }
@@ -789,9 +793,11 @@ mod tests {
         let metadata = provider.metadata();
         assert_eq!(metadata.id, "test-provider");
         assert_eq!(metadata.required_env_vars, vec!["TEST_API_KEY"]);
-        assert!(metadata
-            .capabilities
-            .contains(&ProviderCapability::TextToImage));
+        assert!(
+            metadata
+                .capabilities
+                .contains(&ProviderCapability::TextToImage)
+        );
     }
 
     #[test]

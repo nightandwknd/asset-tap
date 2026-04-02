@@ -85,13 +85,13 @@ pub mod types;
 
 // Re-export commonly used types
 pub use bundle::{
-    ensure_default_bundles_exist, Bundle, BundleContents, BundleError, BundleMetadata,
+    Bundle, BundleContents, BundleError, BundleMetadata, ensure_default_bundles_exist,
 };
 pub use config::{list_image_to_3d_models, list_text_to_image_models};
 pub use error_log::ErrorLog;
 pub use history::{GenerationHistory, GenerationRecord, GenerationStatus};
-pub use pipeline::{run_pipeline, PipelineConfig};
-pub use progress_fmt::{format_progress, DisplayLevel, ProgressDisplay};
+pub use pipeline::{PipelineConfig, run_pipeline};
+pub use progress_fmt::{DisplayLevel, ProgressDisplay, format_progress};
 pub use settings::Settings;
 pub use state::AppState;
 pub use types::{

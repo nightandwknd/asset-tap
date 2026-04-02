@@ -204,13 +204,12 @@ pub fn convert_webp_to_png(glb_path: &Path) -> Result<Vec<u8>, String> {
             if let Some(buffers) = new_gltf_json
                 .get_mut("buffers")
                 .and_then(|v| v.as_array_mut())
+                && let Some(buffer_obj) = buffers.get_mut(0).and_then(|v| v.as_object_mut())
             {
-                if let Some(buffer_obj) = buffers.get_mut(0).and_then(|v| v.as_object_mut()) {
-                    buffer_obj.insert(
-                        "byteLength".to_string(),
-                        serde_json::json!(new_bin_data.len()),
-                    );
-                }
+                buffer_obj.insert(
+                    "byteLength".to_string(),
+                    serde_json::json!(new_bin_data.len()),
+                );
             }
 
             // Remove EXT_texture_webp from extensionsUsed and extensionsRequired
@@ -260,35 +259,31 @@ pub fn convert_webp_to_png(glb_path: &Path) -> Result<Vec<u8>, String> {
         .get("accessors")
         .and_then(|v| v.as_array())
         .cloned()
-    {
-        if let Some(buffer_views) = new_gltf_json
+        && let Some(buffer_views) = new_gltf_json
             .get_mut("bufferViews")
             .and_then(|v| v.as_array_mut())
-        {
-            // Track which buffer views are used by which accessors
-            let mut buffer_view_usage: HashMap<usize, u32> = HashMap::new();
+    {
+        // Track which buffer views are used by which accessors
+        let mut buffer_view_usage: HashMap<usize, u32> = HashMap::new();
 
-            for accessor in &accessors {
-                if let Some(buffer_view_idx) = accessor.get("bufferView").and_then(|v| v.as_u64()) {
-                    let bv_idx = buffer_view_idx as usize;
-                    let is_indices =
-                        accessor.get("type").and_then(|v| v.as_str()) == Some("SCALAR");
-                    let target = if is_indices { 34963 } else { 34962 };
-                    buffer_view_usage.insert(bv_idx, target);
-                }
+        for accessor in &accessors {
+            if let Some(buffer_view_idx) = accessor.get("bufferView").and_then(|v| v.as_u64()) {
+                let bv_idx = buffer_view_idx as usize;
+                let is_indices = accessor.get("type").and_then(|v| v.as_str()) == Some("SCALAR");
+                let target = if is_indices { 34963 } else { 34962 };
+                buffer_view_usage.insert(bv_idx, target);
             }
+        }
 
-            // Apply targets only to buffer views referenced by accessors.
-            // Buffer views used for images must NOT get a target field —
-            // adding one causes loaders to misinterpret image data as vertex data.
-            for (idx, buffer_view) in buffer_views.iter_mut().enumerate() {
-                if let Some(bv_obj) = buffer_view.as_object_mut() {
-                    if !bv_obj.contains_key("target") {
-                        if let Some(&target) = buffer_view_usage.get(&idx) {
-                            bv_obj.insert("target".to_string(), serde_json::json!(target));
-                        }
-                    }
-                }
+        // Apply targets only to buffer views referenced by accessors.
+        // Buffer views used for images must NOT get a target field —
+        // adding one causes loaders to misinterpret image data as vertex data.
+        for (idx, buffer_view) in buffer_views.iter_mut().enumerate() {
+            if let Some(bv_obj) = buffer_view.as_object_mut()
+                && !bv_obj.contains_key("target")
+                && let Some(&target) = buffer_view_usage.get(&idx)
+            {
+                bv_obj.insert("target".to_string(), serde_json::json!(target));
             }
         }
     }

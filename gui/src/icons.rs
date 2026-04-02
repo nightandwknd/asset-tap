@@ -4,9 +4,6 @@
 //! Reference: <https://phosphoricons.com/>
 
 pub use egui_phosphor::regular::{
-    ARROWS_CLOCKWISE,
-
-    ARROWS_COUNTER_CLOCKWISE,
     ARROW_COUNTER_CLOCKWISE,
     ARROW_DOWN,
     ARROW_LEFT,
@@ -14,6 +11,9 @@ pub use egui_phosphor::regular::{
     ARROW_SQUARE_OUT,
     // Navigation
     ARROW_UP,
+    ARROWS_CLOCKWISE,
+
+    ARROWS_COUNTER_CLOCKWISE,
     // UI Actions
     BOOK,
     BOOK_OPEN,
@@ -56,6 +56,7 @@ pub use egui_phosphor::regular::{
     PLAY,
     PROHIBIT,
     SPINNER,
+    STAR,
     STOP,
     TERMINAL,
     TRASH,

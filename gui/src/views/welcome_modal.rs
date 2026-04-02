@@ -75,37 +75,15 @@ impl WelcomeModal {
 
         // Semi-transparent backdrop (skip if another modal is on top to avoid double backdrop)
         if !skip_backdrop {
-            egui::Area::new(egui::Id::new("welcome_backdrop"))
-                .fixed_pos(egui::pos2(0.0, 0.0))
-                .order(egui::Order::Background)
-                .show(ctx, |ui| {
-                    let screen_rect = ctx.content_rect();
-
-                    // Allow click-outside to close only if required fields are filled
-                    let output_dir_valid = !self.output_dir.as_os_str().is_empty();
-                    if output_dir_valid {
-                        let response =
-                            ui.allocate_response(screen_rect.size(), egui::Sense::click());
-                        if response.clicked() {
-                            // Validate before allowing close via backdrop
-                            if self.output_dir.as_os_str().is_empty() {
-                                self.error_message =
-                                    Some("Output directory is required".to_string());
-                            } else {
-                                should_close = true;
-                            }
-                        }
-                    } else {
-                        ui.allocate_response(screen_rect.size(), egui::Sense::hover());
-                    }
-
-                    // Draw semi-transparent backdrop (darker for modal)
-                    ui.painter().rect_filled(
-                        screen_rect,
-                        0.0,
-                        egui::Color32::from_black_alpha(200),
-                    );
-                });
+            let can_close = !self.output_dir.as_os_str().is_empty();
+            if super::modal_backdrop(
+                ctx,
+                "welcome_backdrop",
+                200,
+                super::BackdropClick::CloseIf(can_close),
+            ) {
+                should_close = true;
+            }
         }
 
         // Modal window
@@ -161,13 +139,12 @@ impl WelcomeModal {
                         self.output_dir = PathBuf::from(&path_text);
                     }
 
-                    if ui.button(format!("{} Browse", icons::FOLDER)).clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
+                    if ui.button(format!("{} Browse", icons::FOLDER)).clicked()
+                        && let Some(path) = rfd::FileDialog::new()
                             .set_directory(&self.output_dir)
                             .pick_folder()
-                        {
-                            self.output_dir = path;
-                        }
+                    {
+                        self.output_dir = path;
                     }
                 });
 

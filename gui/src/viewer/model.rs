@@ -4,7 +4,7 @@
 //! framebuffer via PaintCallback — no GPU→CPU readback or texture re-upload.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 
 use eframe::{egui, egui_glow};
@@ -409,14 +409,14 @@ impl ModelViewer {
         let mut cpu_model = cpu_model;
         for material in &mut cpu_model.materials {
             fn fix_texture(texture: &mut Option<three_d_asset::Texture2D>) {
-                if let Some(ref mut tex) = texture {
-                    if let three_d_asset::TextureData::RgbU8(ref data) = tex.data {
-                        let rgba: Vec<[u8; 4]> = data
-                            .iter()
-                            .map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
-                            .collect();
-                        tex.data = three_d_asset::TextureData::RgbaU8(rgba);
-                    }
+                if let Some(tex) = texture
+                    && let three_d_asset::TextureData::RgbU8(data) = &tex.data
+                {
+                    let rgba: Vec<[u8; 4]> = data
+                        .iter()
+                        .map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
+                        .collect();
+                    tex.data = three_d_asset::TextureData::RgbaU8(rgba);
                 }
             }
             fix_texture(&mut material.albedo_texture);
@@ -573,10 +573,10 @@ impl ModelViewer {
             self.cached_grid = Some(Self::create_grid(&context, &self.model_bounds));
         }
 
-        if self.show_grid {
-            if let Some(ref grid) = self.cached_grid {
-                render_target.render(&camera, grid, &[]);
-            }
+        if self.show_grid
+            && let Some(ref grid) = self.cached_grid
+        {
+            render_target.render(&camera, grid, &[]);
         }
 
         // Create and cache axes
@@ -606,12 +606,12 @@ impl ModelViewer {
         }
 
         // Render axes on top
-        if self.show_axes {
-            if let Some((ref x_axis, ref y_axis, ref z_axis)) = self.cached_axes {
-                render_target.render(&camera, x_axis, &[]);
-                render_target.render(&camera, y_axis, &[]);
-                render_target.render(&camera, z_axis, &[]);
-            }
+        if self.show_axes
+            && let Some((ref x_axis, ref y_axis, ref z_axis)) = self.cached_axes
+        {
+            render_target.render(&camera, x_axis, &[]);
+            render_target.render(&camera, y_axis, &[]);
+            render_target.render(&camera, z_axis, &[]);
         }
 
         // Extract the FBO so Drop doesn't delete it — we need it for blit.
@@ -678,7 +678,7 @@ impl ModelViewer {
 
     /// Create the floor grid mesh.
     fn create_grid(context: &Context, model_bounds: &Option<LoadedModelData>) -> HelperObject {
-        let (grid_size, grid_y, center_x, center_z) = if let Some(ref bounds) = model_bounds {
+        let (grid_size, grid_y, center_x, center_z) = if let Some(bounds) = model_bounds {
             let max_extent = (bounds.bounds_max.x - bounds.bounds_min.x)
                 .max(bounds.bounds_max.y - bounds.bounds_min.y)
                 .max(bounds.bounds_max.z - bounds.bounds_min.z);
@@ -751,7 +751,7 @@ impl ModelViewer {
         context: &Context,
         model_bounds: &Option<LoadedModelData>,
     ) -> (HelperObject, HelperObject, HelperObject) {
-        let (grid_size, origin) = if let Some(ref bounds) = model_bounds {
+        let (grid_size, origin) = if let Some(bounds) = model_bounds {
             let max_extent = (bounds.bounds_max.x - bounds.bounds_min.x)
                 .max(bounds.bounds_max.y - bounds.bounds_min.y)
                 .max(bounds.bounds_max.z - bounds.bounds_min.z);

@@ -21,23 +21,14 @@ pub fn show_template_editor(ctx: &egui::Context, app: &mut App) {
     };
 
     let mut open = true;
-    let mut clicked_outside = false;
 
     // Semi-transparent backdrop that can be clicked to close
-    let modal_id = egui::Id::new("template_editor_modal");
-    egui::Area::new(modal_id.with("backdrop"))
-        .fixed_pos(egui::pos2(0.0, 0.0))
-        .order(egui::Order::Background)
-        .show(ctx, |ui| {
-            let screen_rect = ctx.content_rect();
-            let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
-            if response.clicked() {
-                clicked_outside = true;
-            }
-            // Draw semi-transparent backdrop
-            ui.painter()
-                .rect_filled(screen_rect, 0, egui::Color32::from_black_alpha(128));
-        });
+    let clicked_outside = super::modal_backdrop(
+        ctx,
+        "template_editor_backdrop",
+        128,
+        super::BackdropClick::Close,
+    );
 
     egui::Window::new(window_title)
         .open(&mut open)

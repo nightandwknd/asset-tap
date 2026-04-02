@@ -97,17 +97,18 @@ pub fn render(
         Some((cached_path, _)) => *cached_path != image_path,
         None => true,
     };
-    if needs_load && image_path.exists() {
-        if let Ok(img) = image::open(&image_path) {
-            let rgba = img.to_rgba8();
-            let (w, h) = rgba.dimensions();
-            let color_image =
-                egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw());
-            let texture =
-                ui.ctx()
-                    .load_texture("approval_image", color_image, egui::TextureOptions::LINEAR);
-            app.approval_texture = Some((image_path.clone(), texture));
-        }
+    if needs_load
+        && image_path.exists()
+        && let Ok(img) = image::open(&image_path)
+    {
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw());
+        let texture =
+            ui.ctx()
+                .load_texture("approval_image", color_image, egui::TextureOptions::LINEAR);
+        app.approval_texture = Some((image_path.clone(), texture));
     }
 
     // Image preview in scrollable area

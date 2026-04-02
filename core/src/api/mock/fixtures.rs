@@ -2,7 +2,7 @@
 
 use crate::constants::files::bundle as bundle_files;
 use crate::constants::http::mime;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Mock response fixtures for API endpoints.
 pub struct MockFixtures;

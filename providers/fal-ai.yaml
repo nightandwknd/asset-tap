@@ -4,47 +4,47 @@ config_version: 1
 
 # YAML anchors for reusable configuration blocks
 x-fal-auth: &fal-auth
-  Authorization: "Key ${FAL_KEY}"
+  Authorization: 'Key ${FAL_KEY}'
 
 x-fal-request-headers: &fal-request-headers
   <<: *fal-auth
-  Content-Type: "application/json"
+  Content-Type: 'application/json'
 
 # Standard fal.ai queue polling config
 x-fal-polling: &fal-polling
-  status_field: "status_url"
-  status_check_field: "status"
-  success_value: "COMPLETED"
-  failure_value: "FAILED"
-  response_url_field: "response_url"
-  response_envelope_field: "response"
-  poll_query_params: "?logs=1"
-  cancel_url_template: "${status_url}/cancel"
+  status_field: 'status_url'
+  status_check_field: 'status'
+  success_value: 'COMPLETED'
+  failure_value: 'FAILED'
+  response_url_field: 'response_url'
+  response_envelope_field: 'response'
+  poll_query_params: '?logs=1'
+  cancel_url_template: '${status_url}/cancel'
 
 provider:
-  id: "fal.ai"
-  name: "fal.ai"
-  description: "Fast, serverless AI model API"
+  id: 'fal.ai'
+  name: 'fal.ai'
+  description: 'Fast, serverless AI model API'
   env_vars:
-    - "FAL_KEY"
-  base_url: "https://queue.fal.run"
-  auth_format: "Key ${FAL_KEY}"
-  api_key_url: "https://fal.ai/dashboard/keys"
-  website_url: "https://fal.ai"
-  docs_url: "https://docs.fal.ai/model-apis"
+    - 'FAL_KEY'
+  base_url: 'https://queue.fal.run'
+  auth_format: 'Key ${FAL_KEY}'
+  api_key_url: 'https://fal.ai/dashboard/keys'
+  website_url: 'https://fal.ai'
+  docs_url: 'https://docs.fal.ai/model-apis'
   upload:
-    endpoint: "https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3"
+    endpoint: 'https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3'
     method: POST
     request:
       type: initiate_then_put
       headers:
         <<: *fal-request-headers
       initiate_body:
-        file_name: "image.png"
-        content_type: "image/png"
+        file_name: 'image.png'
+        content_type: 'image/png'
     response:
-      upload_url_field: "upload_url"
-      file_url_field: "file_url"
+      upload_url_field: 'upload_url'
+      file_url_field: 'file_url'
 
   # Dynamic model discovery configuration
   # Disabled for production — use static curated models below.
@@ -56,38 +56,38 @@ provider:
     timeout_secs: 30
 
     text_to_image:
-      endpoint: "https://api.fal.ai/v1/models"
+      endpoint: 'https://api.fal.ai/v1/models'
       params:
-        category: "text-to-image"
-        limit: "10"
-      models_field: "models"
+        category: 'text-to-image'
+        limit: '10'
+      models_field: 'models'
       fetch_schemas: true
-      schema_expand_param: "expand"
+      schema_expand_param: 'expand'
       field_mapping:
-        id_field: "endpoint_id"
-        name_field: "metadata.display_name"
-        description_field: "metadata.description"
-        endpoint_field: "endpoint_id"
-        status_field: "metadata.status"
-        active_status_value: "active"
-        openapi_field: "openapi"
+        id_field: 'endpoint_id'
+        name_field: 'metadata.display_name'
+        description_field: 'metadata.description'
+        endpoint_field: 'endpoint_id'
+        status_field: 'metadata.status'
+        active_status_value: 'active'
+        openapi_field: 'openapi'
 
     image_to_3d:
-      endpoint: "https://api.fal.ai/v1/models"
+      endpoint: 'https://api.fal.ai/v1/models'
       params:
-        category: "image-to-3d"
-        limit: "10"
-      models_field: "models"
+        category: 'image-to-3d'
+        limit: '10'
+      models_field: 'models'
       fetch_schemas: true
-      schema_expand_param: "expand"
+      schema_expand_param: 'expand'
       field_mapping:
-        id_field: "endpoint_id"
-        name_field: "metadata.display_name"
-        description_field: "metadata.description"
-        endpoint_field: "endpoint_id"
-        status_field: "metadata.status"
-        active_status_value: "active"
-        openapi_field: "openapi"
+        id_field: 'endpoint_id'
+        name_field: 'metadata.display_name'
+        description_field: 'metadata.description'
+        endpoint_field: 'endpoint_id'
+        status_field: 'metadata.status'
+        active_status_value: 'active'
+        openapi_field: 'openapi'
 
 # =============================================================================
 # Curated Text-to-Image Models (verified 2026-02-28)
@@ -96,117 +96,135 @@ text_to_image:
   # --- Nano Banana 2 ---
   # Gemini 3.1 Flash Image-based model. Reasoning-guided generation with
   # text rendering, character consistency, and multi-resolution output.
-  - id: "fal-ai/nano-banana-2"
-    name: "Nano Banana 2"
-    description: "Gemini 3.1 Flash Image — reasoning-guided generation with text rendering"
+  - id: 'fal-ai/nano-banana-2'
+    name: 'Nano Banana 2'
+    description: 'Gemini 3.1 Flash Image — reasoning-guided generation with text rendering'
     is_default: true
     cost_per_run: 0.08
-    endpoint: "/fal-ai/nano-banana-2"
+    endpoint: '/fal-ai/nano-banana-2'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        prompt: "${prompt}"
-        resolution: "1K"
+        prompt: '${prompt}'
+        resolution: '1K'
         num_images: 1
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "images[0].url"
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 
   # --- Nano Banana ---
   # Google Imagen 3-based model. Great quality, fast, affordable.
-  - id: "fal-ai/nano-banana"
-    name: "Nano Banana"
-    description: "Google Imagen 3-based image generation — fast and affordable"
+  - id: 'fal-ai/nano-banana'
+    name: 'Nano Banana'
+    description: 'Google Imagen 3-based image generation — fast and affordable'
     cost_per_run: 0.04
-    endpoint: "/fal-ai/nano-banana"
+    endpoint: '/fal-ai/nano-banana'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        prompt: "${prompt}"
-        image_size: "square_hd"
+        prompt: '${prompt}'
+        image_size: 'square_hd'
         num_images: 1
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "images[0].url"
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 
   # --- Nano Banana Pro ---
   # Higher quality version with aspect ratio control.
-  - id: "fal-ai/nano-banana-pro"
-    name: "Nano Banana Pro"
-    description: "Premium Google Imagen 3 — higher quality with aspect ratio control"
+  - id: 'fal-ai/nano-banana-pro'
+    name: 'Nano Banana Pro'
+    description: 'Premium Google Imagen 3 — higher quality with aspect ratio control'
     cost_per_run: 0.15
-    endpoint: "/fal-ai/nano-banana-pro"
+    endpoint: '/fal-ai/nano-banana-pro'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        prompt: "${prompt}"
-        aspect_ratio: "1:1"
+        prompt: '${prompt}'
+        aspect_ratio: '1:1'
         num_images: 1
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "images[0].url"
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 
   # --- FLUX.2 Dev ---
   # Open-source FLUX model with tunable parameters (guidance_scale, steps).
-  - id: "fal-ai/flux-2"
-    name: "FLUX.2 Dev"
-    description: "Open-source FLUX.2 with tunable guidance and steps"
+  - id: 'fal-ai/flux-2'
+    name: 'FLUX.2 Dev'
+    description: 'Open-source FLUX.2 with tunable guidance and steps'
     cost_per_run: 0.025
-    endpoint: "/fal-ai/flux-2"
+    endpoint: '/fal-ai/flux-2'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        prompt: "${prompt}"
-        image_size: "square_hd"
+        prompt: '${prompt}'
+        image_size: 'square_hd'
         num_images: 1
+        guidance_scale: 3.5
+        num_inference_steps: 28
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "images[0].url"
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
+    parameters:
+      - name: 'guidance_scale'
+        label: 'Guidance Scale'
+        description: 'Higher values follow prompt more strictly. Increase for precise geometry.'
+        type: float
+        default: 3.5
+        min: 1.0
+        max: 20.0
+        step: 0.5
+      - name: 'num_inference_steps'
+        label: 'Inference Steps'
+        description: 'More steps = finer detail, slower generation.'
+        type: integer
+        default: 28
+        min: 1
+        max: 50
 
   # --- FLUX.2 Pro ---
   # Premium FLUX model — zero-config, best quality.
-  - id: "fal-ai/flux-2-pro"
-    name: "FLUX.2 Pro"
-    description: "Premium FLUX.2 — best quality, zero-config"
+  - id: 'fal-ai/flux-2-pro'
+    name: 'FLUX.2 Pro'
+    description: 'Premium FLUX.2 — best quality, zero-config'
     cost_per_run: 0.03
-    endpoint: "/fal-ai/flux-2-pro"
+    endpoint: '/fal-ai/flux-2-pro'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        prompt: "${prompt}"
-        image_size: "square_hd"
+        prompt: '${prompt}'
+        image_size: 'square_hd'
         num_images: 1
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "images[0].url"
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 
@@ -216,66 +234,130 @@ text_to_image:
 image_to_3d:
   # --- TRELLIS 2 ---
   # Latest TRELLIS model — best quality 3D generation.
-  - id: "fal-ai/trellis-2"
-    name: "TRELLIS 2"
-    description: "Native 3D generative model — best quality, versatile asset creation"
+  - id: 'fal-ai/trellis-2'
+    name: 'TRELLIS 2'
+    description: 'Native 3D generative model — best quality, versatile asset creation'
     is_default: true
     cost_per_run: 0.30
-    endpoint: "/fal-ai/trellis-2"
+    endpoint: '/fal-ai/trellis-2'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        image_url: "${image_url}"
+        image_url: '${image_url}'
+        ss_guidance_strength: 7.5
+        slat_guidance_strength: 3.0
+        ss_sampling_steps: 12
+        slat_sampling_steps: 12
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "model_glb.url"
+        result_field: 'model_glb.url'
         interval_ms: 2000
         max_attempts: 300
+    parameters:
+      - name: 'ss_guidance_strength'
+        label: 'Guidance Strength'
+        description: 'Controls geometric adherence. Higher = stricter shapes (try 8-9 for hard-surface).'
+        type: float
+        default: 7.5
+        min: 1.0
+        max: 15.0
+        step: 0.5
+      - name: 'slat_guidance_strength'
+        label: 'Detail Guidance'
+        description: 'Fine geometric detail control. Increase cautiously for complex shapes.'
+        type: float
+        default: 3.0
+        min: 1.0
+        max: 10.0
+        step: 0.5
+      - name: 'ss_sampling_steps'
+        label: 'Sampling Steps'
+        description: 'More steps = finer geometry, slower. Try 16-20 for complex objects.'
+        type: integer
+        default: 12
+        min: 4
+        max: 30
+      - name: 'slat_sampling_steps'
+        label: 'Detail Steps'
+        description: 'Additional detail refinement steps.'
+        type: integer
+        default: 12
+        min: 4
+        max: 30
 
   # --- Hunyuan3D v3.1 Pro ---
   # Production-grade Hunyuan model with highest quality.
   # NOTE: Uses input_image_url (not image_url).
-  - id: "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d"
-    name: "Hunyuan3D Pro"
-    description: "Tencent Hunyuan3D v3.1 Pro — highest quality 3D generation"
+  - id: 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
+    name: 'Hunyuan3D Pro'
+    description: 'Tencent Hunyuan3D v3.1 Pro — highest quality 3D generation'
     cost_per_run: 0.225
-    endpoint: "/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d"
+    endpoint: '/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        input_image_url: "${image_url}"
+        input_image_url: '${image_url}'
+        enable_pbr: true
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "model_glb.url"
+        result_field: 'model_glb.url'
         interval_ms: 2000
         max_attempts: 300
+    parameters:
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Enable physically-based rendering materials for realistic lighting.'
+        type: boolean
+        default: true
 
   # --- Meshy v6 ---
   # Production-ready 3D models with PBR textures.
   # Highest quality tier — $0.80/gen, ~5-10 min processing.
-  - id: "fal-ai/meshy/v6/image-to-3d"
-    name: "Meshy v6"
-    description: "Meshy 6 — production-ready 3D models with PBR textures"
+  - id: 'fal-ai/meshy/v6/image-to-3d'
+    name: 'Meshy v6'
+    description: 'Meshy 6 — production-ready 3D models with PBR textures'
     cost_per_run: 0.80
-    endpoint: "/fal-ai/meshy/v6/image-to-3d"
+    endpoint: '/fal-ai/meshy/v6/image-to-3d'
     method: POST
     request:
       headers:
         <<: *fal-request-headers
       body:
-        image_url: "${image_url}"
+        image_url: '${image_url}'
+        topology: 'triangle'
+        target_polycount: 30000
+        enable_pbr: true
     response:
       response_type: polling
       polling:
         <<: *fal-polling
-        result_field: "model_glb.url"
+        result_field: 'model_glb.url'
         interval_ms: 2000
         max_attempts: 300
+    parameters:
+      - name: 'topology'
+        label: 'Topology'
+        description: 'Mesh topology type. Quad is cleaner for hard-surface, triangle is default.'
+        type: select
+        default: 'triangle'
+        options: ['triangle', 'quad']
+      - name: 'target_polycount'
+        label: 'Target Polycount'
+        description: 'Target polygon count. Higher = more detail.'
+        type: integer
+        default: 30000
+        min: 5000
+        max: 100000
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Enable physically-based rendering materials.'
+        type: boolean
+        default: true

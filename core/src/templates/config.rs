@@ -1,6 +1,6 @@
 //! Template configuration and loading from YAML files.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -117,11 +117,11 @@ impl TemplateDefinition {
     /// Save this template definition to a YAML file.
     pub fn save_to_yaml_file(&self, path: &Path) -> Result<()> {
         // Create parent directory if needed
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| anyhow!("Failed to create template directory: {}", e))?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow!("Failed to create template directory: {}", e))?;
         }
 
         let yaml = serde_yaml_ng::to_string(self)
