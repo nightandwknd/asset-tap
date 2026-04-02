@@ -4,25 +4,24 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'site/**'
-      - 'docs/**'
-      - 'scripts/**'
-      - '.vscode/**'
       - '.claude/**'
       - '.config/**'
-      - '.github/actions/**'
+      - '.github/dependabot.yaml'
       - '.github/workflows/site.yaml'
       - '.github/workflows/ci.yaml'
+      - '.vscode/**'
+      - 'docs/**'
+      - 'site/**'
       - '*.md'
-      - 'LICENSE'
       - '.editorconfig'
       - '.editorconfig-checker.json'
-      - '.gitignore'
       - '.gitattributes'
-      - '.mcp.json'
+      - '.gitignore'
       - '.env.example'
-      - 'dprint.json'
+      - '.mcp.json'
       - 'cliff.toml'
+      - 'dprint.json'
+      - 'LICENSE'
 
 concurrency:
   group: release

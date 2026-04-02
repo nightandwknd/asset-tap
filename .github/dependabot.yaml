@@ -50,6 +50,12 @@ updates:
       interval: 'weekly'
       time: '12:00'
       timezone: 'America/Chicago'
+    ignore:
+      # dtolnay/rust-toolchain uses branch names matching Rust versions
+      # (e.g. @1.94.1). Dependabot sees pre-created branches for future
+      # Rust releases as "updates" — must be bumped manually with
+      # rust-toolchain.toml when upgrading the Rust version.
+      - dependency-name: 'dtolnay/rust-toolchain'
     groups:
       actions-minor-patch:
         patterns:
