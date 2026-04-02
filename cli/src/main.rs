@@ -13,13 +13,14 @@ use asset_tap_core::{
     format_progress,
     pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
-    providers::{ProviderCapability, ProviderRegistry},
+    providers::{ParameterType, ProviderCapability, ProviderRegistry},
     settings::{get_output_dir, is_dev_mode},
     templates::{apply_template, list_templates},
     types::Progress,
 };
 
 use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -111,6 +112,10 @@ struct Cli {
     /// Convert a specific GLB file or bundle directory to FBX (requires Blender)
     #[arg(long, value_name = "PATH")]
     convert_fbx: Option<PathBuf>,
+
+    /// Set model parameter overrides (repeatable, e.g. --param guidance_scale=7.0 --param topology=quad)
+    #[arg(long = "param", value_name = "KEY=VALUE")]
+    params: Vec<String>,
 }
 
 /// Print ASCII art banner
@@ -222,6 +227,36 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Validate required settings
     validate_requirements(&config, &settings, &registry)?;
 
+    // Parse and validate --param overrides
+    if !cli.params.is_empty() {
+        let parsed = parse_param_values(&cli.params)?;
+
+        // Resolve effective model IDs for validation
+        let effective_image_model = config
+            .image_model
+            .clone()
+            .or_else(|| get_default_text_to_image_model(&registry));
+        let effective_3d_model = if config.model_3d.is_empty() {
+            get_default_image_to_3d_model(&registry).unwrap_or_default()
+        } else {
+            config.model_3d.clone()
+        };
+
+        let (image_params, model_3d_params) = route_params(
+            &parsed,
+            &registry,
+            effective_image_model.as_deref(),
+            &effective_3d_model,
+        )?;
+
+        if !image_params.is_empty() {
+            config = config.with_image_model_params(image_params);
+        }
+        if !model_3d_params.is_empty() {
+            config = config.with_3d_model_params(model_3d_params);
+        }
+    }
+
     // Seed demo bundles for new installs
     asset_tap_core::ensure_default_bundles_exist(&settings.output_dir);
     // Enable approval if: --approve flag OR settings require it (but not in auto-confirm mode)
@@ -270,6 +305,182 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     print_summary(&output);
 
     Ok(())
+}
+
+/// Parse `KEY=VALUE` strings into a JSON value map.
+///
+/// Values are parsed as: booleans ("true"/"false"), integers, floats, or strings.
+fn parse_param_values(raw: &[String]) -> anyhow::Result<HashMap<String, serde_json::Value>> {
+    let mut map = HashMap::new();
+    for entry in raw {
+        let (key, val) = entry.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("Invalid --param format: '{}' (expected KEY=VALUE)", entry)
+        })?;
+        let key = key.trim().to_string();
+        let val = val.trim();
+        if key.is_empty() {
+            anyhow::bail!("Empty parameter name in --param '{}'", entry);
+        }
+        let json_val = match val {
+            "true" => serde_json::Value::Bool(true),
+            "false" => serde_json::Value::Bool(false),
+            _ => {
+                if let Ok(i) = val.parse::<i64>() {
+                    serde_json::json!(i)
+                } else if let Ok(f) = val.parse::<f64>() {
+                    if !f.is_finite() {
+                        anyhow::bail!(
+                            "Invalid parameter value for '{}': must be a finite number, got '{}'",
+                            key,
+                            val
+                        );
+                    }
+                    serde_json::json!(f)
+                } else {
+                    serde_json::Value::String(val.to_string())
+                }
+            }
+        };
+        map.insert(key, json_val);
+    }
+    Ok(map)
+}
+
+/// Coerce a parsed JSON value to match the declared parameter type.
+///
+/// For example, `--param guidance_scale=7` parses as integer but the model
+/// declares it as `float` — this converts `7` to `7.0` so the API gets the
+/// expected type.
+fn coerce_param_value(
+    key: &str,
+    value: &serde_json::Value,
+    expected: &ParameterType,
+) -> anyhow::Result<serde_json::Value> {
+    match expected {
+        ParameterType::Float => match value {
+            serde_json::Value::Number(n) => {
+                let f = n.as_f64().ok_or_else(|| {
+                    anyhow::anyhow!("Parameter '{}' expects a float, got '{}'", key, value)
+                })?;
+                Ok(serde_json::json!(f))
+            }
+            _ => anyhow::bail!("Parameter '{}' expects a float, got '{}'", key, value),
+        },
+        ParameterType::Integer => match value {
+            serde_json::Value::Number(n) => {
+                let i = n.as_i64().ok_or_else(|| {
+                    anyhow::anyhow!("Parameter '{}' expects an integer, got '{}'", key, value)
+                })?;
+                Ok(serde_json::json!(i))
+            }
+            _ => anyhow::bail!("Parameter '{}' expects an integer, got '{}'", key, value),
+        },
+        ParameterType::Boolean => match value {
+            serde_json::Value::Bool(_) => Ok(value.clone()),
+            _ => anyhow::bail!("Parameter '{}' expects true/false, got '{}'", key, value),
+        },
+        ParameterType::String | ParameterType::Select => match value {
+            serde_json::Value::String(_) => Ok(value.clone()),
+            _ => anyhow::bail!("Parameter '{}' expects a string, got '{}'", key, value),
+        },
+    }
+}
+
+/// Validate, coerce, and route parsed parameters to image and/or 3D models.
+///
+/// Each parameter must be declared by at least one of the two active models.
+/// Values are coerced to match the declared type (e.g., integer → float).
+/// Returns `(image_params, model_3d_params)`.
+fn route_params(
+    params: &HashMap<String, serde_json::Value>,
+    registry: &ProviderRegistry,
+    image_model_id: Option<&str>,
+    model_3d_id: &str,
+) -> anyhow::Result<(
+    HashMap<String, serde_json::Value>,
+    HashMap<String, serde_json::Value>,
+)> {
+    if params.is_empty() {
+        return Ok((HashMap::new(), HashMap::new()));
+    }
+
+    let providers = registry.list_all();
+
+    // Look up full model info (with parameter defs) for each active model
+    let image_model =
+        image_model_id.and_then(|id| providers.iter().find_map(|p| p.get_model(id).ok()));
+
+    let model_3d = if model_3d_id.is_empty() {
+        None
+    } else {
+        providers.iter().find_map(|p| p.get_model(model_3d_id).ok())
+    };
+
+    // Build name → ParameterDef lookup for each model
+    let image_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = image_model
+        .as_ref()
+        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
+        .unwrap_or_default();
+
+    let model_3d_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = model_3d
+        .as_ref()
+        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
+        .unwrap_or_default();
+
+    let mut image_params = HashMap::new();
+    let mut model_3d_params = HashMap::new();
+
+    for (key, value) in params {
+        let in_image = image_param_defs.get(key.as_str());
+        let in_3d = model_3d_param_defs.get(key.as_str());
+
+        match (in_image, in_3d) {
+            (Some(def), None) => {
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                image_params.insert(key.clone(), coerced);
+            }
+            (None, Some(def)) => {
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                model_3d_params.insert(key.clone(), coerced);
+            }
+            (Some(_), Some(def)) => {
+                eprintln!(
+                    "  ⚠️  Parameter '{}' is declared by both image and 3D models; routing to 3D model",
+                    key
+                );
+                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                model_3d_params.insert(key.clone(), coerced);
+            }
+            (None, None) => {
+                let mut valid: Vec<&str> = image_param_defs
+                    .keys()
+                    .chain(model_3d_param_defs.keys())
+                    .copied()
+                    .collect();
+                valid.sort();
+                valid.dedup();
+
+                let valid_list = if valid.is_empty() {
+                    "  (none — selected models have no tunable parameters)".to_string()
+                } else {
+                    valid
+                        .iter()
+                        .map(|p| format!("  - {}", p))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+
+                anyhow::bail!(
+                    "Unknown parameter '{}' for the selected models.\n\n\
+                     Valid parameters:\n{}",
+                    key,
+                    valid_list
+                );
+            }
+        }
+    }
+
+    Ok((image_params, model_3d_params))
 }
 
 fn build_config(

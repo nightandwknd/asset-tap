@@ -123,6 +123,21 @@ text_to_image:
 
 Parameter overrides are validated against declared names before injection (undeclared keys are ignored). Values persist per provider+model in `state.json` under `model_parameters`.
 
+**CLI access:** Use `--param KEY=VALUE` (repeatable) to override parameters from the command line:
+
+```bash
+# Single param
+asset-tap -y "a robot" --image-model fal-ai/flux-2 --param guidance_scale=7.0
+
+# Multiple params
+asset-tap -y "a robot" --param guidance_scale=7.0 --param num_inference_steps=10
+
+# 3D model params
+asset-tap -y "a robot" --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad --param enable_pbr=false
+```
+
+Value types are auto-detected (`true`/`false` → bool, integers, floats, or strings) and coerced to match the declared parameter type (e.g., `--param guidance_scale=7` coerces integer to float). Parameters are auto-routed to the correct model (image vs 3D) based on which model declares them. Invalid parameter names error with a list of valid options.
+
 **Response types:**
 
 - `Json` - Extract URL from JSON, download file
