@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.4 — 2026-04-02
+
+### Chores
+
+- bump tokio from 1.49.0 to 1.50.0 in the tokio group ([#11](https://github.com/nightandwknd/asset-tap/pull/11)) _(deps)_
+
+### Other
+
+- ignore rust-toolchain in dependabot
+
 ## v26.4.3 — 2026-04-02
 
 ### Other
