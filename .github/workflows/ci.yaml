@@ -160,8 +160,7 @@ jobs:
   # ─── Layer 1: Build + package all platforms in parallel ─────────────
   build-macos:
     name: Build macOS (${{ matrix.target }})
-    needs: [changes, check]
-    if: needs.changes.outputs.rust == 'true'
+    needs: [check]
     runs-on: macos-latest
     strategy:
       matrix:
@@ -194,8 +193,7 @@ jobs:
 
   package-macos:
     name: Package macOS (universal)
-    needs: [changes, build-macos]
-    if: needs.changes.outputs.rust == 'true'
+    needs: [build-macos]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -242,8 +240,7 @@ jobs:
 
   build-linux:
     name: Build & Package (Linux)
-    needs: [changes, check]
-    if: needs.changes.outputs.rust == 'true'
+    needs: [check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -257,8 +254,7 @@ jobs:
 
   build-windows:
     name: Build & Package (Windows)
-    needs: [changes, check]
-    if: needs.changes.outputs.rust == 'true'
+    needs: [check]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -272,8 +268,7 @@ jobs:
   # ─── Layer 2: CLI tests (consumes Linux binary) ────────────────────
   cli-test:
     name: CLI Tests
-    needs: [changes, build-linux]
-    if: needs.changes.outputs.rust == 'true'
+    needs: [build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

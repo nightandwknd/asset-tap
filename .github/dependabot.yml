@@ -1,0 +1,57 @@
+version: 2
+
+updates:
+  # ─── Cargo dependencies (workspace root handles all members) ────────
+  - package-ecosystem: 'cargo'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+      time: '12:00'
+      timezone: 'America/Chicago'
+    versioning-strategy: lockfile-only
+    open-pull-requests-limit: 10
+    ignore:
+      # ── 3D rendering stack: pinned for compatibility (see CLAUDE.md §10) ──
+      # three-d git pin (da7cef6c5e17) requires glow 0.16 / egui 0.33.
+      # egui 0.34 needs glow 0.17, but three-d has no glow 0.17 support yet.
+      # All of these must be upgraded together manually when three-d publishes
+      # a new release. See CLAUDE.md "Next upgrade path" for the full plan.
+      - dependency-name: 'three-d'
+      - dependency-name: 'three-d-asset'
+      - dependency-name: 'egui'
+      - dependency-name: 'eframe'
+      - dependency-name: 'egui_extras'
+      - dependency-name: 'egui-phosphor'
+      - dependency-name: 'glow'
+    groups:
+      # Specific ecosystem groups first (first-match semantics)
+      serde:
+        patterns:
+          - 'serde*'
+        update-types: ['minor', 'patch']
+      tokio:
+        patterns:
+          - 'tokio*'
+        update-types: ['minor', 'patch']
+      tracing:
+        patterns:
+          - 'tracing*'
+        update-types: ['minor', 'patch']
+      # Catch-all: everything else grouped as minor+patch
+      rust-minor-patch:
+        patterns:
+          - '*'
+        update-types: ['minor', 'patch']
+
+  # ─── GitHub Actions ─────────────────────────────────────────────────
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      time: '12:00'
+      timezone: 'America/Chicago'
+    groups:
+      actions-minor-patch:
+        patterns:
+          - '*'
+        update-types: ['minor', 'patch']
