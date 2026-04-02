@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.6 — 2026-04-02
+
+### Chores
+
+- bump the rust-minor-patch group with 5 updates ([#13](https://github.com/nightandwknd/asset-tap/pull/13)) _(deps)_
+
 ## v26.4.5 — 2026-04-02
 
 ### Chores
