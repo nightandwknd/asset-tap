@@ -230,6 +230,9 @@ jobs:
           NEW_VERSION="${{ needs.version.outputs.new_version }}"
           sed -i "s|\"generator\":.*|\"generator\": \"asset-tap/${NEW_VERSION}\"|" bundles/asset-tap/bundle.json
           (cd bundles && zip -r ../release/demo-bundle.zip asset-tap/)
+          # Generate manifest with version info + SHA-256 for integrity verification
+          DEMO_SHA256=$(sha256sum release/demo-bundle.zip | awk '{print $1}')
+          jq --arg sha "$DEMO_SHA256" '{demo_version, name, sha256: $sha}' bundles/asset-tap/bundle.json > release/demo-manifest.json
 
           # macOS
           cp artifacts/asset-tap-macos/AssetTap.dmg release/AssetTap-macos.dmg

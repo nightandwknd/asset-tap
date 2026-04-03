@@ -10,10 +10,9 @@
     "format": "GLB"
   },
   "duration_ms": null,
-  "tags": [
-    "demo"
-  ],
+  "tags": [],
   "favorite": false,
   "notes": "Sample 3D model showcasing Asset Tap's generation pipeline.",
-  "generator": "asset-tap/26.4.6"
+  "generator": "asset-tap/26.4.6",
+  "demo_version": 1
 }

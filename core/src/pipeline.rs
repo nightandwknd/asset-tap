@@ -830,6 +830,7 @@ async fn run_pipeline_internal(
         favorite: false,
         notes: None,
         generator: Some(crate::bundle::generator_string().to_string()),
+        demo_version: None,
     };
 
     if let Err(e) = metadata.save(&gen_dir) {

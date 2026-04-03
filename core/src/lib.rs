@@ -85,8 +85,8 @@ pub mod types;
 
 // Re-export commonly used types
 pub use bundle::{
-    Bundle, BundleContents, BundleError, BundleMetadata, demo_bundle_is_current,
-    download_demo_bundle, generator_string, latest_demo_generator,
+    Bundle, BundleContents, BundleError, BundleMetadata, DemoDownloadResult, download_demo_bundle,
+    import_bundle_zip,
 };
 pub use config::{list_image_to_3d_models, list_text_to_image_models};
 pub use error_log::ErrorLog;

@@ -28,7 +28,7 @@ use crate::views::library::LibraryBrowser;
 use crate::views::settings::SettingsModal;
 use crate::views::walkthrough::Walkthrough;
 use crate::views::welcome_modal::WelcomeModal;
-use asset_tap_core::constants::files::bundle as bundle_files;
+use asset_tap_core::constants::files::{DEMO_BUNDLE_SIZE_LABEL, bundle as bundle_files};
 use asset_tap_core::{
     bundle::load_bundle,
     history::{ErrorInfo, GenerationHistory},
@@ -272,7 +272,16 @@ pub struct App {
 
     /// Pending demo bundle download result (from async download).
     pending_demo_download:
-        Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
+        Option<tokio::sync::oneshot::Receiver<Result<asset_tap_core::DemoDownloadResult, String>>>,
+
+    /// Pending bundle import result (from async zip extraction).
+    pending_import: Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
+
+    /// Whether to show the demo download confirmation dialog.
+    show_demo_download_confirm: bool,
+
+    /// Bundle path pending deletion (waiting for confirmation).
+    pending_delete_bundle: Option<std::path::PathBuf>,
 
     // =========================================================================
     // Toast Notifications
@@ -542,6 +551,9 @@ impl App {
             pending_export: None,
             pending_fbx_conversion: None,
             pending_demo_download: None,
+            pending_import: None,
+            show_demo_download_confirm: false,
+            pending_delete_bundle: None,
 
             // Toast Notifications
             toasts: Vec::new(),
@@ -601,8 +613,8 @@ impl App {
 
     /// Start downloading the demo bundle in the background.
     ///
-    /// Spawns an async download task and shows a toast. Does nothing if a
-    /// download is already in progress.
+    /// Fetches the manifest to check version, then downloads if needed.
+    /// Does nothing if a download is already in progress.
     fn start_demo_download(&mut self) {
         if self.pending_demo_download.is_some() {
             return; // Already downloading
@@ -611,10 +623,26 @@ impl App {
         let output_dir = self.settings.output_dir.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_demo_download = Some(rx);
-        self.toasts.push(Toast::info("Downloading demo assets..."));
+        self.toasts.push(Toast::info("Checking for demo bundle..."));
         self.runtime.spawn(async move {
             let result = asset_tap_core::download_demo_bundle(output_dir, |_progress| {}).await;
             let _ = tx.send(result.map_err(|e| e.to_string()));
+        });
+    }
+
+    /// Import a bundle from a zip file in the background.
+    fn import_bundle(&mut self, source: std::path::PathBuf) {
+        let output_dir = self.settings.output_dir.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_import = Some(rx);
+        self.add_toast(Toast::info("Importing bundle..."));
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                asset_tap_core::import_bundle_zip(&source, &output_dir)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("Import task failed: {}", e)));
+            let _ = tx.send(result);
         });
     }
 
@@ -1703,6 +1731,34 @@ impl eframe::App for App {
             }
         }
 
+        // Check for completed bundle import
+        if let Some(mut rx) = self.pending_import.take() {
+            match rx.try_recv() {
+                Ok(Ok(bundle_dir)) => {
+                    self.add_toast(Toast::success("Bundle imported"));
+                    if let Ok(bundle) = load_bundle(&bundle_dir) {
+                        self.output = Some(PipelineOutput::from(bundle));
+                        self.app_state.current_generation = Some(bundle_dir.clone());
+                        let _ = self.bundle_info_panel.load_bundle(bundle_dir);
+                    }
+                    self.bundle_info_panel
+                        .refresh_bundle_list(&self.settings.output_dir);
+                }
+                Ok(Err(msg)) => {
+                    tracing::error!("Bundle import failed: {}", msg);
+                    self.toasts
+                        .push(Toast::error(format!("Import failed: {msg}")));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_import = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("Import channel closed unexpectedly");
+                }
+            }
+        }
+
         // Check for completed FBX conversion
         if let Some(mut rx) = self.pending_fbx_conversion.take() {
             match rx.try_recv() {
@@ -1731,7 +1787,7 @@ impl eframe::App for App {
         // Check for completed demo bundle download
         if let Some(mut rx) = self.pending_demo_download.take() {
             match rx.try_recv() {
-                Ok(Ok(demo_dir)) => {
+                Ok(Ok(asset_tap_core::DemoDownloadResult::Downloaded(demo_dir))) => {
                     self.add_toast(Toast::success("Demo assets downloaded"));
                     if let Ok(bundle) = load_bundle(&demo_dir) {
                         self.output = Some(PipelineOutput::from(bundle));
@@ -1740,6 +1796,10 @@ impl eframe::App for App {
                     }
                     self.bundle_info_panel
                         .refresh_bundle_list(&self.settings.output_dir);
+                }
+                Ok(Ok(asset_tap_core::DemoDownloadResult::AlreadyExists(v))) => {
+                    self.toasts
+                        .push(Toast::info(format!("Demo bundle v{v} already downloaded")));
                 }
                 Ok(Err(msg)) => {
                     tracing::error!("Demo bundle download failed: {}", msg);
@@ -1804,13 +1864,207 @@ impl eframe::App for App {
 
         // Handle demo download request from welcome modal
         if self.welcome_modal.download_requested {
-            self.start_demo_download();
+            self.show_demo_download_confirm = true;
+        }
+
+        // Demo download confirmation dialog
+        if self.show_demo_download_confirm {
+            let backdrop_clicked = crate::views::modal_backdrop(
+                ctx,
+                "demo_download_confirm_backdrop",
+                180,
+                crate::views::BackdropClick::Close,
+            );
+
+            let mut confirmed = false;
+            let mut dismissed = backdrop_clicked;
+
+            egui::Window::new("Download Demo Bundle")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.set_width(400.0);
+                    ui.add_space(8.0);
+
+                    ui.label(
+                        egui::RichText::new(
+                            "Download a sample asset bundle with a generated Image and 3D Model?",
+                        )
+                        .size(14.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "This will download approximately {DEMO_BUNDLE_SIZE_LABEL}.",
+                        ))
+                        .size(12.0)
+                        .weak(),
+                    );
+
+                    ui.add_space(16.0);
+
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new(format!(
+                                        "{} Download",
+                                        crate::icons::DOWNLOAD
+                                    ))
+                                    .size(14.0),
+                                )
+                                .clicked()
+                            {
+                                confirmed = true;
+                            }
+                            if ui
+                                .button(egui::RichText::new("Cancel").size(14.0))
+                                .clicked()
+                            {
+                                dismissed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                });
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                dismissed = true;
+            }
+            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                confirmed = true;
+            }
+
+            if confirmed {
+                self.show_demo_download_confirm = false;
+                self.start_demo_download();
+            } else if dismissed {
+                self.show_demo_download_confirm = false;
+            }
+        }
+
+        // Delete bundle confirmation dialog
+        if let Some(ref bundle_path) = self.pending_delete_bundle.clone() {
+            let backdrop_clicked = crate::views::modal_backdrop(
+                ctx,
+                "delete_bundle_confirm_backdrop",
+                180,
+                crate::views::BackdropClick::Close,
+            );
+
+            let mut confirmed = false;
+            let mut dismissed = backdrop_clicked;
+
+            let bundle_name = bundle_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("this bundle");
+
+            egui::Window::new("Delete Bundle")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.set_width(400.0);
+                    ui.add_space(8.0);
+
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Permanently delete \"{}\"?",
+                            bundle_name
+                        ))
+                        .size(14.0)
+                        .strong(),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(
+                            "This will delete the bundle directory and all its contents. This action cannot be undone.",
+                        )
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(255, 150, 100)),
+                    );
+
+                    ui.add_space(16.0);
+
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new(format!(
+                                        "{} Delete",
+                                        crate::icons::TRASH
+                                    ))
+                                    .size(14.0)
+                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                                )
+                                .clicked()
+                            {
+                                confirmed = true;
+                            }
+                            if ui
+                                .button(egui::RichText::new("Cancel").size(14.0))
+                                .clicked()
+                            {
+                                dismissed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                });
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                dismissed = true;
+            }
+            // Intentionally no Enter-to-confirm for destructive actions
+
+            if confirmed {
+                let path = self.pending_delete_bundle.take().unwrap();
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => {
+                        self.add_toast(Toast::success("Bundle deleted"));
+                        // Clear current bundle if it was the deleted one
+                        if self
+                            .app_state
+                            .current_generation
+                            .as_ref()
+                            .is_some_and(|p| p == &path)
+                        {
+                            self.output = None;
+                            self.app_state.current_generation = None;
+                            self.bundle_info_panel.current_bundle = None;
+                        }
+                        self.bundle_info_panel
+                            .refresh_bundle_list(&self.settings.output_dir);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to delete bundle: {}", e);
+                        self.toasts
+                            .push(Toast::error(format!("Failed to delete: {e}")));
+                        self.pending_delete_bundle = None;
+                    }
+                }
+            } else if dismissed {
+                self.pending_delete_bundle = None;
+            }
         }
 
         // Menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
+                    if ui.button("Import Bundle...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Bundle Archive", &["zip"])
+                            .pick_file()
+                        {
+                            self.import_bundle(path);
+                        }
+                        ui.close();
+                    }
                     if ui.button("Open Output Folder").clicked() {
                         crate::app::open_with_system(
                             &self.settings.output_dir,
@@ -1865,7 +2119,7 @@ impl eframe::App for App {
                         .add_enabled(!demo_downloading, egui::Button::new(demo_label))
                         .clicked()
                     {
-                        self.start_demo_download();
+                        self.show_demo_download_confirm = true;
                         ui.close();
                     }
                     ui.separator();
@@ -1918,6 +2172,12 @@ impl eframe::App for App {
                                         .map(|count| format!("Bundle exported ({} files)", count)),
                                 );
                             });
+                        }
+                        views::bundle_info::BundleInfoAction::ImportBundle(source) => {
+                            self.import_bundle(source);
+                        }
+                        views::bundle_info::BundleInfoAction::DeleteBundle(path) => {
+                            self.pending_delete_bundle = Some(path);
                         }
                         views::bundle_info::BundleInfoAction::RefreshList => {
                             self.bundle_info_panel

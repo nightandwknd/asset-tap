@@ -54,6 +54,10 @@ pub enum BundleInfoAction {
     SwitchBundle(PathBuf),
     /// User wants to export the bundle — contains (bundle_dir, destination_path).
     ExportBundle(PathBuf, PathBuf),
+    /// User wants to import a bundle from a zip file.
+    ImportBundle(PathBuf),
+    /// User wants to delete the current bundle.
+    DeleteBundle(PathBuf),
     /// User clicked the refresh button to rescan bundles from disk.
     RefreshList,
 }
@@ -195,19 +199,15 @@ impl BundleInfoPanel {
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<BundleInfoAction> {
         let mut action = None;
 
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width());
+        // Panel header (aligned with sidebar and preview headers)
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.heading("Bundle Info");
+        });
+        ui.separator();
+        ui.add_space(4.0);
 
-            // Panel header with top padding to align with sidebar header
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.heading(egui::RichText::new("Bundle Info").size(16.0));
-            });
-
-            ui.add_space(2.0);
-            ui.separator();
-            ui.add_space(8.0);
-
+        egui::ScrollArea::vertical().show(ui, |ui| {
             // Bundle selector dropdown
             if !self.available_bundles.is_empty() {
                 let current_path = self.current_bundle.as_ref().map(|b| b.path.clone());
@@ -232,7 +232,7 @@ impl BundleInfoPanel {
                     // Include bundle count in ID so egui discards cached popup size on refresh
                     let combo_id = format!("bundle_selector_{}", self.available_bundles.len());
                     let combo = egui::ComboBox::from_id_salt(combo_id)
-                        .width(ui.available_width() - 40.0)
+                        .width(ui.available_width() - 70.0)
                         .selected_text(current_label);
 
                     combo.show_ui(ui, |ui| {
@@ -259,6 +259,17 @@ impl BundleInfoPanel {
                         .clicked()
                     {
                         action = Some(BundleInfoAction::RefreshList);
+                    }
+
+                    if ui
+                        .button(icons::FOLDER_OPEN.to_string())
+                        .on_hover_text("Import a bundle from a zip archive")
+                        .clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Bundle Archive", &["zip"])
+                            .pick_file()
+                    {
+                        action = Some(BundleInfoAction::ImportBundle(path));
                     }
                 });
 
@@ -310,7 +321,7 @@ impl BundleInfoPanel {
                         egui::TextEdit::singleline(&mut name_text)
                             .hint_text("Enter custom name...")
                             .char_limit(asset_tap_core::constants::validation::MAX_NAME_LENGTH)
-                            .desired_width(ui.available_width() - 35.0),
+                            .desired_width(ui.available_width() - 45.0),
                     );
 
                     // Favorite star next to name
@@ -577,7 +588,7 @@ impl BundleInfoPanel {
                             egui::TextEdit::singleline(&mut self.tag_input)
                                 .hint_text("Add tag...")
                                 .char_limit(asset_tap_core::constants::validation::MAX_TAG_LENGTH)
-                                .desired_width(ui.available_width() - 40.0),
+                                .desired_width(ui.available_width() - 16.0),
                         );
 
                         let submit = response.lost_focus()
@@ -616,7 +627,7 @@ impl BundleInfoPanel {
                     egui::TextEdit::multiline(&mut notes_text)
                         .hint_text("Add notes...")
                         .char_limit(asset_tap_core::constants::validation::MAX_NOTES_LENGTH)
-                        .desired_width(f32::INFINITY)
+                        .desired_width(ui.available_width() - 16.0)
                         .desired_rows(3),
                 );
 
@@ -649,35 +660,51 @@ impl BundleInfoPanel {
                 ui.separator();
                 ui.add_space(8.0);
 
-                // Export Bundle button
+                // Export + Delete buttons on the same line
                 if let Some(ref bundle) = self.current_bundle {
                     let bundle_path = bundle.path.clone();
                     let has_name = bundle.metadata.name.is_some();
                     let display_name = bundle.display_name().to_string();
 
-                    let export_button = ui.add_enabled(
-                        has_name,
-                        egui::Button::new(format!("{} Export Bundle", icons::DOWNLOAD)),
-                    );
+                    ui.horizontal(|ui| {
+                        let export_button = ui.add_enabled(
+                            has_name,
+                            egui::Button::new(format!("{} Export", icons::DOWNLOAD)),
+                        );
 
-                    if has_name {
-                        if export_button
-                            .on_hover_text("Save entire bundle as a zip archive")
+                        if has_name {
+                            if export_button
+                                .on_hover_text("Save entire bundle as a zip archive")
+                                .clicked()
+                            {
+                                let filename = format!("{}.zip", sanitize_filename(&display_name));
+                                if let Some(dest) = rfd::FileDialog::new()
+                                    .set_file_name(&filename)
+                                    .add_filter("ZIP Archive", &["zip"])
+                                    .save_file()
+                                {
+                                    action = Some(BundleInfoAction::ExportBundle(
+                                        bundle_path.clone(),
+                                        dest,
+                                    ));
+                                }
+                            }
+                        } else {
+                            export_button
+                                .on_disabled_hover_text("Name this bundle before exporting");
+                        }
+
+                        if ui
+                            .button(
+                                egui::RichText::new(format!("{} Delete", icons::TRASH))
+                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                            )
+                            .on_hover_text("Permanently delete this bundle")
                             .clicked()
                         {
-                            let filename = format!("{}.zip", sanitize_filename(&display_name));
-                            if let Some(dest) = rfd::FileDialog::new()
-                                .set_file_name(&filename)
-                                .add_filter("ZIP Archive", &["zip"])
-                                .save_file()
-                            {
-                                action =
-                                    Some(BundleInfoAction::ExportBundle(bundle_path.clone(), dest));
-                            }
+                            action = Some(BundleInfoAction::DeleteBundle(bundle_path));
                         }
-                    } else {
-                        export_button.on_disabled_hover_text("Name this bundle before exporting");
-                    }
+                    });
                 }
             }
 

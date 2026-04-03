@@ -54,6 +54,9 @@ image = { workspace = true }
 # Embed directories at compile time
 include_dir = "0.7"
 
+# Integrity verification
+sha2 = "0.10"
+
 # Secure temporary files
 tempfile = "3.8"
 

@@ -135,6 +135,12 @@ pub struct BundleMetadata {
     /// Generator identifier, e.g. "asset-tap/26.3.6".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generator: Option<String>,
+
+    /// Demo bundle content version (e.g. 1, 2, 3).
+    /// Only present on demo bundles downloaded from GitHub Releases.
+    /// Incremented when demo content changes; used to detect duplicates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub demo_version: Option<u32>,
 }
 
 impl Default for BundleMetadata {
@@ -150,6 +156,7 @@ impl Default for BundleMetadata {
             favorite: false,
             notes: None,
             generator: None,
+            demo_version: None,
         }
     }
 }
@@ -529,57 +536,100 @@ pub enum BundleError {
     NotABundle(PathBuf),
 }
 
-/// Demo bundle tag used to identify demo bundles in the library.
-const DEMO_TAG: &str = "demo";
-
 /// Download timeout for the demo bundle (2 minutes for ~34 MB).
 const DEMO_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Find the generator string of the latest demo bundle in the output directory.
-///
-/// Scans all bundles for ones tagged "demo" and returns the newest one's
-/// generator string, or `None` if no demo bundle has been downloaded yet.
-pub fn latest_demo_generator(output_dir: &Path) -> Option<String> {
-    discover_bundles(output_dir)
-        .into_iter()
-        .filter(|b| b.metadata.tags.contains(&DEMO_TAG.to_string()))
-        .max_by_key(|b| b.metadata.created_at)
-        .and_then(|b| b.metadata.generator.clone())
+/// Compute the SHA-256 hash of a byte slice, returned as a lowercase hex string.
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(data))
 }
 
-/// Check whether the user already has the latest demo bundle.
-///
-/// Compares the local demo bundle's `generator` field against the current
-/// build's generator string. Returns `true` if they match (up to date).
-pub fn demo_bundle_is_current(output_dir: &Path) -> bool {
-    latest_demo_generator(output_dir).as_deref() == Some(generator_string())
+/// Verify that the SHA-256 hash of `data` matches `expected_hex`.
+fn verify_sha256(data: &[u8], expected_hex: &str) -> anyhow::Result<()> {
+    let actual = sha256_hex(data);
+    if actual != expected_hex {
+        anyhow::bail!(
+            "Integrity check failed: expected {}, got {}",
+            expected_hex,
+            actual
+        );
+    }
+    Ok(())
+}
+
+/// Result of a demo bundle download attempt.
+#[derive(Debug)]
+pub enum DemoDownloadResult {
+    /// New demo bundle downloaded and extracted.
+    Downloaded(PathBuf),
+    /// This demo version already exists locally.
+    AlreadyExists(u32),
+}
+
+/// Check whether a specific demo bundle version already exists locally.
+pub fn has_demo_version(output_dir: &Path, version: u32) -> bool {
+    discover_bundles(output_dir)
+        .iter()
+        .any(|b| b.metadata.demo_version == Some(version))
 }
 
 /// Download the demo bundle from GitHub Releases to the output directory.
 ///
-/// Downloads a `.zip` archive containing `image.png`, `model.glb`, and
-/// `bundle.json`, then extracts them into a new timestamped directory
-/// (like a normal generation bundle).
+/// First fetches a small manifest to check the demo version. If that version
+/// already exists locally, returns [`DemoDownloadResult::AlreadyExists`] without
+/// downloading the full archive.
+///
+/// Otherwise, downloads the `.zip` archive containing `image.png`, `model.glb`,
+/// and `bundle.json`, then extracts them into a new timestamped directory.
 ///
 /// The download + extraction is atomic: files are extracted to a temporary
-/// directory first and only renamed to the final path on success. A failed or
-/// interrupted download will not leave a partial directory behind.
+/// directory first and only renamed to the final path on success.
 ///
 /// The `on_progress` callback receives values from 0.0 to 1.0 indicating
 /// download progress when `Content-Length` is available, or -1.0 to signal
 /// indeterminate progress (download active but total size unknown).
-///
-/// Returns the path to the new bundle directory.
 pub async fn download_demo_bundle(
     output_dir: PathBuf,
     on_progress: impl Fn(f32) + Send + 'static,
-) -> anyhow::Result<PathBuf> {
-    info!("Downloading demo bundle from {}", DEMO_BUNDLE_URL);
+) -> anyhow::Result<DemoDownloadResult> {
+    use crate::constants::files::DEMO_MANIFEST_URL;
 
     let client = reqwest::Client::builder()
         .timeout(DEMO_DOWNLOAD_TIMEOUT)
         .build()?;
 
+    // Phase 1: fetch the manifest to check the demo version.
+    info!("Checking demo bundle version...");
+    let manifest_resp = client.get(DEMO_MANIFEST_URL).send().await?;
+    if !manifest_resp.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch demo manifest: HTTP {}",
+            manifest_resp.status()
+        );
+    }
+
+    let manifest: serde_json::Value = manifest_resp.json().await?;
+    let demo_version = manifest
+        .get("demo_version")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .ok_or_else(|| anyhow::anyhow!("Demo manifest missing demo_version field"))?;
+
+    // Check if this version already exists locally.
+    if has_demo_version(&output_dir, demo_version) {
+        info!(
+            "Demo bundle v{} already exists, skipping download",
+            demo_version
+        );
+        return Ok(DemoDownloadResult::AlreadyExists(demo_version));
+    }
+
+    // Phase 2: download the full zip.
+    info!(
+        "Downloading demo bundle v{} from {}",
+        demo_version, DEMO_BUNDLE_URL
+    );
     let response = client.get(DEMO_BUNDLE_URL).send().await?;
 
     if !response.status().is_success() {
@@ -604,7 +654,13 @@ pub async fn download_demo_bundle(
     }
 
     on_progress(1.0);
-    info!("Downloaded {} bytes, extracting...", bytes.len());
+    info!("Downloaded {} bytes, verifying integrity...", bytes.len());
+
+    // Phase 3: verify SHA-256 integrity if the manifest includes a hash.
+    if let Some(expected_hash) = manifest.get("sha256").and_then(|v| v.as_str()) {
+        verify_sha256(&bytes, expected_hash)?;
+        info!("SHA-256 integrity verified");
+    }
 
     // Create a timestamped directory like normal bundles.
     let dir_name = crate::config::generate_timestamp();
@@ -619,21 +675,7 @@ pub async fn download_demo_bundle(
 
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(cursor)?;
-
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i)?;
-
-            // Extract only regular files, flattening directory structure.
-            // The archive contains `asset-tap/image.png` etc. — we want just
-            // `image.png` inside the target directory.
-            if entry.is_file()
-                && let Some(file_name) = std::path::Path::new(entry.name()).file_name()
-            {
-                let dest = tmp_dir.path().join(file_name);
-                let mut file = std::fs::File::create(&dest)?;
-                std::io::copy(&mut entry, &mut file)?;
-            }
-        }
+        extract_zip_to_dir(&mut archive, tmp_dir.path()).map_err(|e| anyhow::anyhow!("{}", e))?;
 
         // Atomic rename: move temp dir to the final target path.
         let tmp_path = tmp_dir.keep();
@@ -643,9 +685,13 @@ pub async fn download_demo_bundle(
     })
     .await??;
 
-    info!("Demo bundle extracted to {}", target_dir.display());
+    info!(
+        "Demo bundle v{} extracted to {}",
+        demo_version,
+        target_dir.display()
+    );
 
-    Ok(target_dir)
+    Ok(DemoDownloadResult::Downloaded(target_dir))
 }
 
 /// Discover all bundles in an output directory.
@@ -913,6 +959,167 @@ pub fn export_bundle_zip(bundle_dir: &Path, dest: &Path) -> Result<usize, String
     zip.finish()
         .map_err(|e| format!("Failed to finalize zip: {}", e))?;
     Ok(count)
+}
+
+/// Import a bundle from a zip archive into the output directory.
+///
+/// Extracts the zip contents into a new timestamped directory. If the zip
+/// contains a top-level folder, files are flattened (same as demo download).
+/// The extracted bundle must contain at least an image or model to be valid.
+/// If no `bundle.json` is present, metadata is inferred from the directory.
+///
+/// Extraction is atomic: files go to a temp directory first and are only
+/// renamed to the final path on success.
+///
+/// Returns the path to the new bundle directory.
+pub fn import_bundle_zip(source_zip: &Path, output_dir: &Path) -> Result<PathBuf, String> {
+    let zip_file =
+        std::fs::File::open(source_zip).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(zip_file).map_err(|e| format!("Invalid zip archive: {}", e))?;
+
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let tmp_dir = tempfile::tempdir_in(output_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    let file_count = extract_zip_to_dir(&mut archive, tmp_dir.path())?;
+
+    if file_count == 0 {
+        return Err("Zip archive is empty".to_string());
+    }
+
+    // Validate: must contain at least an image or model.
+    let mut contents = BundleContents::default();
+    let mut issues = Vec::new();
+    scan_bundle_contents(tmp_dir.path(), &mut contents, &mut issues);
+
+    if !contents.has_content() {
+        return Err(
+            "Bundle must contain at least an image (image.png) or model (model.glb)".to_string(),
+        );
+    }
+
+    // If no bundle.json, create inferred metadata so the bundle has a name.
+    let metadata_path = tmp_dir.path().join(bundle_files::METADATA);
+    if !metadata_path.exists() {
+        let metadata = BundleMetadata::default();
+        if let Err(e) = metadata.save(tmp_dir.path()) {
+            warn!("Failed to write inferred metadata: {}", e);
+        }
+    }
+
+    // Atomic rename to final timestamped directory.
+    let dir_name = crate::config::generate_timestamp();
+    let final_dir = output_dir.join(&dir_name);
+    let tmp_path = tmp_dir.keep();
+    std::fs::rename(&tmp_path, &final_dir)
+        .map_err(|e| format!("Failed to finalize bundle: {}", e))?;
+
+    info!(
+        "Imported bundle ({} files) to {}",
+        file_count,
+        final_dir.display()
+    );
+
+    Ok(final_dir)
+}
+
+/// Extract files from a zip archive into a destination directory.
+///
+/// If all files share a common top-level directory (e.g., `bundle-name/image.png`),
+/// that prefix is stripped. Subdirectory structure below the prefix is preserved
+/// (e.g., `bundle-name/textures/base.png` → `textures/base.png`).
+///
+/// Returns the number of files extracted.
+fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    dest: &Path,
+) -> Result<usize, String> {
+    // First pass: collect file paths and detect common prefix.
+    let mut paths: Vec<String> = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+        if entry.is_file() {
+            paths.push(entry.name().to_string());
+        }
+    }
+
+    // Detect common single-directory prefix (e.g., "asset-tap/" or "My Bundle/").
+    let prefix = detect_common_prefix(&paths);
+
+    // Second pass: extract files, stripping the common prefix.
+    let mut file_count = 0;
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+
+        if !entry.is_file() {
+            continue;
+        }
+
+        let raw_path = entry.name().to_string();
+        let relative = if let Some(ref pfx) = prefix {
+            raw_path.strip_prefix(pfx).unwrap_or(&raw_path)
+        } else {
+            &raw_path
+        };
+
+        if relative.is_empty() {
+            continue;
+        }
+
+        let dest_path = dest.join(relative);
+
+        // Create parent directories (for textures/ etc.)
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+
+        let mut file = std::fs::File::create(&dest_path)
+            .map_err(|e| format!("Failed to create file: {}", e))?;
+        std::io::copy(&mut entry, &mut file)
+            .map_err(|e| format!("Failed to extract file: {}", e))?;
+        file_count += 1;
+    }
+
+    Ok(file_count)
+}
+
+/// Detect a common single-directory prefix shared by all paths.
+///
+/// Returns `Some("dir/")` if all paths start with the same directory component,
+/// or `None` if there is no common prefix (files are at the root).
+fn detect_common_prefix(paths: &[String]) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+
+    // Get the first path component of each entry.
+    let first_components: Vec<Option<&str>> = paths
+        .iter()
+        .map(|p| p.split('/').next().filter(|c| !c.is_empty()))
+        .collect();
+
+    // Check if all entries share the same first component AND that component
+    // is actually a directory prefix (i.e., no file lives at the root level).
+    if let Some(Some(common)) = first_components.first() {
+        let all_match = first_components
+            .iter()
+            .all(|c| c.map(|v| v == *common).unwrap_or(false));
+        let all_nested = paths.iter().all(|p| p.contains('/'));
+
+        if all_match && all_nested {
+            return Some(format!("{common}/"));
+        }
+    }
+
+    None
 }
 
 /// Recursively add a directory's contents to a zip archive.
@@ -1482,24 +1689,21 @@ mod tests {
     }
 
     #[test]
-    fn test_latest_demo_generator_empty_dir() {
+    fn test_has_demo_version_empty_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(latest_demo_generator(tmp.path()).is_none());
+        assert!(!has_demo_version(tmp.path(), 1));
     }
 
     #[test]
-    fn test_latest_demo_generator_finds_tagged_bundle() {
+    fn test_has_demo_version_finds_matching() {
         let tmp = tempfile::tempdir().unwrap();
         let bundle_dir = tmp.path().join("2026-04-02_000000");
         std::fs::create_dir(&bundle_dir).unwrap();
-        // Write a minimal image so the dir counts as a bundle
         std::fs::write(bundle_dir.join("image.png"), b"fake-png").unwrap();
-        // Write bundle.json with demo tag
         let metadata = serde_json::json!({
             "version": 1,
             "name": "Test Demo",
-            "tags": ["demo"],
-            "generator": "asset-tap/99.0.0"
+            "demo_version": 1,
         });
         std::fs::write(
             bundle_dir.join("bundle.json"),
@@ -1507,34 +1711,209 @@ mod tests {
         )
         .unwrap();
 
+        assert!(has_demo_version(tmp.path(), 1));
+        assert!(!has_demo_version(tmp.path(), 2));
+    }
+
+    #[test]
+    fn test_has_demo_version_ignores_non_demo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle_dir = tmp.path().join("2026-04-02_000000");
+        std::fs::create_dir(&bundle_dir).unwrap();
+        std::fs::write(bundle_dir.join("image.png"), b"fake-png").unwrap();
+        // Normal bundle without demo_version
+        let metadata = serde_json::json!({
+            "version": 1,
+            "name": "My Generation",
+        });
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            serde_json::to_string_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        assert!(!has_demo_version(tmp.path(), 1));
+    }
+
+    /// Helper: create a zip archive in memory with the given file entries.
+    fn create_test_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options = zip::write::SimpleFileOptions::default();
+            for (name, data) in files {
+                zip.start_file(*name, options).unwrap();
+                use std::io::Write;
+                zip.write_all(data).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn test_import_bundle_zip_valid() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[("image.png", b"fake-png"), ("model.glb", b"fake-glb")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_ok());
+
+        let bundle_dir = result.unwrap();
+        assert!(bundle_dir.join("image.png").exists());
+        assert!(bundle_dir.join("model.glb").exists());
+        assert!(bundle_dir.join("bundle.json").exists()); // Inferred metadata created
+    }
+
+    #[test]
+    fn test_import_bundle_zip_with_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[
+            ("My Bundle/image.png", b"fake-png"),
+            ("My Bundle/model.glb", b"fake-glb"),
+            ("My Bundle/bundle.json", b"{}"),
+        ]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_ok());
+
+        let bundle_dir = result.unwrap();
+        // Prefix should be stripped
+        assert!(bundle_dir.join("image.png").exists());
+        assert!(bundle_dir.join("model.glb").exists());
+    }
+
+    #[test]
+    fn test_import_bundle_zip_preserves_textures_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[
+            ("bundle/image.png", b"fake-png"),
+            ("bundle/model.glb", b"fake-glb"),
+            ("bundle/textures/base_color.png", b"fake-texture"),
+        ]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_ok());
+
+        let bundle_dir = result.unwrap();
+        assert!(bundle_dir.join("image.png").exists());
+        assert!(bundle_dir.join("textures/base_color.png").exists());
+    }
+
+    #[test]
+    fn test_import_bundle_zip_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_import_bundle_zip_no_valid_assets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[("readme.txt", b"hello")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("image"));
+    }
+
+    #[test]
+    fn test_detect_common_prefix() {
+        // No prefix — files at root
         assert_eq!(
-            latest_demo_generator(tmp.path()),
-            Some("asset-tap/99.0.0".to_string())
+            detect_common_prefix(&["image.png".into(), "model.glb".into()]),
+            None
+        );
+
+        // Common prefix
+        assert_eq!(
+            detect_common_prefix(&["bundle/image.png".into(), "bundle/model.glb".into()]),
+            Some("bundle/".into())
+        );
+
+        // Mixed — one at root, one nested
+        assert_eq!(
+            detect_common_prefix(&["image.png".into(), "bundle/model.glb".into()]),
+            None
+        );
+
+        // Different prefixes
+        assert_eq!(
+            detect_common_prefix(&["a/image.png".into(), "b/model.glb".into()]),
+            None
+        );
+
+        // Empty
+        assert_eq!(detect_common_prefix(&[]), None);
+    }
+
+    #[test]
+    fn test_sha256_hex_known_value() {
+        // SHA-256 of empty input is a well-known constant
+        let hash = sha256_hex(b"");
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
 
     #[test]
-    fn test_demo_bundle_is_current() {
-        let tmp = tempfile::tempdir().unwrap();
-        // No bundles → not current
-        assert!(!demo_bundle_is_current(tmp.path()));
+    fn test_sha256_hex_deterministic() {
+        let data = b"hello world";
+        assert_eq!(sha256_hex(data), sha256_hex(data));
+    }
 
-        // Add a demo bundle with the current generator string
-        let bundle_dir = tmp.path().join("2026-04-02_000000");
-        std::fs::create_dir(&bundle_dir).unwrap();
-        std::fs::write(bundle_dir.join("image.png"), b"fake-png").unwrap();
-        let metadata = serde_json::json!({
-            "version": 1,
-            "name": "Test Demo",
-            "tags": ["demo"],
-            "generator": generator_string()
-        });
-        std::fs::write(
-            bundle_dir.join("bundle.json"),
-            serde_json::to_string_pretty(&metadata).unwrap(),
-        )
-        .unwrap();
+    #[test]
+    fn test_verify_sha256_pass() {
+        let data = b"test data";
+        let hash = sha256_hex(data);
+        assert!(verify_sha256(data, &hash).is_ok());
+    }
 
-        assert!(demo_bundle_is_current(tmp.path()));
+    #[test]
+    fn test_verify_sha256_fail() {
+        let data = b"test data";
+        let result = verify_sha256(
+            data,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Integrity check failed"));
+    }
+
+    #[test]
+    fn test_sha256_roundtrip_with_zip() {
+        // Simulate the release workflow: create a zip, hash it, verify it
+        let zip_data = create_test_zip(&[("image.png", b"fake-png"), ("model.glb", b"fake-glb")]);
+        let hash = sha256_hex(&zip_data);
+
+        // Verification should pass with the correct hash
+        assert!(verify_sha256(&zip_data, &hash).is_ok());
+
+        // Tampered data should fail
+        let mut tampered = zip_data.clone();
+        if let Some(byte) = tampered.last_mut() {
+            *byte ^= 0xFF;
+        }
+        assert!(verify_sha256(&tampered, &hash).is_err());
     }
 }

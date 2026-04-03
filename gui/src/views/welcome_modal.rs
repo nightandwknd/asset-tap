@@ -8,7 +8,7 @@
 
 use crate::icons;
 use crate::style::RichTextExt;
-use asset_tap_core::constants::files::APP_DISPLAY_NAME;
+use asset_tap_core::constants::files::{APP_DISPLAY_NAME, DEMO_BUNDLE_SIZE_LABEL};
 use eframe::egui;
 use std::path::PathBuf;
 
@@ -253,15 +253,15 @@ impl WelcomeModal {
 
                 // Demo download button
                 ui.horizontal(|ui| {
-                    let button_label = if demo_downloading {
-                        format!("{} Downloading...", icons::SPINNER)
+                    let (button_label, enabled) = if demo_downloading {
+                        (format!("{} Downloading...", icons::SPINNER), false)
                     } else {
-                        format!("{} Download Demo Bundle", icons::DOWNLOAD)
+                        (format!("{} Download Demo Bundle", icons::DOWNLOAD), true)
                     };
 
                     if ui
                         .add_enabled(
-                            !demo_downloading,
+                            enabled,
                             egui::Button::new(egui::RichText::new(button_label).size(13.0)),
                         )
                         .clicked()
@@ -269,7 +269,13 @@ impl WelcomeModal {
                         self.download_requested = true;
                     }
 
-                    ui.label(egui::RichText::new("34 MB").size(11.0).secondary());
+                    if !demo_downloading {
+                        ui.label(
+                            egui::RichText::new(DEMO_BUNDLE_SIZE_LABEL)
+                                .size(11.0)
+                                .secondary(),
+                        );
+                    }
                 });
 
                 ui.add_space(12.0);

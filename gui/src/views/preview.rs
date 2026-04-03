@@ -38,7 +38,7 @@ fn date_relative_path(path: &Path) -> String {
 pub fn render(app: &mut App, ui: &mut egui::Ui) {
     app.walkthrough
         .register_rect(WalkthroughStep::PreviewPanel, ui.max_rect());
-    ui.add_space(2.0);
+    ui.add_space(4.0);
     // Tab bar
     ui.horizontal(|ui| {
         if ui

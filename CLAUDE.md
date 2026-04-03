@@ -243,7 +243,11 @@ asset-tap --export-bundle output/2025-01-15_143022 --name "My Robot"  # Name + e
 - **Dev/mock mode:** Read from disk at runtime via `env!("CARGO_MANIFEST_DIR")` (in `SampleFiles` for mock server responses)
 - **Release builds:** Downloaded on demand via a button in the welcome modal or Help menu. The archive (`demo-bundle.zip`) is attached to each GitHub Release and fetched from `releases/latest/download/`. The download is atomic (temp dir + rename) to prevent partial state.
 
-Demo bundles are versioned via the `generator` field in `bundle.json` and tagged with `"demo"`. Each download creates a normal timestamped directory — users accumulate new demos as releases ship. The `demo_bundle_is_current()` function compares the local demo's generator against the running build to detect updates. The release workflow stamps the generator version into `bundle.json` before zipping.
+Demo bundles include a `bundle.json` with a `demo_version` field (integer, incremented only when demo content changes) and are placed in normal timestamped directories. A small `demo-manifest.json` is fetched first to check the version without downloading the full 34 MB zip. `has_demo_version()` scans local bundles for duplicates. A confirmation dialog is shown before downloading. The release workflow stamps the generator version and generates the manifest (with SHA-256 hash) from `bundle.json`. The downloaded zip is verified against the manifest hash before extraction.
+
+**Bundle import/export:** Bundles can be exported as `.zip` archives and imported back via File > Import Bundle or the import button in the bundle info panel. `import_bundle_zip()` extracts to a temp directory, validates contents (must have image or model), creates default metadata if missing, and atomically renames to a timestamped directory. The `extract_zip_to_dir()` helper handles both import and demo download, auto-detecting and stripping a common top-level directory prefix while preserving subdirectory structure (e.g., `textures/`).
+
+**Bundle deletion:** Bundles can be deleted from the bundle info panel via a destructive confirmation dialog that requires explicit click (no Enter shortcut).
 
 ### Dev vs Release Modes
 
