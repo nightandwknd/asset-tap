@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.7 — 2026-04-03
+
+### Features
+
+- strip demo assets from binary; download on demand ([#14](https://github.com/nightandwknd/asset-tap/pull/14))
+
 ## v26.4.6 — 2026-04-02
 
 ### Chores
