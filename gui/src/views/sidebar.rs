@@ -14,22 +14,21 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
     app.walkthrough
         .register_rect(WalkthroughStep::SidebarPanel, ui.max_rect());
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.add_space(4.0);
+    // Header (outside ScrollArea so it aligns with other panel headers)
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.heading(APP_DISPLAY_NAME);
 
-        // Header
-        ui.horizontal(|ui| {
-            ui.heading(APP_DISPLAY_NAME);
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(icons::GEAR).on_hover_text("Settings").clicked() {
-                    app.settings_modal
-                        .open(&app.settings, &app.provider_registry);
-                }
-            });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(icons::GEAR).on_hover_text("Settings").clicked() {
+                app.settings_modal
+                    .open(&app.settings, &app.provider_registry);
+            }
         });
+    });
+    ui.separator();
 
-        ui.separator();
+    egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(4.0);
 
         // =================================================================
