@@ -20,6 +20,8 @@ pub struct WelcomeModal {
     output_dir: PathBuf,
     /// Whether to show welcome on startup (checked by default, like VS Code).
     show_on_startup: bool,
+    /// Whether the user clicked the demo download button this frame.
+    pub download_requested: bool,
     /// Validation error message.
     error_message: Option<String>,
     /// Original values (to restore on cancel/close without save).
@@ -36,6 +38,7 @@ impl WelcomeModal {
             output_dir,
             original_show_on_startup: true,
             show_on_startup: true,
+            download_requested: false,
             error_message: None,
         }
     }
@@ -58,17 +61,24 @@ impl WelcomeModal {
     /// If `open_settings` is true, the settings modal should be opened.
     /// The welcome modal may remain open when settings is opened.
     ///
+    /// Check `self.download_requested` after calling this to see if the user
+    /// clicked the demo download button.
+    ///
     /// `skip_backdrop` - If true, don't draw the backdrop (used when another modal is on top)
     /// `logo_texture` - Optional app logo texture to display
+    /// `demo_downloading` - Whether a demo download is currently in progress
     pub fn render(
         &mut self,
         ctx: &egui::Context,
         skip_backdrop: bool,
         logo_texture: Option<&egui::TextureHandle>,
+        demo_downloading: bool,
     ) -> Option<(PathBuf, bool, bool)> {
         if !self.is_open {
             return None;
         }
+
+        self.download_requested = false;
 
         let mut result = None;
         let mut should_close = false;
@@ -239,7 +249,30 @@ impl WelcomeModal {
                     ui.label("Preview and export in multiple formats");
                 });
 
-                ui.add_space(20.0);
+                ui.add_space(16.0);
+
+                // Demo download button
+                ui.horizontal(|ui| {
+                    let button_label = if demo_downloading {
+                        format!("{} Downloading...", icons::SPINNER)
+                    } else {
+                        format!("{} Download Demo Bundle", icons::DOWNLOAD)
+                    };
+
+                    if ui
+                        .add_enabled(
+                            !demo_downloading,
+                            egui::Button::new(egui::RichText::new(button_label).size(13.0)),
+                        )
+                        .clicked()
+                    {
+                        self.download_requested = true;
+                    }
+
+                    ui.label(egui::RichText::new("34 MB").size(11.0).secondary());
+                });
+
+                ui.add_space(12.0);
                 ui.separator();
                 ui.add_space(12.0);
 
@@ -277,11 +310,8 @@ impl WelcomeModal {
                                 // Update original values on successful save
                                 self.original_output_dir = self.output_dir.clone();
                                 self.original_show_on_startup = self.show_on_startup;
-                                result = Some((
-                                    self.output_dir.clone(),
-                                    self.show_on_startup,
-                                    false, // Not opening settings when clicking "Get Started"
-                                ));
+                                result =
+                                    Some((self.output_dir.clone(), self.show_on_startup, false));
                                 should_close = true;
                             }
                         }

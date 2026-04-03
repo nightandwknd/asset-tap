@@ -257,8 +257,6 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
-    // Seed demo bundles for new installs
-    asset_tap_core::ensure_default_bundles_exist(&settings.output_dir);
     // Enable approval if: --approve flag OR settings require it (but not in auto-confirm mode)
     if (cli.approve || settings.require_image_approval) && !cli.yes {
         config = config.with_image_approval();

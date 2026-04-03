@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Asset Tap Demo",
+  "created_at": "2026-04-02T00:00:00Z",
+  "config": null,
+  "model_info": {
+    "vertex_count": 285957,
+    "triangle_count": 500000,
+    "file_size": 36076232,
+    "format": "GLB"
+  },
+  "duration_ms": null,
+  "tags": [
+    "demo"
+  ],
+  "favorite": false,
+  "notes": "Sample 3D model showcasing Asset Tap's generation pipeline.",
+  "generator": "asset-tap/26.4.6"
+}

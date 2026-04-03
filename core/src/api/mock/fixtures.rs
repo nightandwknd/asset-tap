@@ -150,19 +150,30 @@ impl MockFixtures {
 
 /// Sample binary files for mock downloads.
 ///
-/// Uses the real demo bundle assets from `bundles/asset-tap/` so mock mode
-/// shows the actual app icon and 3D model instead of placeholder triangles.
+/// Reads the real demo bundle assets from `bundles/asset-tap/` on disk so mock
+/// mode shows the actual app icon and 3D model instead of placeholder triangles.
+/// These files are never compiled into the binary — they are read at runtime
+/// from the repo checkout (dev/CI only, since mock mode requires `--features mock`).
 pub struct SampleFiles;
 
 impl SampleFiles {
-    /// App icon PNG from the demo bundle (410KB).
-    pub fn minimal_png() -> &'static [u8] {
-        include_bytes!("../../../../bundles/asset-tap/image.png")
+    /// Path to a file in the demo bundle directory.
+    fn bundle_path(filename: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../bundles/asset-tap")
+            .join(filename)
     }
 
-    /// GLB from the demo bundle (~16MB, generated with TRELLIS 2).
-    pub fn minimal_glb() -> &'static [u8] {
-        include_bytes!("../../../../bundles/asset-tap/model.glb")
+    /// App icon PNG from the demo bundle (410KB).
+    pub fn minimal_png() -> Vec<u8> {
+        std::fs::read(Self::bundle_path("image.png"))
+            .expect("bundles/asset-tap/image.png not found — is the repo intact?")
+    }
+
+    /// GLB from the demo bundle (~34MB, generated with TRELLIS 2).
+    pub fn minimal_glb() -> Vec<u8> {
+        std::fs::read(Self::bundle_path("model.glb"))
+            .expect("bundles/asset-tap/model.glb not found — is the repo intact?")
     }
 }
 
