@@ -12,8 +12,9 @@ pub const APP_DISPLAY_NAME: &str = "Asset Tap";
 /// Reverse-DNS application identifier (matches cargo-packager `identifier` in gui/Cargo.toml)
 pub const APP_ID: &str = "com.nightandwknd.asset-tap";
 
-/// Demo bundle directory name
-pub const DEMO_DIR: &str = "_asset-tap";
+/// URL for downloading the demo bundle archive from GitHub Releases.
+pub const DEMO_BUNDLE_URL: &str =
+    "https://github.com/nightandwknd/asset-tap/releases/latest/download/demo-bundle.zip";
 
 /// Configuration files
 pub mod config {

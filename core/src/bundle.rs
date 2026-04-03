@@ -31,18 +31,15 @@
 //! - [`PipelineOutput`](crate::types::PipelineOutput) - Pipeline execution results
 //! - [`history`](crate::history) - Generation history tracking
 
+use crate::constants::files::DEMO_BUNDLE_URL;
 use crate::constants::files::bundle as bundle_files;
 use crate::constants::validation;
 use crate::history::GenerationConfig;
 use crate::state::ModelInfo;
 use chrono::{DateTime, Utc};
-use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
-
-/// Embedded default bundles (all subdirectories from bundles/).
-static EMBEDDED_BUNDLES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../bundles");
 
 /// Metadata filename within each bundle directory.
 const BUNDLE_METADATA_FILE: &str = bundle_files::METADATA;
@@ -532,70 +529,123 @@ pub enum BundleError {
     NotABundle(PathBuf),
 }
 
-/// Ensure default demo bundles exist in the output directory.
+/// Demo bundle tag used to identify demo bundles in the library.
+const DEMO_TAG: &str = "demo";
+
+/// Download timeout for the demo bundle (2 minutes for ~34 MB).
+const DEMO_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Find the generator string of the latest demo bundle in the output directory.
 ///
-/// On first run, copies all embedded demo bundles to the output directory so new
-/// users have a showcase asset in their library. Each embedded bundle directory
-/// (e.g., `bundles/asset-tap/`) is copied as a timestamped subdirectory.
+/// Scans all bundles for ones tagged "demo" and returns the newest one's
+/// generator string, or `None` if no demo bundle has been downloaded yet.
+pub fn latest_demo_generator(output_dir: &Path) -> Option<String> {
+    discover_bundles(output_dir)
+        .into_iter()
+        .filter(|b| b.metadata.tags.contains(&DEMO_TAG.to_string()))
+        .max_by_key(|b| b.metadata.created_at)
+        .and_then(|b| b.metadata.generator.clone())
+}
+
+/// Check whether the user already has the latest demo bundle.
 ///
-/// Bundles are only written if they don't already exist (checked by a marker
-/// directory name). This is idempotent and safe to call on every startup.
-pub fn ensure_default_bundles_exist(output_dir: &Path) {
-    // Create output directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(output_dir) {
-        warn!("Failed to create output directory: {}", e);
-        return;
+/// Compares the local demo bundle's `generator` field against the current
+/// build's generator string. Returns `true` if they match (up to date).
+pub fn demo_bundle_is_current(output_dir: &Path) -> bool {
+    latest_demo_generator(output_dir).as_deref() == Some(generator_string())
+}
+
+/// Download the demo bundle from GitHub Releases to the output directory.
+///
+/// Downloads a `.zip` archive containing `image.png`, `model.glb`, and
+/// `bundle.json`, then extracts them into a new timestamped directory
+/// (like a normal generation bundle).
+///
+/// The download + extraction is atomic: files are extracted to a temporary
+/// directory first and only renamed to the final path on success. A failed or
+/// interrupted download will not leave a partial directory behind.
+///
+/// The `on_progress` callback receives values from 0.0 to 1.0 indicating
+/// download progress when `Content-Length` is available, or -1.0 to signal
+/// indeterminate progress (download active but total size unknown).
+///
+/// Returns the path to the new bundle directory.
+pub async fn download_demo_bundle(
+    output_dir: PathBuf,
+    on_progress: impl Fn(f32) + Send + 'static,
+) -> anyhow::Result<PathBuf> {
+    info!("Downloading demo bundle from {}", DEMO_BUNDLE_URL);
+
+    let client = reqwest::Client::builder()
+        .timeout(DEMO_DOWNLOAD_TIMEOUT)
+        .build()?;
+
+    let response = client.get(DEMO_BUNDLE_URL).send().await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to download demo bundle: HTTP {}", response.status());
     }
 
-    // Iterate through embedded bundle directories
-    for bundle_dir in EMBEDDED_BUNDLES.dirs() {
-        let bundle_name = match bundle_dir.path().file_name().and_then(|n| n.to_str()) {
-            Some(name) => name,
-            None => continue,
-        };
+    let total_size = response.content_length();
+    let mut downloaded: u64 = 0;
+    let mut bytes = Vec::new();
 
-        // Use a fixed directory name based on the bundle name so we can detect duplicates.
-        // Prefix with underscore to distinguish from user-generated timestamped dirs.
-        let target_dir_name = format!("_{}", bundle_name);
-        let target_dir = output_dir.join(&target_dir_name);
+    let mut stream = response.bytes_stream();
+    use futures::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        downloaded += chunk.len() as u64;
+        bytes.extend_from_slice(&chunk);
 
-        // Skip if already seeded
-        if target_dir.exists() {
-            debug!("Demo bundle '{}' already exists, skipping", bundle_name);
-            continue;
+        match total_size {
+            Some(total) => on_progress(downloaded as f32 / total as f32),
+            None => on_progress(-1.0),
         }
+    }
 
-        // Create the target directory
-        if let Err(e) = std::fs::create_dir_all(&target_dir) {
-            warn!("Failed to create demo bundle directory: {}", e);
-            continue;
-        }
+    on_progress(1.0);
+    info!("Downloaded {} bytes, extracting...", bytes.len());
 
-        // Copy all files from the embedded bundle
-        let mut files_written = 0;
-        for file in bundle_dir.files() {
-            let file_name = match file.path().file_name().and_then(|n| n.to_str()) {
-                Some(name) => name,
-                None => continue,
-            };
+    // Create a timestamped directory like normal bundles.
+    let dir_name = crate::config::generate_timestamp();
+    let target_dir = output_dir.join(&dir_name);
 
-            let target_path = target_dir.join(file_name);
-            if let Err(e) = std::fs::write(&target_path, file.contents()) {
-                warn!("Failed to write demo bundle file {:?}: {}", file_name, e);
-            } else {
-                files_written += 1;
+    // Extract to a temporary directory first, then rename atomically.
+    let final_target = target_dir.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        std::fs::create_dir_all(&output_dir)?;
+
+        let tmp_dir = tempfile::tempdir_in(&output_dir)?;
+
+        let cursor = std::io::Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor)?;
+
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i)?;
+
+            // Extract only regular files, flattening directory structure.
+            // The archive contains `asset-tap/image.png` etc. — we want just
+            // `image.png` inside the target directory.
+            if entry.is_file()
+                && let Some(file_name) = std::path::Path::new(entry.name()).file_name()
+            {
+                let dest = tmp_dir.path().join(file_name);
+                let mut file = std::fs::File::create(&dest)?;
+                std::io::copy(&mut entry, &mut file)?;
             }
         }
 
-        if files_written > 0 {
-            info!(
-                "Seeded demo bundle '{}' ({} files) to {}",
-                bundle_name,
-                files_written,
-                target_dir.display()
-            );
-        }
-    }
+        // Atomic rename: move temp dir to the final target path.
+        let tmp_path = tmp_dir.keep();
+        std::fs::rename(&tmp_path, &final_target)?;
+
+        Ok(())
+    })
+    .await??;
+
+    info!("Demo bundle extracted to {}", target_dir.display());
+
+    Ok(target_dir)
 }
 
 /// Discover all bundles in an output directory.
@@ -1429,5 +1479,62 @@ mod tests {
         assert_eq!(info.triangle_count, 1);
         assert_eq!(info.format, "GLB");
         assert!(info.file_size > 0);
+    }
+
+    #[test]
+    fn test_latest_demo_generator_empty_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(latest_demo_generator(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn test_latest_demo_generator_finds_tagged_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle_dir = tmp.path().join("2026-04-02_000000");
+        std::fs::create_dir(&bundle_dir).unwrap();
+        // Write a minimal image so the dir counts as a bundle
+        std::fs::write(bundle_dir.join("image.png"), b"fake-png").unwrap();
+        // Write bundle.json with demo tag
+        let metadata = serde_json::json!({
+            "version": 1,
+            "name": "Test Demo",
+            "tags": ["demo"],
+            "generator": "asset-tap/99.0.0"
+        });
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            serde_json::to_string_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            latest_demo_generator(tmp.path()),
+            Some("asset-tap/99.0.0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_demo_bundle_is_current() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No bundles → not current
+        assert!(!demo_bundle_is_current(tmp.path()));
+
+        // Add a demo bundle with the current generator string
+        let bundle_dir = tmp.path().join("2026-04-02_000000");
+        std::fs::create_dir(&bundle_dir).unwrap();
+        std::fs::write(bundle_dir.join("image.png"), b"fake-png").unwrap();
+        let metadata = serde_json::json!({
+            "version": 1,
+            "name": "Test Demo",
+            "tags": ["demo"],
+            "generator": generator_string()
+        });
+        std::fs::write(
+            bundle_dir.join("bundle.json"),
+            serde_json::to_string_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        assert!(demo_bundle_is_current(tmp.path()));
     }
 }

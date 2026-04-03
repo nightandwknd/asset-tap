@@ -28,7 +28,7 @@ use crate::views::library::LibraryBrowser;
 use crate::views::settings::SettingsModal;
 use crate::views::walkthrough::Walkthrough;
 use crate::views::welcome_modal::WelcomeModal;
-use asset_tap_core::constants::files::{DEMO_DIR, bundle as bundle_files};
+use asset_tap_core::constants::files::bundle as bundle_files;
 use asset_tap_core::{
     bundle::load_bundle,
     history::{ErrorInfo, GenerationHistory},
@@ -269,6 +269,10 @@ pub struct App {
 
     /// Pending FBX conversion result (from async Blender conversion).
     pub pending_fbx_conversion: Option<tokio::sync::oneshot::Receiver<FbxConversionResult>>,
+
+    /// Pending demo bundle download result (from async download).
+    pending_demo_download:
+        Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
 
     // =========================================================================
     // Toast Notifications
@@ -537,6 +541,7 @@ impl App {
             pending_file_selection: None,
             pending_export: None,
             pending_fbx_conversion: None,
+            pending_demo_download: None,
 
             // Toast Notifications
             toasts: Vec::new(),
@@ -583,21 +588,6 @@ impl App {
         // Otherwise, defer until the welcome modal closes — accessing ~/Documents
         // before the user configures the path triggers a macOS permission prompt.
         if !app.app_state.show_welcome_on_startup {
-            // Seed demo bundles for new installs (idempotent — skips if already present)
-            asset_tap_core::ensure_default_bundles_exist(&app.settings.output_dir);
-
-            // If no generation is loaded, try to auto-load the demo bundle
-            if app.output.is_none() {
-                let demo_dir = app.settings.output_dir.join(DEMO_DIR);
-                if demo_dir.exists()
-                    && let Ok(bundle) = load_bundle(&demo_dir)
-                {
-                    app.output = Some(PipelineOutput::from(bundle));
-                    app.app_state.current_generation = Some(demo_dir.clone());
-                    let _ = app.bundle_info_panel.load_bundle(demo_dir);
-                }
-            }
-
             // Populate bundle selector dropdown
             app.bundle_info_panel
                 .refresh_bundle_list(&app.settings.output_dir);
@@ -607,6 +597,25 @@ impl App {
         app.load_logo_texture(&cc.egui_ctx);
 
         app
+    }
+
+    /// Start downloading the demo bundle in the background.
+    ///
+    /// Spawns an async download task and shows a toast. Does nothing if a
+    /// download is already in progress.
+    fn start_demo_download(&mut self) {
+        if self.pending_demo_download.is_some() {
+            return; // Already downloading
+        }
+
+        let output_dir = self.settings.output_dir.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_demo_download = Some(rx);
+        self.toasts.push(Toast::info("Downloading demo assets..."));
+        self.runtime.spawn(async move {
+            let result = asset_tap_core::download_demo_bundle(output_dir, |_progress| {}).await;
+            let _ = tx.send(result.map_err(|e| e.to_string()));
+        });
     }
 
     /// Load the app logo texture from embedded bytes.
@@ -1719,16 +1728,46 @@ impl eframe::App for App {
             }
         }
 
+        // Check for completed demo bundle download
+        if let Some(mut rx) = self.pending_demo_download.take() {
+            match rx.try_recv() {
+                Ok(Ok(demo_dir)) => {
+                    self.add_toast(Toast::success("Demo assets downloaded"));
+                    if let Ok(bundle) = load_bundle(&demo_dir) {
+                        self.output = Some(PipelineOutput::from(bundle));
+                        self.app_state.current_generation = Some(demo_dir.clone());
+                        let _ = self.bundle_info_panel.load_bundle(demo_dir);
+                    }
+                    self.bundle_info_panel
+                        .refresh_bundle_list(&self.settings.output_dir);
+                }
+                Ok(Err(msg)) => {
+                    tracing::error!("Demo bundle download failed: {}", msg);
+                    self.toasts
+                        .push(Toast::error("Failed to download demo assets"));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_demo_download = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("Demo download channel closed unexpectedly");
+                }
+            }
+        }
+
         // Update library browser with current output directory
         self.library_browser
             .set_output_dir(self.settings.output_dir.clone());
 
         // Handle welcome modal (renders over main UI)
         // Skip backdrop if settings modal is also open to avoid double backdrop effect
-        if let Some((output_dir, show_on_startup, open_settings)) =
-            self.welcome_modal
-                .render(ctx, self.settings_modal.is_open, self.logo_texture.as_ref())
-        {
+        if let Some((output_dir, show_on_startup, open_settings)) = self.welcome_modal.render(
+            ctx,
+            self.settings_modal.is_open,
+            self.logo_texture.as_ref(),
+            self.pending_demo_download.is_some(),
+        ) {
             // Update settings and state from welcome modal
             self.settings.output_dir = output_dir;
             self.app_state.show_welcome_on_startup = show_on_startup;
@@ -1754,18 +1793,6 @@ impl eframe::App for App {
             if let Err(e) = self.settings.ensure_output_dir() {
                 tracing::error!("Failed to create output directory: {}", e);
             }
-            // Seed demo bundles and load library (deferred from startup)
-            asset_tap_core::ensure_default_bundles_exist(&self.settings.output_dir);
-            if self.output.is_none() {
-                let demo_dir = self.settings.output_dir.join(DEMO_DIR);
-                if demo_dir.exists()
-                    && let Ok(bundle) = load_bundle(&demo_dir)
-                {
-                    self.output = Some(PipelineOutput::from(bundle));
-                    self.app_state.current_generation = Some(demo_dir.clone());
-                    let _ = self.bundle_info_panel.load_bundle(demo_dir);
-                }
-            }
             self.bundle_info_panel
                 .refresh_bundle_list(&self.settings.output_dir);
             // Update library browser output dir
@@ -1773,6 +1800,11 @@ impl eframe::App for App {
                 .set_output_dir(self.settings.output_dir.clone());
             // Refresh provider registry to pick up new API keys
             self.provider_registry = asset_tap_core::providers::ProviderRegistry::new();
+        }
+
+        // Handle demo download request from welcome modal
+        if self.welcome_modal.download_requested {
+            self.start_demo_download();
         }
 
         // Menu bar
@@ -1820,6 +1852,20 @@ impl eframe::App for App {
                     }
                     if ui.button("Show Welcome Screen").clicked() {
                         self.welcome_modal.open();
+                        ui.close();
+                    }
+                    ui.separator();
+                    let demo_downloading = self.pending_demo_download.is_some();
+                    let demo_label = if demo_downloading {
+                        "Downloading Demo Bundle..."
+                    } else {
+                        "Download Demo Bundle"
+                    };
+                    if ui
+                        .add_enabled(!demo_downloading, egui::Button::new(demo_label))
+                        .clicked()
+                    {
+                        self.start_demo_download();
                         ui.close();
                     }
                     ui.separator();

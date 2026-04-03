@@ -17,6 +17,7 @@ Guidance for Claude Code when working with this repository.
 - `gui/` - GUI application (egui + three-d 3D viewer)
 - `providers/` - YAML provider configurations (embedded at compile time)
 - `templates/` - YAML prompt templates (embedded at compile time)
+- `bundles/` - Demo bundle assets (image + 3D model) — NOT compiled into the binary, read from disk in dev/mock mode and downloaded on demand in release
 
 ## Essential Commands
 
@@ -236,6 +237,13 @@ asset-tap --export-bundle output/2025-01-15_143022 --name "My Robot"  # Name + e
 ```
 
 **Model info:** `bundle.json` includes `model_info` (vertex count, triangle count, file size) populated automatically at pipeline time via `extract_model_info()` — no need to wait for the GUI viewer.
+
+**Demo bundle:** A showcase 3D model (`bundles/asset-tap/`) is included in the repo but **never compiled into the binary**. It exists in two forms:
+
+- **Dev/mock mode:** Read from disk at runtime via `env!("CARGO_MANIFEST_DIR")` (in `SampleFiles` for mock server responses)
+- **Release builds:** Downloaded on demand via a button in the welcome modal or Help menu. The archive (`demo-bundle.zip`) is attached to each GitHub Release and fetched from `releases/latest/download/`. The download is atomic (temp dir + rename) to prevent partial state.
+
+Demo bundles are versioned via the `generator` field in `bundle.json` and tagged with `"demo"`. Each download creates a normal timestamped directory — users accumulate new demos as releases ship. The `demo_bundle_is_current()` function compares the local demo's generator against the running build to detect updates. The release workflow stamps the generator version into `bundle.json` before zipping.
 
 ### Dev vs Release Modes
 

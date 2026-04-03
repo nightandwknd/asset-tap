@@ -5,10 +5,10 @@
 
 **Generate 3D models from text prompts**
 
-[![CI](https://github.com/nightandwknd/asset-tap/actions/workflows/ci.yaml/badge.svg)](https://github.com/nightandwknd/asset-tap/actions/workflows/ci.yaml)
-[![Release](https://img.shields.io/github/v/release/nightandwknd/asset-tap?label=release)](https://github.com/nightandwknd/asset-tap/releases/latest)
+[![Release](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml/badge.svg)](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml)
+[![Version](https://img.shields.io/github/v/release/nightandwknd/asset-tap?label=version)](https://github.com/nightandwknd/asset-tap/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Platform: macOS | Linux | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/nightandwknd/asset-tap/releases/latest)
+[![Platforms: macOS | Linux | Windows](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/nightandwknd/asset-tap/releases/latest)
 [![Built with Rust](https://img.shields.io/badge/built_with-Rust-dca282?logo=rust)](https://www.rust-lang.org/)
 
 </div>

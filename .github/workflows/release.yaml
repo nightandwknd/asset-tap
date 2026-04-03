@@ -225,6 +225,12 @@ jobs:
         run: |
           mkdir -p release
 
+          # Demo bundle (downloaded on demand by the app)
+          # Stamp the generator field to match the release version
+          NEW_VERSION="${{ needs.version.outputs.new_version }}"
+          sed -i "s|\"generator\":.*|\"generator\": \"asset-tap/${NEW_VERSION}\"|" bundles/asset-tap/bundle.json
+          (cd bundles && zip -r ../release/demo-bundle.zip asset-tap/)
+
           # macOS
           cp artifacts/asset-tap-macos/AssetTap.dmg release/AssetTap-macos.dmg
           cp artifacts/asset-tap-cli-macos/asset-tap-cli-macos.tar.gz release/
