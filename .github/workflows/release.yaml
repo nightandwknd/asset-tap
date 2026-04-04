@@ -228,7 +228,7 @@ jobs:
           # Demo bundle (downloaded on demand by the app)
           # Stamp the generator field to match the release version
           NEW_VERSION="${{ needs.version.outputs.new_version }}"
-          sed -i "s|\"generator\":.*|\"generator\": \"asset-tap/${NEW_VERSION}\"|" bundles/asset-tap/bundle.json
+          sed -i "s|\"generator\":.*|\"generator\": \"asset-tap/${NEW_VERSION}\",|" bundles/asset-tap/bundle.json
           (cd bundles && zip -r ../release/demo-bundle.zip asset-tap/)
           # Generate manifest with version info + SHA-256 for integrity verification
           DEMO_SHA256=$(sha256sum release/demo-bundle.zip | awk '{print $1}')
