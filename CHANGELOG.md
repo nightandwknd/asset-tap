@@ -2,13 +2,17 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.10 — 2026-04-04
+
+### Chores
+
+- bump indexmap in the rust-minor-patch group ([#15](https://github.com/nightandwknd/asset-tap/pull/15)) _(deps)_
+
 ## v26.4.9 — 2026-04-04
 
 ### Bug Fixes
 
 - release workflow bundle.json
-
-## v26.4.8 — 2026-04-03
 
 ### Features
 
