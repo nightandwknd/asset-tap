@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.9 — 2026-04-04
+
+### Bug Fixes
+
+- release workflow bundle.json
+
 ## v26.4.8 — 2026-04-03
 
 ### Features
