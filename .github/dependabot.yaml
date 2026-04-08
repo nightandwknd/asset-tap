@@ -5,7 +5,8 @@ updates:
   - package-ecosystem: 'cargo'
     directory: '/'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
+      day: 'sunday'
       time: '12:00'
       timezone: 'America/Chicago'
     versioning-strategy: lockfile-only
@@ -24,21 +25,8 @@ updates:
       - dependency-name: 'egui-phosphor'
       - dependency-name: 'glow'
     groups:
-      # Specific ecosystem groups first (first-match semantics)
-      serde:
-        patterns:
-          - 'serde*'
-        update-types: ['minor', 'patch']
-      tokio:
-        patterns:
-          - 'tokio*'
-        update-types: ['minor', 'patch']
-      tracing:
-        patterns:
-          - 'tracing*'
-        update-types: ['minor', 'patch']
-      # Catch-all: everything else grouped as minor+patch
-      rust-minor-patch:
+      # Single group for all minor+patch updates
+      rust-dependencies:
         patterns:
           - '*'
         update-types: ['minor', 'patch']
