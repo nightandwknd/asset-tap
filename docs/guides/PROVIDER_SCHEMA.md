@@ -17,8 +17,6 @@ Providers are defined through YAML configuration files that specify:
 ### Top Level
 
 ```yaml
-config_version: 1  # Optional: Bump when changing this file (missing = 0)
-
 provider:           # Required: Provider metadata
   # ... metadata fields
   upload:           # Optional: File upload configuration (nested under provider)
@@ -31,7 +29,7 @@ image_to_3d:       # Optional: Image-to-3D models
   # ... model configs
 ```
 
-**Config versioning:** On app startup, embedded configs overwrite on-disk copies when `config_version` is higher. The old file is backed up as `.yaml.bak`. Files without `config_version` are treated as version 0.
+**Embedded config sync:** On app startup, each embedded provider YAML is compared byte-for-byte against its on-disk copy. If they differ, the on-disk file is backed up as `.yaml.bak` and overwritten with the embedded version. There is no manual version field — the content itself is the version. User-created custom YAML files (with filenames that don't match any embedded file) are never touched.
 
 ## Provider Metadata
 

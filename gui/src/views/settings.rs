@@ -103,8 +103,12 @@ impl SettingsModal {
             settings.set_provider_api_key(provider_id.clone(), key.clone());
         }
 
-        // Sync settings to environment variables (for GUI app)
-        settings.sync_to_env(registry);
+        // Sync settings to environment variables. We use the authoritative
+        // variant here because this runs after the user has explicitly hit
+        // Save in the settings dialog: if they cleared a key, the env var
+        // should reflect that immediately, even if some other source (.env,
+        // shell, mock mode) had previously populated it.
+        settings.sync_to_env_authoritative(registry);
 
         // UI Preferences
         settings.require_image_approval = self.draft.require_image_approval;

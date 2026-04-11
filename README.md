@@ -126,16 +126,19 @@ For automation and scripting:
 
 ```bash
 # Basic generation
-asset-tap --yes "a wooden treasure chest"
+asset-tap "a wooden treasure chest"
 
 # Specify provider and models
-asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 -y "a dragon"
+asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 "a dragon"
 
-# Use existing image
-asset-tap --yes --image "photo.png"
+# Use an existing image instead of generating one
+asset-tap --image "photo.png"
 
 # List available providers and models
 asset-tap --list-providers
+
+# Auto-confirm the image approval step (only matters if you have approval enabled)
+asset-tap -y "a wooden treasure chest"
 ```
 
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.

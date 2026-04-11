@@ -662,9 +662,9 @@ pub async fn download_demo_bundle(
         info!("SHA-256 integrity verified");
     }
 
-    // Create a timestamped directory like normal bundles.
-    let dir_name = crate::config::generate_timestamp();
-    let target_dir = output_dir.join(&dir_name);
+    // Create a timestamped directory like normal bundles, with collision
+    // suffix if another bundle landed in the same second.
+    let target_dir = crate::config::unique_timestamped_path(&output_dir);
 
     // Extract to a temporary directory first, then rename atomically.
     let final_target = target_dir.clone();
@@ -1010,9 +1010,9 @@ pub fn import_bundle_zip(source_zip: &Path, output_dir: &Path) -> Result<PathBuf
         }
     }
 
-    // Atomic rename to final timestamped directory.
-    let dir_name = crate::config::generate_timestamp();
-    let final_dir = output_dir.join(&dir_name);
+    // Atomic rename to final timestamped directory, with collision suffix
+    // if another bundle landed in the same second.
+    let final_dir = crate::config::unique_timestamped_path(output_dir);
     let tmp_path = tmp_dir.keep();
     std::fs::rename(&tmp_path, &final_dir)
         .map_err(|e| format!("Failed to finalize bundle: {}", e))?;

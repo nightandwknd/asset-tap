@@ -7,10 +7,6 @@ use std::path::{Path, PathBuf};
 /// A template definition loaded from YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateDefinition {
-    /// Config file version for automatic upgrades. Missing = version 0.
-    #[serde(default)]
-    pub config_version: u32,
-
     /// Unique template identifier.
     pub id: String,
 
@@ -140,7 +136,6 @@ mod tests {
     #[test]
     fn test_validate_empty_id() {
         let template = TemplateDefinition {
-            config_version: 0,
             id: "".to_string(),
             name: "Test".to_string(),
             description: "Test".to_string(),
@@ -158,7 +153,6 @@ mod tests {
     #[test]
     fn test_validate_missing_required_variable() {
         let template = TemplateDefinition {
-            config_version: 0,
             id: "test".to_string(),
             name: "Test".to_string(),
             description: "Test".to_string(),
@@ -180,7 +174,6 @@ mod tests {
     #[test]
     fn test_validate_valid_template() {
         let template = TemplateDefinition {
-            config_version: 0,
             id: "test".to_string(),
             name: "Test".to_string(),
             description: "Test".to_string(),

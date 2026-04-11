@@ -69,7 +69,7 @@
 pub mod api;
 pub mod bundle;
 pub mod config;
-pub mod config_version;
+pub mod config_sync;
 pub mod constants;
 pub mod convert;
 pub mod error_log;

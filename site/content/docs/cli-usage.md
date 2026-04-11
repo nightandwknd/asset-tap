@@ -48,28 +48,26 @@ If you've configured your API key in the Asset Tap GUI (Settings > API Keys), th
 
 ```bash
 # Generate a 3D model from a text prompt
-asset-tap --yes "a wooden treasure chest"
+asset-tap "a wooden treasure chest"
 
-# Short form
-asset-tap -y "a dragon"
+# Run interactively — you'll be asked to describe what you want to create
+asset-tap
 ```
-
-The `--yes` / `-y` flag skips confirmation prompts and runs with defaults.
 
 ## Specifying Provider and Models
 
 ```bash
 # Use a specific provider
-asset-tap -p fal.ai -y "a spaceship"
+asset-tap -p fal.ai "a spaceship"
 
 # Choose specific models
-asset-tap -p fal.ai --image-model nano-banana-2 --3d-model trellis-2 -y "a robot"
+asset-tap -p fal.ai --image-model nano-banana-2 --3d-model trellis-2 "a robot"
 
 # Use premium image model
-asset-tap -p fal.ai --image-model nano-banana-pro -y "a detailed castle"
+asset-tap -p fal.ai --image-model nano-banana-pro "a detailed castle"
 
 # Use original Nano Banana
-asset-tap -p fal.ai --image-model nano-banana -y "a simple cube"
+asset-tap -p fal.ai --image-model nano-banana "a simple cube"
 ```
 
 ## Using an Existing Image
@@ -78,10 +76,10 @@ Skip the text-to-image step by providing your own image:
 
 ```bash
 # Convert an existing image to 3D
-asset-tap --yes --image "photo.png"
+asset-tap --image "photo.png"
 
 # With a specific 3D model
-asset-tap --yes --image "photo.png" --3d-model trellis-2
+asset-tap --image "photo.png" --3d-model trellis-2
 ```
 
 ## Templates
@@ -93,11 +91,37 @@ Use prompt templates to structure your input with predefined formats:
 asset-tap --list
 
 # Use a template (your prompt becomes the template's description variable)
-asset-tap -t humanoid -y "a brave knight with a glowing sword"
+asset-tap -t humanoid "a brave knight with a glowing sword"
 
 # Inspect a template's syntax and preview
 asset-tap --inspect-template humanoid
 ```
+
+## Scripts and Non-Interactive Use
+
+The CLI is already script-friendly out of the box — no special flag needed. If stdin isn't a terminal (piped, redirected, or running in CI), the CLI will not try to read a prompt interactively. Just pass your prompt as an argument:
+
+```bash
+# Works directly in scripts, CI, cron, etc.
+asset-tap "a wooden treasure chest"
+
+# Omitting the prompt from a non-interactive shell fails fast with a clear error
+echo "" | asset-tap            # Error: No prompt provided. Pass a prompt as an argument:
+```
+
+### Image Approval Auto-Confirm (`-y` / `--yes`)
+
+If you've enabled the image approval step (via `--approve` or the GUI setting `require_image_approval`), the CLI will pause after image generation and ask you to confirm before running the 3D conversion. Pass `-y` / `--yes` to skip that confirmation and proceed automatically — useful when you want the approval behavior in interactive runs but not in batch scripts.
+
+```bash
+# Normally prompts after the image is generated
+asset-tap --approve "a wooden treasure chest"
+
+# Skips the prompt, proceeds straight to 3D
+asset-tap --approve -y "a wooden treasure chest"
+```
+
+If you don't use `--approve` and don't have approval enabled in settings, `-y` is a no-op.
 
 ## Listing Providers and Models
 
@@ -115,7 +139,7 @@ Generated assets are saved to timestamped directories. See [Bundle Structure](@/
 
 ```bash
 # Use a custom output directory
-asset-tap -o ~/my-assets -y "a treasure chest"
+asset-tap -o ~/my-assets "a treasure chest"
 ```
 
 ```
@@ -141,7 +165,7 @@ By default, Asset Tap converts GLB models to FBX if Blender is installed.
 
 ```bash
 # Skip FBX conversion (GLB output only)
-asset-tap --no-fbx -y "a robot"
+asset-tap --no-fbx "a robot"
 
 # Convert a specific bundle or GLB file to FBX after generation
 asset-tap --convert-fbx output/2024-12-29_153045
@@ -177,10 +201,10 @@ When building from source, use the Makefile targets:
 
 ```bash
 # Instant mock responses
-make mock ARGS='-y "test prompt"'
+make mock ARGS='"test prompt"'
 
 # With realistic delays
-make mock ARGS='--mock-delay -y "test prompt"'
+make mock ARGS='--mock-delay "test prompt"'
 
 # GUI in mock mode
 make mock-gui
@@ -189,7 +213,7 @@ make mock-gui
 Or build with the feature explicitly:
 
 ```bash
-cargo run --features mock --bin asset-tap -- --mock -y "test prompt"
+cargo run --features mock --bin asset-tap -- --mock "test prompt"
 ```
 
 Mock mode redirects all API requests to a local server that returns synthetic data (test images and 3D models). It validates the pipeline and configuration plumbing, not provider-specific response parsing. To verify a custom provider's response format, test against the real API.
@@ -198,7 +222,7 @@ Mock mode redirects all API requests to a local server that returns synthetic da
 
 | Flag                 | Short | Description                                                   |
 | -------------------- | ----- | ------------------------------------------------------------- |
-| `--yes`              | `-y`  | Auto-confirm all prompts (non-interactive mode)               |
+| `--yes`              | `-y`  | Auto-confirm the image approval step                          |
 | `--provider`         | `-p`  | Provider to use (e.g., `fal.ai`)                              |
 | `--image-model`      |       | Image generation model                                        |
 | `--3d-model`         |       | 3D generation model                                           |

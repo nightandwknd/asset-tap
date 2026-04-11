@@ -33,6 +33,15 @@ inputs:
     description: Additional flags to pass to cargo build (e.g., "--features mock")
     required: false
     default: ''
+  installer-retention-days:
+    description: |
+      How many days to keep installer + CLI archive artifacts. Defaults to 90
+      (the GitHub default), which is right for the release workflow where
+      these are real distributable build outputs. The CI/PR workflow should
+      pass a small number (e.g. 7) so PR-preview installers don't sit in
+      artifact storage for 90 days each.
+    required: false
+    default: '90'
 
 runs:
   using: composite
@@ -138,6 +147,7 @@ runs:
         name: asset-tap-macos${{ inputs.artifact-suffix }}
         path: target/release/AssetTap.dmg
         if-no-files-found: error
+        retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload .deb (Linux)
       if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
@@ -146,6 +156,7 @@ runs:
         name: asset-tap-linux-deb${{ inputs.artifact-suffix }}
         path: target/release/*.deb
         if-no-files-found: warn
+        retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload AppImage (Linux)
       if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
@@ -154,6 +165,7 @@ runs:
         name: asset-tap-linux-appimage${{ inputs.artifact-suffix }}
         path: target/release/*.AppImage
         if-no-files-found: warn
+        retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload NSIS installer (Windows)
       if: inputs.platform == 'windows' && inputs.upload-installers == 'true'
@@ -162,6 +174,7 @@ runs:
         name: asset-tap-windows${{ inputs.artifact-suffix }}
         path: target/release/*-setup.exe
         if-no-files-found: error
+        retention-days: ${{ inputs.installer-retention-days }}
 
     # ── Upload: CLI Archives ───────────────────────────────────────────
     - name: Upload CLI archive (macOS)
@@ -171,6 +184,7 @@ runs:
         name: asset-tap-cli-macos${{ inputs.artifact-suffix }}
         path: asset-tap-cli-macos.tar.gz
         if-no-files-found: error
+        retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload CLI archive (Linux)
       if: inputs.platform == 'linux' && inputs.upload-cli-archives == 'true'
@@ -179,6 +193,7 @@ runs:
         name: asset-tap-cli-linux${{ inputs.artifact-suffix }}
         path: asset-tap-cli-linux.tar.gz
         if-no-files-found: error
+        retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload CLI archive (Windows)
       if: inputs.platform == 'windows' && inputs.upload-cli-archives == 'true'
@@ -187,3 +202,4 @@ runs:
         name: asset-tap-cli-windows${{ inputs.artifact-suffix }}
         path: asset-tap-cli-windows.zip
         if-no-files-found: error
+        retention-days: ${{ inputs.installer-retention-days }}

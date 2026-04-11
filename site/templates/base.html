@@ -116,11 +116,16 @@ nav{display:flex;gap:.5rem;margin:1.5rem 0}nav a{flex:1;display:flex;flex-direct
     .giallo-l{display:inline-block;min-height:1lh;width:100%}
     html.light .z-code{background:#d4e4ee}
     html.dark .z-code{background:#0f2035}
-    .btn{display:inline-block;padding:.5rem 1.2rem;border:2px solid var(--accent);color:var(--accent);text-decoration:none;font-weight:bold;font-family:monospace;transition:background .15s,color .15s}
+    .btn{display:inline-block;padding:.5rem 1.2rem;border:2px solid var(--accent);color:var(--accent);text-decoration:none;font-weight:bold;font-family:monospace;transition:background .15s,color .15s,border-color .15s}
     .btn:visited{color:var(--accent)}
-    .btn:hover,.btn:active,.btn.primary:hover,.btn.primary:active{background:var(--accent-hover);border-color:var(--accent-hover);color:#fff}
     .btn.primary{background:var(--accent);color:#fff}
     .btn.primary:visited{color:#fff}
+    /* Both button variants get the same hover treatment: orange background +
+       border, white text. The `html.light` / `html.dark` prefix is required to
+       match the specificity of the global `html.light a:hover` rule above —
+       without it the global rule would paint the label the accent-hover color
+       and the text would disappear into the matching background. */
+    html.light .btn:hover,html.light .btn:active,html.dark .btn:hover,html.dark .btn:active{background:var(--accent-hover);border-color:var(--accent-hover);color:#fff}
     </style>
     <link rel="stylesheet" href="{{ get_url(path='giallo-dark.css', trailing_slash=false) | safe }}" id="giallo-dark" disabled>
     <link rel="stylesheet" href="{{ get_url(path='giallo-light.css', trailing_slash=false) | safe }}" id="giallo-light" disabled>

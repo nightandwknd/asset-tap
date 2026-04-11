@@ -400,6 +400,13 @@ impl ProviderRegistry {
         // Override the provider's base_url
         provider.set_base_url(mock_url);
 
+        // Collapse polling intervals so mock-mode pipeline runs don't pay the
+        // YAML-declared 1-2 second per-stage cadence. Combined with the
+        // poll-then-sleep ordering in http_client.rs, the first poll lands
+        // immediately and the mock server returns COMPLETED, so a typical
+        // run finishes in single-digit milliseconds per stage.
+        provider.clamp_polling_interval(1);
+
         // Disable discovery in mock mode - use static models only
         // This prevents discovered models from having incomplete configs
         let mut provider = provider;
@@ -608,9 +615,8 @@ fn ensure_default_providers_exist() {
             }
         };
 
-        // Version-aware write: creates new, upgrades older versions (with backup), or skips
-        if let Err(e) = crate::config_version::write_with_backup(&target_path, contents, "provider")
-        {
+        // Content-compare write: creates new, overwrites (with .bak) when bytes differ, or skips.
+        if let Err(e) = crate::config_sync::write_with_backup(&target_path, contents, "provider") {
             tracing::warn!("Failed to write provider {:?}: {}", filename, e);
         }
     }
@@ -627,7 +633,6 @@ mod tests {
 
     fn create_test_provider(id: &str) -> DynamicProvider {
         let config = ProviderConfig {
-            config_version: 0,
             provider: ProviderMetadataConfig {
                 upload: None,
                 id: id.to_string(),

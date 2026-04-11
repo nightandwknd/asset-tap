@@ -193,7 +193,6 @@ pub fn create_template(
 
     // Create template definition
     let template = TemplateDefinition {
-        config_version: 0,
         id: id.clone(),
         name: name.trim().to_string(),
         description: description.trim().to_string(),

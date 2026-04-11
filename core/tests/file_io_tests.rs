@@ -276,6 +276,43 @@ fn test_timestamp_uniqueness() {
     );
 }
 
+/// Two pipeline runs that complete within the same wall-clock second must
+/// produce two distinct output directories. The wall-clock timestamp alone is
+/// only second-resolution, so `unique_timestamped_path` adds a `-N` suffix
+/// when it sees a collision. Without this, fast back-to-back generations
+/// silently merge into one directory (with `create_dir_all`) or fail outright
+/// (with `rename`). Mock-mode tests are the canary for this — real APIs are
+/// rarely fast enough to hit the collision.
+#[test]
+fn test_unique_timestamped_path_disambiguates_collisions() {
+    use asset_tap_core::config::unique_timestamped_path;
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+
+    // First call: plain timestamped path. Materialize it so the next call sees a collision.
+    let first = unique_timestamped_path(base);
+    std::fs::create_dir(&first).unwrap();
+
+    let second = unique_timestamped_path(base);
+    assert_ne!(first, second, "second path should not collide with first");
+    std::fs::create_dir(&second).unwrap();
+
+    let third = unique_timestamped_path(base);
+    assert_ne!(third, first);
+    assert_ne!(third, second);
+
+    // Suffix shape: the disambiguator is "-1", "-2", ... appended to the
+    // shared base timestamp. We verify the suffix pattern rather than the
+    // exact timestamp because we don't control the clock here.
+    let first_name = first.file_name().unwrap().to_string_lossy().into_owned();
+    let second_name = second.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(second_name, format!("{}-1", first_name));
+
+    let third_name = third.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(third_name, format!("{}-2", first_name));
+}
+
 // =============================================================================
 // File Permissions and Error Handling Tests
 // =============================================================================

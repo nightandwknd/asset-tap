@@ -17,6 +17,9 @@ target/
 # IDE files (keep .vscode/ for shared settings)
 .idea/
 
+# Claude Code runtime artifacts (session lockfiles, etc.)
+.claude/
+
 # Logs
 *.log
 

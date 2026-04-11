@@ -34,7 +34,7 @@ use asset_tap_core::{
     history::{ErrorInfo, GenerationHistory},
     pipeline::{PipelineConfig, run_pipeline},
     providers::ProviderCapability,
-    settings::{Settings, is_dev_mode},
+    settings::{LoadStatus, Settings, is_dev_mode},
     state::AppState,
     templates::list_templates,
     types::{ApprovalResponse, PipelineOutput, Progress, Stage},
@@ -132,6 +132,50 @@ impl Toast {
         } else {
             1.0
         }
+    }
+}
+
+/// Build the list of toasts to seed `App.toasts` with at startup, based on
+/// how the settings load went.
+///
+/// Extracted from `App::new` so we can unit-test the message-and-variant
+/// mapping without standing up a real eframe runtime + glow context. The
+/// CLI has its own equivalent of this in `cli/src/main.rs` (writes to
+/// stderr instead of pushing toasts) — keep the two in rough sync if you
+/// add new `LoadStatus` variants.
+fn build_startup_toasts(status: &LoadStatus) -> Vec<Toast> {
+    match status {
+        LoadStatus::Ok => Vec::new(),
+        LoadStatus::InitialCreateFailed {
+            settings_path,
+            error,
+        } => vec![Toast::error(format!(
+            "Couldn't create your settings file at {}: {}. Anything \
+             you change this session won't persist until the underlying \
+             problem (likely permissions or disk space) is resolved.",
+            settings_path.display(),
+            error
+        ))],
+        LoadStatus::RecoveredFromCorrupt { quarantined_to } => vec![Toast::error(format!(
+            "Your settings file was corrupt and couldn't be read. \
+             The original has been preserved at {} so you can recover \
+             it by hand. A fresh settings.json with defaults will be \
+             saved when you change anything.",
+            quarantined_to.display()
+        ))],
+        LoadStatus::CorruptAndInPlace { settings_path } => vec![Toast::error(format!(
+            "Your settings file at {} is corrupt and couldn't be moved \
+             aside automatically. Running with defaults. The next time \
+             anything you change is saved, the corrupt file will be \
+             moved to settings.json.bak — copy it somewhere safe first \
+             if you want to recover any old values from it.",
+            settings_path.display()
+        ))],
+        LoadStatus::UnreadableFile { settings_path } => vec![Toast::error(format!(
+            "Couldn't read your settings file at {}. Running with \
+             defaults for this session.",
+            settings_path.display()
+        ))],
     }
 }
 
@@ -397,8 +441,11 @@ impl App {
         // Get the glow context if available
         let gl_context = cc.gl.clone();
 
-        // Load settings from disk
-        let mut settings = Settings::load();
+        // Load settings from disk, capturing whether the file was corrupt so we
+        // can surface it as a startup toast. Without this, corruption is only
+        // visible in the tracing log, which non-technical users will never see.
+        let (mut settings, settings_load_status) = Settings::load_with_status();
+        let startup_toasts = build_startup_toasts(&settings_load_status);
 
         // Get default provider and models from registry
         // IMPORTANT: Create registry once and reuse it to avoid performance issues
@@ -411,8 +458,12 @@ impl App {
             settings.output_dir = PathBuf::from(".dev/output");
         }
 
-        // Sync settings to environment variables (for GUI app)
-        // This ensures providers can access keys via env vars
+        // Push API keys from settings into env so providers can read them.
+        // We use the non-authoritative variant here (set-only, never remove)
+        // because this is the startup path: env vars set by .env or some other
+        // means must be preserved when settings is empty. The authoritative
+        // variant runs only from the settings dialog's save handler, where the
+        // user has explicitly cleared a key and expects it to take effect.
         settings.sync_to_env(&provider_registry);
 
         // Load app state early (needed for welcome modal check)
@@ -556,7 +607,7 @@ impl App {
             pending_delete_bundle: None,
 
             // Toast Notifications
-            toasts: Vec::new(),
+            toasts: startup_toasts,
             error_toast_shown: false,
 
             // Template Editor
@@ -2340,6 +2391,142 @@ impl eframe::App for App {
         if let Some(ref gen_id) = self.current_generation_id {
             let mut history = self.history.lock().unwrap();
             history.cancel_generation(gen_id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ToastType, build_startup_toasts};
+    use asset_tap_core::settings::LoadStatus;
+    use std::path::PathBuf;
+
+    /// `Ok` is the happy path: zero toasts, nothing to surface.
+    #[test]
+    fn test_build_startup_toasts_ok_yields_nothing() {
+        let toasts = build_startup_toasts(&LoadStatus::Ok);
+        assert!(toasts.is_empty(), "Ok status must not produce any toasts");
+    }
+
+    /// Each non-Ok variant must produce exactly one error toast whose message
+    /// includes the path the user needs to know about. We assert on substrings
+    /// rather than exact text so harmless wording tweaks don't break the test
+    /// — but the path itself is non-negotiable, since it's the only piece of
+    /// the message that's actually actionable for the user.
+    #[test]
+    fn test_build_startup_toasts_initial_create_failed() {
+        let path = PathBuf::from("/some/readonly/dir/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::InitialCreateFailed {
+            settings_path: path.clone(),
+            error: "Permission denied (os error 13)".to_string(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(
+            toast.message.contains(&path.display().to_string()),
+            "message should mention the settings path; got {:?}",
+            toast.message
+        );
+        assert!(
+            toast.message.contains("Permission denied"),
+            "message should include the underlying OS error; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_recovered_from_corrupt() {
+        let quarantine = PathBuf::from("/cfg/settings.json.corrupt-1234");
+        let toasts = build_startup_toasts(&LoadStatus::RecoveredFromCorrupt {
+            quarantined_to: quarantine.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(
+            toast.message.contains(&quarantine.display().to_string()),
+            "message should tell the user where the quarantined file is; got {:?}",
+            toast.message
+        );
+        assert!(
+            toast.message.to_lowercase().contains("corrupt"),
+            "message should explicitly use the word 'corrupt'; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_corrupt_and_in_place() {
+        let path = PathBuf::from("/cfg/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::CorruptAndInPlace {
+            settings_path: path.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(toast.message.contains(&path.display().to_string()));
+        // The previously-buggy copy claimed "changes will NOT be saved"; the
+        // current copy correctly warns that the corrupt file will end up in
+        // .bak on the next save. Guard against a regression to the wrong copy.
+        assert!(
+            toast.message.contains(".bak"),
+            "message must explain that the corrupt file moves to .bak on next save; got {:?}",
+            toast.message
+        );
+        assert!(
+            !toast.message.contains("NOT be saved"),
+            "message must NOT claim changes won't be saved — they will; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_unreadable_file() {
+        let path = PathBuf::from("/cfg/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::UnreadableFile {
+            settings_path: path.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(toast.message.contains(&path.display().to_string()));
+    }
+
+    /// All non-Ok variants must produce error toasts (not info or success).
+    /// This is a smoke test that catches accidental severity downgrades —
+    /// e.g., someone replacing `Toast::error` with `Toast::info` and the
+    /// user no longer noticing their settings just got nuked.
+    #[test]
+    fn test_build_startup_toasts_all_failures_are_errors() {
+        let path = PathBuf::from("/p");
+        let cases = [
+            LoadStatus::InitialCreateFailed {
+                settings_path: path.clone(),
+                error: "x".to_string(),
+            },
+            LoadStatus::RecoveredFromCorrupt {
+                quarantined_to: path.clone(),
+            },
+            LoadStatus::CorruptAndInPlace {
+                settings_path: path.clone(),
+            },
+            LoadStatus::UnreadableFile {
+                settings_path: path.clone(),
+            },
+        ];
+        for status in cases {
+            let toasts = build_startup_toasts(&status);
+            assert_eq!(toasts.len(), 1, "expected exactly one toast for {status:?}");
+            assert!(
+                matches!(toasts[0].toast_type, ToastType::Error),
+                "expected Error severity for {status:?}, got {:?}",
+                toasts[0].toast_type
+            );
         }
     }
 }

@@ -71,8 +71,6 @@ make ci                      # CI checks (fmt-check, clippy, check, doc, audit, 
 **Provider YAML structure:**
 
 ```yaml
-config_version: 1  # Bump when changing this file
-
 provider:
   id: "provider-id"
   name: "Display Name"
@@ -166,8 +164,6 @@ Value types are auto-detected (`true`/`false` → bool, integers, floats, or str
 **Template YAML:**
 
 ```yaml
-config_version: 1
-
 id: "template-id"
 name: "Template Name"
 description: "Description"
@@ -389,15 +385,13 @@ make test  # Uses cargo-nextest (single-threaded via .config/nextest.toml)
    - CI enforces with `make ci`
    - dprint handles non-Rust files
 
-6. **Embedded configs and versioning:**
+6. **Embedded configs and content-compare sync:**
    - Provider/template changes require rebuild (automatically embedded via `include_dir!`)
    - User configs in config directory can be edited without rebuild
    - Remove unused provider YAML files from `providers/` to exclude them from embedding
-   - Bump `config_version` in YAML when changing a provider/template file
-   - On startup, embedded configs overwrite on-disk copies when version is higher
-   - Old file is backed up as `.yaml.bak` before overwriting
-   - Files without `config_version` are treated as version 0 (will be upgraded)
-   - User-created custom files are never touched (only embedded filenames are checked)
+   - **No manual version bumping.** On startup, each embedded `providers/*.yaml` and `templates/*.yaml` is compared **byte-for-byte** against its on-disk counterpart. If they differ, the on-disk copy is backed up as `.yaml.bak` and overwritten with the embedded content. The content itself is the version.
+   - User-created custom files (different filenames than any embedded config) are never touched by this sync — only files whose filename matches an embedded one are compared.
+   - Hand-editing an embedded config on disk is NOT a supported workflow: your edit will be backed up and reverted on the next app launch. Create a separate YAML file with a different filename instead.
 
 7. **Packaging failures:**
    - `cargo-packager` does NOT automatically build binaries

@@ -226,8 +226,6 @@ Complete reference for all provider YAML fields.
 ### Top-Level Structure
 
 ```yaml
-config_version: integer   # Optional: Bump when changing (missing = 0)
-
 provider:           # Required: Provider metadata
   id: string
   name: string
@@ -280,8 +278,6 @@ text_to_image:     # or image_to_3d
 ### Complete Example
 
 ```yaml
-config_version: 1
-
 provider:
   id: "fal.ai"
   name: "fal.ai"

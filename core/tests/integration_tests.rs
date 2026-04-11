@@ -236,52 +236,43 @@ fn test_all_stages_have_display_names() {
 // =============================================================================
 
 #[test]
-fn test_config_version_upgrade_flow() {
-    use asset_tap_core::config_version::{
-        VersionAction, determine_action, extract_version, write_with_backup,
-    };
+fn test_embedded_config_sync_flow() {
+    use asset_tap_core::config_sync::{SyncAction, determine_action, write_with_backup};
     use std::fs;
     use tempfile::TempDir;
 
     let dir = TempDir::new().unwrap();
     let config_path = dir.path().join("provider.yaml");
 
-    // Step 1: First run — file doesn't exist
-    let embedded_v1 = "config_version: 1\nprovider:\n  id: test\n";
+    // Step 1: First run — file doesn't exist.
+    let embedded_v1 = "provider:\n  id: test\n";
     assert_eq!(
         determine_action(embedded_v1, &config_path),
-        VersionAction::WriteNew
+        SyncAction::WriteNew
     );
     write_with_backup(&config_path, embedded_v1, "provider").unwrap();
     assert!(config_path.exists());
-    assert_eq!(
-        extract_version(&fs::read_to_string(&config_path).unwrap()),
-        1
-    );
+    assert_eq!(fs::read_to_string(&config_path).unwrap(), embedded_v1);
 
-    // Step 2: Same version — no overwrite
+    // Step 2: Second run with identical embedded content — no overwrite, no backup.
     assert_eq!(
         determine_action(embedded_v1, &config_path),
-        VersionAction::UpToDate
+        SyncAction::UpToDate
     );
+    let result = write_with_backup(&config_path, embedded_v1, "provider").unwrap();
+    assert!(!result);
+    assert!(!config_path.with_extension("yaml.bak").exists());
 
-    // Step 3: Newer embedded version — upgrade with backup
-    let embedded_v2 = "config_version: 2\nprovider:\n  id: test\n  new_field: true\n";
+    // Step 3: Embedded content changed — overwrite and back up the old file.
+    let embedded_v2 = "provider:\n  id: test\n  new_field: true\n";
     assert_eq!(
         determine_action(embedded_v2, &config_path),
-        VersionAction::Upgrade {
-            on_disk: 1,
-            embedded: 2
-        }
+        SyncAction::Overwrite
     );
     write_with_backup(&config_path, embedded_v2, "provider").unwrap();
-    assert_eq!(
-        extract_version(&fs::read_to_string(&config_path).unwrap()),
-        2
-    );
+    assert_eq!(fs::read_to_string(&config_path).unwrap(), embedded_v2);
 
-    // Verify backup exists with old content
     let backup = config_path.with_extension("yaml.bak");
     assert!(backup.exists());
-    assert_eq!(extract_version(&fs::read_to_string(&backup).unwrap()), 1);
+    assert_eq!(fs::read_to_string(&backup).unwrap(), embedded_v1);
 }
