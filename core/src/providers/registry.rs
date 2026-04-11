@@ -307,15 +307,13 @@ impl ProviderRegistry {
             provider.set_cache_file(get_discovery_cache_path());
         }
 
-        // Always load providers, even if not configured
-        // The is_available() method will return false for unconfigured providers
-        if !provider.is_configured() {
-            tracing::info!(
-                "Provider {} loaded but not configured (missing env vars: {:?})",
-                provider.id(),
-                provider.metadata().required_env_vars
-            );
-        }
+        // We deliberately don't log "not configured" here. Registration runs
+        // before callers populate env vars from Settings::sync_to_env, so any
+        // is_configured() check at this point would be wrong for the common
+        // case (user saved an API key in the GUI, then ran the CLI). Callers
+        // should call ProviderRegistry::log_unconfigured_providers() AFTER
+        // running sync_to_env if they want a startup warning about providers
+        // that still aren't configured.
 
         Ok(provider)
     }
@@ -495,6 +493,36 @@ impl ProviderRegistry {
             .filter(|p| p.is_available())
             .cloned()
             .collect()
+    }
+
+    /// Emit a startup warning for every registered provider that isn't
+    /// currently available (i.e., its required env vars aren't set).
+    ///
+    /// **Call this AFTER** [`crate::Settings::sync_to_env`] has populated env
+    /// vars from settings.json. Calling it earlier — e.g., during registry
+    /// construction — gives a false-positive warning for providers whose
+    /// keys live in `settings.json` rather than the shell environment, which
+    /// is the dominant case for users who configured the app via the GUI.
+    ///
+    /// Returns the number of providers that were unconfigured, so callers
+    /// who want to suppress the warning under specific conditions (like CLI
+    /// `--list-providers` mode, where the unconfigured state is the point)
+    /// can decide whether to call this at all.
+    pub fn log_unconfigured_providers(&self) -> usize {
+        let mut count = 0;
+        for provider in self.providers.values() {
+            if !provider.is_available() {
+                let meta = provider.metadata();
+                tracing::warn!(
+                    "Provider {} is not configured (missing env vars: {:?}). \
+                     Set them in the GUI Settings dialog or via shell env / .env file.",
+                    provider.id(),
+                    meta.required_env_vars
+                );
+                count += 1;
+            }
+        }
+        count
     }
 
     /// List all providers that support a given capability.

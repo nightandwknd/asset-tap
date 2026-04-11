@@ -271,6 +271,16 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         return handle_convert_only(!cli.no_fbx);
     }
 
+    // Surface a warning for any provider that's still unconfigured AFTER
+    // sync_to_env has had a chance to populate env from settings. We do this
+    // here (not during ProviderRegistry::new) so the check is accurate — at
+    // registration time, settings hadn't been read yet and the result would
+    // be a false alarm for users with GUI-saved keys.
+    //
+    // Skipped for `--list-providers` and `--list` because those commands
+    // exit before reaching this point and already show per-provider state.
+    registry.log_unconfigured_providers();
+
     // Validate API keys before prompting the user for input — otherwise the user
     // types a prompt only to hit a missing-key error with no actionable hint.
     validate_api_keys(&settings, &registry)?;
