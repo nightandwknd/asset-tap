@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.11 — 2026-04-12
+
+### Chores
+
+- update dependabot config
+
+### Features
+
+- settings hardening, content-compare sync, mock test speedup ([#17](https://github.com/nightandwknd/asset-tap/pull/17))
+
 ## v26.4.10 — 2026-04-04
 
 ### Chores
