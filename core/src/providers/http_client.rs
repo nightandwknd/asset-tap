@@ -656,9 +656,9 @@ impl HttpProviderClient {
         let mut last_console_log = std::time::Instant::now();
 
         for attempt in 0..polling.max_attempts {
-            tokio::time::sleep(Duration::from_millis(polling.interval_ms)).await;
-
-            // Check cancel flag between poll iterations
+            // Check cancel flag at the top of every iteration so a cancel
+            // request that lands while we were sleeping (or before the loop
+            // even starts) is honored before the next HTTP call.
             if self.cancel_flag.load(Ordering::Relaxed) {
                 tracing::info!("Cancel flag detected during polling — cancelling server request");
                 self.send_cancel_request(&full_status_url, polling, auth_headers)
@@ -666,6 +666,12 @@ impl HttpProviderClient {
                 return Err(anyhow!("Generation cancelled by user"));
             }
 
+            // Poll first, sleep last. Real APIs that return COMPLETED on the
+            // first request (cached results, fast-path responses) should not
+            // pay an arbitrary `interval_ms` of latency before we even ask.
+            // The mock server returns COMPLETED instantly, so this also makes
+            // mock-mode pipeline tests run effectively at memory speed instead
+            // of paying 1-2s per polling stage.
             let request = self.client.get(&poll_url);
             let request = self.apply_headers(request, auth_headers);
             let response = request.send().await?;
@@ -846,6 +852,11 @@ impl HttpProviderClient {
                 polling.max_attempts,
                 status
             );
+
+            // Sleep at the end of the loop body, not the start. The first
+            // poll already happened above; the sleep is the gap between
+            // *this* attempt and the *next* one.
+            tokio::time::sleep(Duration::from_millis(polling.interval_ms)).await;
         }
 
         // Cancel the request on the server to avoid burning credits
@@ -1183,7 +1194,6 @@ mod tests {
         unsafe { std::env::set_var("TEST_KEY", "secret123") };
 
         let config = ProviderConfig {
-            config_version: 0,
             provider: super::super::config::ProviderMetadataConfig {
                 id: "test".to_string(),
                 name: "Test".to_string(),
@@ -1274,7 +1284,6 @@ mod tests {
     #[test]
     fn test_extract_json_field() {
         let config = ProviderConfig {
-            config_version: 0,
             provider: super::super::config::ProviderMetadataConfig {
                 id: "test".to_string(),
                 name: "Test".to_string(),

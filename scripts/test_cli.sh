@@ -27,6 +27,74 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
+# -----------------------------------------------------------------------------
+# Cleanup of mock pipeline outputs that escape into the user's default output
+# directory.
+#
+# Most tests don't pass `-o`, so the CLI's release-mode default kicks in:
+# `~/Documents/Asset Tap/` on macOS, and either `~/Documents/Asset Tap/` or
+# `~/Asset Tap/` on Linux depending on whether xdg-user-dirs is configured.
+# Without cleanup, every shell test run leaves dozens of timestamped mock
+# outputs there forever, eventually filling the disk.
+#
+# Strategy: snapshot the contents of every candidate default output dir
+# before the suite runs, then on EXIT (success, failure, or interrupt) delete
+# only the entries that didn't exist in the snapshot. We never touch entries
+# the user generated outside of test runs.
+#
+# Implementation note: macOS ships bash 3.2 by default, which has no
+# associative arrays. We stash each dir's snapshot in a tempfile and use a
+# parallel-array convention instead.
+DEFAULT_OUTPUT_DIRS=()
+DEFAULT_OUTPUT_SNAPSHOT_FILES=()
+SNAPSHOT_TMPDIR=$(mktemp -d -t asset_tap_test_snapshots.XXXXXX)
+
+snapshot_dir() {
+    local d="$1"
+    DEFAULT_OUTPUT_DIRS+=("$d")
+    local snap_file
+    snap_file="$SNAPSHOT_TMPDIR/$(echo "$d" | tr '/' '_').snap"
+    DEFAULT_OUTPUT_SNAPSHOT_FILES+=("$snap_file")
+    if [ -d "$d" ]; then
+        ls -1 "$d" 2>/dev/null | sort -u > "$snap_file"
+    else
+        : > "$snap_file"  # empty snapshot — every entry created during the run is fair game
+    fi
+}
+
+# macOS default. Linux fallback when xdg-user-dirs has Documents.
+snapshot_dir "$HOME/Documents/Asset Tap"
+# Linux fallback when xdg-user-dirs has no Documents — APP_DISPLAY_NAME under HOME directly.
+snapshot_dir "$HOME/Asset Tap"
+
+cleanup_test_outputs() {
+    local exit_code=$?
+    local i=0
+    while [ $i -lt ${#DEFAULT_OUTPUT_DIRS[@]} ]; do
+        local d="${DEFAULT_OUTPUT_DIRS[$i]}"
+        local snap_file="${DEFAULT_OUTPUT_SNAPSHOT_FILES[$i]}"
+        i=$((i + 1))
+        [ -d "$d" ] || continue
+        local after_file
+        after_file=$(mktemp -t asset_tap_test_after.XXXXXX)
+        ls -1 "$d" 2>/dev/null | sort -u > "$after_file"
+        # `comm -23` gives entries in `after` that aren't in `before`. Both
+        # files are already sorted by the `sort -u` above.
+        local deleted=0
+        while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            rm -rf "$d/$entry" && deleted=$((deleted + 1))
+        done < <(comm -23 "$after_file" "$snap_file")
+        rm -f "$after_file"
+        if [ $deleted -gt 0 ]; then
+            echo "Cleaned up $deleted test-generated entries from $d" >&2
+        fi
+    done
+    rm -rf "$SNAPSHOT_TMPDIR"
+    exit $exit_code
+}
+trap cleanup_test_outputs EXIT
+
 # Helper function to run a test
 run_test() {
     local test_name="$1"
@@ -38,12 +106,15 @@ run_test() {
     echo -e "${BLUE}TEST $TOTAL: $test_name${NC}" | tee -a "$LOG_FILE"
     echo "Command: $test_cmd" >> "$LOG_FILE"
 
-    # Run the command (use bash -c instead of eval for safety)
+    # Run the command (use bash -c instead of eval for safety).
+    # Always redirect stdin — either from test_input or /dev/null — so that
+    # tests never inherit the script's TTY stdin. Inheriting a TTY makes the
+    # CLI's interactive-prompt path fire unexpectedly (and can hang the run).
     set +e  # Don't exit on error for this command
     if [ -n "$test_input" ]; then
         echo "$test_input" | bash -c "$test_cmd" >> "$LOG_FILE" 2>&1
     else
-        bash -c "$test_cmd" >> "$LOG_FILE" 2>&1
+        bash -c "$test_cmd" < /dev/null >> "$LOG_FILE" 2>&1
     fi
     local exit_code=$?
     set -e
@@ -57,9 +128,6 @@ run_test() {
         FAILED=$((FAILED + 1))
     fi
     echo "" | tee -a "$LOG_FILE"
-
-    # Small delay between tests
-    sleep 0.5
 }
 
 echo "=== 1. HELP & INFO TESTS ===" | tee -a "$LOG_FILE"
@@ -169,17 +237,116 @@ run_test "Invalid 3D model name" \
 
 echo "=== 6. ERROR HANDLING TESTS ===" | tee -a "$LOG_FILE"
 
-run_test "Empty prompt without image (should fail)" \
-    "$CLI --mock -y" 1
+run_test "No prompt and non-TTY stdin (should fail fast)" \
+    "$CLI --mock" 1
 
 run_test "Empty string prompt (should fail)" \
-    "$CLI --mock -y ''" 1
+    "$CLI --mock ''" 1
 
 run_test "Whitespace-only prompt (should fail)" \
-    "$CLI --mock -y '   '" 1
+    "$CLI --mock '   '" 1
 
-run_test "Empty prompt without image in non-interactive mode" \
-    "echo '' | $CLI --mock" 1
+# Regression guard: when no API key is configured, the CLI must fail BEFORE
+# prompting for a text prompt (it used to read stdin first, then emit a terse
+# "No providers available" error after the user had already typed).
+#
+# This test must defeat four possible sources of a real key:
+#   1. The tester's shell env (FAL_KEY exported from ~/.zshrc etc.)
+#      → neutralized with `env -u FAL_KEY`.
+#   2. A GUI-saved key in the user's real settings.json under HOME
+#      → neutralized by pointing HOME at a clean scratch dir.
+#   3. A GUI-saved key under XDG_CONFIG_HOME on Linux (which `dirs::config_dir()`
+#      checks BEFORE falling back to $HOME/.config)
+#      → neutralized by `env -u XDG_CONFIG_HOME` and friends.
+#   4. A .env file in the repo root that dotenvy walks up to find
+#      → neutralized by running from a scratch cwd OUTSIDE the repo. We use
+#        $TMPDIR (or /tmp) so dotenvy's parent-walk hits root without
+#        finding any .env on the way.
+FAKE_HOME="${TMPDIR:-/tmp}/asset_tap_test_no_keys_home"
+rm -rf "$FAKE_HOME"
+mkdir -p "$FAKE_HOME"
+# Absolute path to the binary — we're about to `cd` away from the repo root.
+CLI_ABS=$(cd "$(dirname "$CLI")" && pwd)/$(basename "$CLI")
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: Missing API key fails fast with actionable hint${NC}" | tee -a "$LOG_FILE"
+set +e
+# Redirect stdin from /dev/null so if the CLI ever regresses and tries to
+# read a prompt, it gets EOF instead of hanging the test.
+NO_KEY_OUT=$(cd "$FAKE_HOME" && env \
+    -u FAL_KEY -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    HOME="$FAKE_HOME" \
+    "$CLI_ABS" < /dev/null 2>&1)
+NO_KEY_EXIT=$?
+set -e
+echo "$NO_KEY_OUT" >> "$LOG_FILE"
+if [ $NO_KEY_EXIT -ne 0 ] \
+    && echo "$NO_KEY_OUT" | grep -q "API key" \
+    && echo "$NO_KEY_OUT" | grep -q "FAL_KEY" \
+    && ! echo "$NO_KEY_OUT" | grep -q "Describe what you want to create"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$NO_KEY_EXIT, expected non-zero with FAL_KEY hint and no stdin prompt)${NC}" | tee -a "$LOG_FILE"
+    # Surface the captured output on the console so a CI failure is debuggable
+    # without needing to download the test_results artifact.
+    echo "--- captured CLI output ---" | tee -a "$LOG_FILE"
+    echo "$NO_KEY_OUT" | tee -a "$LOG_FILE"
+    echo "--- end captured CLI output ---" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# Regression guard: if settings.json is corrupt, the CLI must surface the
+# problem on stderr (not just in the tracing log). Without this test, a typo
+# or accidental swap of match arms in the LoadStatus handler would silently
+# regress the CLI's only user-visible signal that something is wrong.
+#
+# We seed both the macOS and Linux config dirs under a fake HOME so the test
+# is platform-agnostic. We use mock mode so the missing-API-key check doesn't
+# fire first. Same outside-the-repo cwd trick as the test above so dotenvy
+# doesn't import a real .env from the parent dirs.
+#
+# `env -u XDG_CONFIG_HOME ...` is critical on Linux: `dirs::config_dir()`
+# checks `$XDG_CONFIG_HOME` BEFORE falling back to `$HOME/.config/`. If the
+# CI runner has XDG_CONFIG_HOME set (some Linux distros + GitHub runners do),
+# the CLI loads from that instead of our seeded fake-HOME path, finds no
+# corrupt file, returns Ok, and emits no warning. We unset every XDG var the
+# `dirs` crate consults to make this test deterministic across hosts.
+CORRUPT_HOME="${TMPDIR:-/tmp}/asset_tap_test_corrupt_settings_home"
+rm -rf "$CORRUPT_HOME"
+mkdir -p "$CORRUPT_HOME/Library/Application Support/asset-tap"
+mkdir -p "$CORRUPT_HOME/.config/asset-tap"
+echo "this is not valid json {{{" > "$CORRUPT_HOME/Library/Application Support/asset-tap/settings.json"
+echo "this is not valid json {{{" > "$CORRUPT_HOME/.config/asset-tap/settings.json"
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: Corrupt settings.json surfaces warning on stderr${NC}" | tee -a "$LOG_FILE"
+set +e
+CORRUPT_OUT=$(cd "$CORRUPT_HOME" && env \
+    -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    HOME="$CORRUPT_HOME" \
+    "$CLI_ABS" --mock --no-fbx -o "$CORRUPT_HOME/out" 'corruption test' < /dev/null 2>&1)
+CORRUPT_EXIT=$?
+set -e
+echo "$CORRUPT_OUT" >> "$LOG_FILE"
+# We require:
+#   - stderr mentions "warning" and "corrupt" (proves the CLI handler ran)
+#   - the warning includes a path hint so the user knows where their data is
+#   - the run still succeeds (defaults are usable, mock mode doesn't need keys)
+if [ $CORRUPT_EXIT -eq 0 ] \
+    && echo "$CORRUPT_OUT" | grep -qi "warning" \
+    && echo "$CORRUPT_OUT" | grep -qi "corrupt"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$CORRUPT_EXIT, expected exit 0 with 'warning' and 'corrupt' in stderr)${NC}" | tee -a "$LOG_FILE"
+    # Surface the captured output on the console so a CI failure is debuggable
+    # without needing to download the test_results artifact (we don't upload it).
+    echo "--- captured CLI output ---" | tee -a "$LOG_FILE"
+    echo "$CORRUPT_OUT" | tee -a "$LOG_FILE"
+    echo "--- end captured CLI output ---" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
 
 echo "=== 7. APPROVAL FLOW TESTS ===" | tee -a "$LOG_FILE"
 

@@ -22,7 +22,7 @@ use asset_tap_core::{
 use clap::Parser;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -35,7 +35,7 @@ struct Cli {
     /// Text prompt describing what to create (interactive if not provided)
     prompt: Option<String>,
 
-    /// Auto-confirm all prompts (non-interactive mode)
+    /// Auto-confirm the image approval step (skips the y/n/r prompt after image generation)
     #[arg(short = 'y', long)]
     yes: bool,
 
@@ -122,12 +122,11 @@ struct Cli {
 fn print_banner() {
     println!(concat!(
         "\n",
-        "   ___                _     _____\n",
-        "  / _ |___ ___ ___ __| |_  /__   \\__ _ _ __  _ __\n",
-        " / /_\\/ __/ __|/ _ \\ __| __| / /\\/ _` | '_ \\| '_ \\\n",
-        "/ /_\\\\__ \\__ \\  __/ |_| |_  / / | (_| | |_) | |_) |\n",
-        "\\____/___/___/\\___|\\__|\\__| \\/   \\__,_| .__/| .__/\n",
-        "                                      |_|   |_|\n",
+        "   ___               __    ______\n",
+        "  / _ | ___ ___ ___ / /_  /_  __/__ ____\n",
+        " / __ |(_-<(_-</ -_) __/   / / / _ `/ _ \\\n",
+        "/_/ |_/___/___/\\__/\\__/   /_/  \\_,_/ .__/\n",
+        "                                  /_/\n",
     ));
 }
 
@@ -195,6 +194,61 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Create provider registry once and reuse everywhere
     let registry = ProviderRegistry::new();
 
+    // Load settings and sync GUI-saved API keys into the process environment so
+    // DynamicProvider::is_configured() (which reads env vars) sees them. Without
+    // this, the CLI only sees keys from .env / the shell — not ones saved via
+    // the GUI settings UI — and every run in a release install would fail with
+    // "No providers available" even though the GUI works fine.
+    //
+    // SAFETY: set_var is called here before any async task that reads these env
+    // vars has been spawned; only this function holds the runtime at this point.
+    use asset_tap_core::settings::{LoadStatus, Settings};
+    let (mut settings, settings_status) = Settings::load_with_status();
+    // Surface corruption to stderr so CLI users don't have to dig through
+    // tracing logs to discover that their settings file just got moved aside.
+    // The GUI does the equivalent via a startup toast.
+    match &settings_status {
+        LoadStatus::Ok => {}
+        LoadStatus::InitialCreateFailed {
+            settings_path,
+            error,
+        } => {
+            eprintln!(
+                "warning: could not create settings.json at {}: {}\n  \
+                 Running with defaults. Anything you change won't persist \
+                 until the underlying problem is resolved.",
+                settings_path.display(),
+                error
+            );
+        }
+        LoadStatus::RecoveredFromCorrupt { quarantined_to } => {
+            eprintln!(
+                "warning: settings.json was corrupt and could not be parsed.\n  \
+                 Original preserved at: {}\n  \
+                 Running with defaults. A fresh settings.json will be written on next save.",
+                quarantined_to.display()
+            );
+        }
+        LoadStatus::CorruptAndInPlace { settings_path } => {
+            eprintln!(
+                "warning: settings.json at {} is corrupt and could not be moved aside.\n  \
+                 Running with defaults. The next save will move the corrupt file to \
+                 settings.json.bak — copy it somewhere safe first if you want to recover values.",
+                settings_path.display()
+            );
+        }
+        LoadStatus::UnreadableFile { settings_path } => {
+            eprintln!(
+                "warning: could not read settings.json at {}. Running with defaults for this session.",
+                settings_path.display()
+            );
+        }
+    }
+    if is_dev_mode() {
+        settings.sync_from_env(&registry);
+    }
+    settings.sync_to_env(&registry);
+
     // Handle --list-providers flag
     if cli.list_providers {
         print_available_providers(&registry);
@@ -217,15 +271,25 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         return handle_convert_only(!cli.no_fbx);
     }
 
-    // Load settings
-    use asset_tap_core::settings::Settings;
-    let settings = Settings::load();
+    // Surface a warning for any provider that's still unconfigured AFTER
+    // sync_to_env has had a chance to populate env from settings. We do this
+    // here (not during ProviderRegistry::new) so the check is accurate — at
+    // registration time, settings hadn't been read yet and the result would
+    // be a false alarm for users with GUI-saved keys.
+    //
+    // Skipped for `--list-providers` and `--list` because those commands
+    // exit before reaching this point and already show per-provider state.
+    registry.log_unconfigured_providers();
+
+    // Validate API keys before prompting the user for input — otherwise the user
+    // types a prompt only to hit a missing-key error with no actionable hint.
+    validate_api_keys(&settings, &registry)?;
 
     // Build pipeline configuration
     let mut config = build_config(&cli, &settings)?;
 
-    // Validate required settings
-    validate_requirements(&config, &settings, &registry)?;
+    // Validate remaining requirements (output dir, etc.)
+    validate_requirements(&config)?;
 
     // Parse and validate --param overrides
     if !cli.params.is_empty() {
@@ -485,12 +549,22 @@ fn build_config(
     cli: &Cli,
     settings: &asset_tap_core::settings::Settings,
 ) -> anyhow::Result<PipelineConfig> {
-    // Get user input and expand template if specified
+    // Get user input and expand template if specified.
+    //
+    // Prompt sources, in order:
+    //   1. Prompt arg — always wins.
+    //   2. --image — prompt isn't needed.
+    //   3. Stdin, but only if it's a TTY. Piped/non-TTY stdin (CI, scripts,
+    //      `asset-tap < /dev/null`) errors out instead of hanging or silently
+    //      reading whatever happens to be on the pipe.
     let user_input = match (&cli.prompt, &cli.template) {
         (Some(p), _) => p.trim().to_string(),
         (None, _) if cli.image.is_some() => String::new(),
-        (None, _) if cli.yes => {
-            anyhow::bail!("Prompt required in non-interactive mode (-y)")
+        (None, _) if !io::stdin().is_terminal() => {
+            anyhow::bail!(
+                "No prompt provided. Pass a prompt as an argument:\n    \
+                 asset-tap \"a wooden treasure chest\""
+            )
         }
         (None, _) => {
             print!("Describe what you want to create: ");
@@ -563,11 +637,7 @@ fn build_config(
     Ok(config)
 }
 
-fn validate_requirements(
-    config: &PipelineConfig,
-    settings: &asset_tap_core::settings::Settings,
-    registry: &ProviderRegistry,
-) -> anyhow::Result<()> {
+fn validate_requirements(config: &PipelineConfig) -> anyhow::Result<()> {
     // Validate output directory is set
     if config.output_dir.is_none() {
         anyhow::bail!(
@@ -585,7 +655,14 @@ fn validate_requirements(
         anyhow::bail!("Output directory cannot be empty");
     }
 
-    // Validate API key is available (check environment) - skip in mock mode
+    Ok(())
+}
+
+fn validate_api_keys(
+    settings: &asset_tap_core::settings::Settings,
+    registry: &ProviderRegistry,
+) -> anyhow::Result<()> {
+    // Skip in mock mode
     #[cfg(feature = "mock")]
     if asset_tap_core::api::is_mock_mode() {
         return Ok(());

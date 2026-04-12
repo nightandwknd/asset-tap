@@ -34,7 +34,7 @@ use asset_tap_core::{
     history::{ErrorInfo, GenerationHistory},
     pipeline::{PipelineConfig, run_pipeline},
     providers::ProviderCapability,
-    settings::{Settings, is_dev_mode},
+    settings::{LoadStatus, Settings, is_dev_mode},
     state::AppState,
     templates::list_templates,
     types::{ApprovalResponse, PipelineOutput, Progress, Stage},
@@ -132,6 +132,50 @@ impl Toast {
         } else {
             1.0
         }
+    }
+}
+
+/// Build the list of toasts to seed `App.toasts` with at startup, based on
+/// how the settings load went.
+///
+/// Extracted from `App::new` so we can unit-test the message-and-variant
+/// mapping without standing up a real eframe runtime + glow context. The
+/// CLI has its own equivalent of this in `cli/src/main.rs` (writes to
+/// stderr instead of pushing toasts) — keep the two in rough sync if you
+/// add new `LoadStatus` variants.
+fn build_startup_toasts(status: &LoadStatus) -> Vec<Toast> {
+    match status {
+        LoadStatus::Ok => Vec::new(),
+        LoadStatus::InitialCreateFailed {
+            settings_path,
+            error,
+        } => vec![Toast::error(format!(
+            "Couldn't create your settings file at {}: {}. Anything \
+             you change this session won't persist until the underlying \
+             problem (likely permissions or disk space) is resolved.",
+            settings_path.display(),
+            error
+        ))],
+        LoadStatus::RecoveredFromCorrupt { quarantined_to } => vec![Toast::error(format!(
+            "Your settings file was corrupt and couldn't be read. \
+             The original has been preserved at {} so you can recover \
+             it by hand. A fresh settings.json with defaults will be \
+             saved when you change anything.",
+            quarantined_to.display()
+        ))],
+        LoadStatus::CorruptAndInPlace { settings_path } => vec![Toast::error(format!(
+            "Your settings file at {} is corrupt and couldn't be moved \
+             aside automatically. Running with defaults. The next time \
+             anything you change is saved, the corrupt file will be \
+             moved to settings.json.bak — copy it somewhere safe first \
+             if you want to recover any old values from it.",
+            settings_path.display()
+        ))],
+        LoadStatus::UnreadableFile { settings_path } => vec![Toast::error(format!(
+            "Couldn't read your settings file at {}. Running with \
+             defaults for this session.",
+            settings_path.display()
+        ))],
     }
 }
 
@@ -385,10 +429,41 @@ pub struct RecoveryInfo {
 /// Preview tab selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PreviewTab {
+    /// 3D Model — leftmost in the tab bar, the default for fresh state and
+    /// the auto-selection target when a generation finishes with a model.
     #[default]
-    Image,
     Model3D,
+    Image,
     Textures,
+}
+
+/// Pick the most-derived preview tab whose underlying asset actually exists
+/// in the given pipeline output.
+///
+/// "Most-derived" means: prefer 3D model > image > textures, walking down the
+/// pipeline stages until we find one with content. Used after a generation
+/// completes (or after a bundle is loaded from disk) so the UI lands on the
+/// most informative tab automatically — usually 3D, but for partial bundles
+/// (e.g., a run that errored out before 3D generation, or an image-only
+/// bundle imported from elsewhere) we fall back to whatever IS present.
+///
+/// Returns `None` only if the output has no preview-able asset at all, in
+/// which case the caller should leave `preview_tab` unchanged.
+pub fn pick_preview_tab_for_output(
+    output: &asset_tap_core::types::PipelineOutput,
+) -> Option<PreviewTab> {
+    // Either format counts as "we have a 3D model" — fbx_path is set when
+    // Blender conversion ran, model_path is the GLB and is set whenever the
+    // image-to-3D stage completed.
+    if output.model_path.is_some() || output.fbx_path.is_some() {
+        Some(PreviewTab::Model3D)
+    } else if output.image_path.is_some() {
+        Some(PreviewTab::Image)
+    } else if output.textures_dir.is_some() {
+        Some(PreviewTab::Textures)
+    } else {
+        None
+    }
 }
 
 impl App {
@@ -397,8 +472,11 @@ impl App {
         // Get the glow context if available
         let gl_context = cc.gl.clone();
 
-        // Load settings from disk
-        let mut settings = Settings::load();
+        // Load settings from disk, capturing whether the file was corrupt so we
+        // can surface it as a startup toast. Without this, corruption is only
+        // visible in the tracing log, which non-technical users will never see.
+        let (mut settings, settings_load_status) = Settings::load_with_status();
+        let startup_toasts = build_startup_toasts(&settings_load_status);
 
         // Get default provider and models from registry
         // IMPORTANT: Create registry once and reuse it to avoid performance issues
@@ -411,9 +489,20 @@ impl App {
             settings.output_dir = PathBuf::from(".dev/output");
         }
 
-        // Sync settings to environment variables (for GUI app)
-        // This ensures providers can access keys via env vars
+        // Push API keys from settings into env so providers can read them.
+        // We use the non-authoritative variant here (set-only, never remove)
+        // because this is the startup path: env vars set by .env or some other
+        // means must be preserved when settings is empty. The authoritative
+        // variant runs only from the settings dialog's save handler, where the
+        // user has explicitly cleared a key and expects it to take effect.
         settings.sync_to_env(&provider_registry);
+
+        // Now that settings are loaded and env is populated, surface a warning
+        // for any provider that's still unconfigured. We deliberately do this
+        // AFTER sync_to_env so the check is accurate — at registry construction
+        // time, settings.json hadn't been read yet, and the result would be a
+        // false alarm for users with GUI-saved keys.
+        provider_registry.log_unconfigured_providers();
 
         // Load app state early (needed for welcome modal check)
         let app_state = AppState::load();
@@ -481,8 +570,9 @@ impl App {
         // Start with empty prompt (fresh slate for new session)
         let prompt = String::new();
 
-        // Restore preview tab
-        let preview_tab = match app_state.preview_tab.as_str() {
+        // Restore preview tab from saved state, falling back to 3D Model
+        // for fresh state and unknown values.
+        let restored_preview_tab = match app_state.preview_tab.as_str() {
             "Image" => PreviewTab::Image,
             "Textures" => PreviewTab::Textures,
             _ => PreviewTab::Model3D,
@@ -493,6 +583,27 @@ impl App {
             // Use the core bundle loading logic for consistent file discovery
             load_bundle(dir).ok().map(PipelineOutput::from)
         });
+
+        // If the saved tab points at an asset that isn't actually present in
+        // the restored output (e.g., user was on the Image tab last session,
+        // but the restored bundle only has a 3D model), fall back to the
+        // most-derived tab whose asset IS present. Without this, the user
+        // can land on a blank tab on cold start.
+        let preview_tab = match (&output, restored_preview_tab) {
+            (Some(out), tab) => {
+                let tab_has_asset = match tab {
+                    PreviewTab::Model3D => out.model_path.is_some() || out.fbx_path.is_some(),
+                    PreviewTab::Image => out.image_path.is_some(),
+                    PreviewTab::Textures => out.textures_dir.is_some(),
+                };
+                if tab_has_asset {
+                    tab
+                } else {
+                    pick_preview_tab_for_output(out).unwrap_or(tab)
+                }
+            }
+            (None, tab) => tab,
+        };
 
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
 
@@ -556,7 +667,7 @@ impl App {
             pending_delete_bundle: None,
 
             // Toast Notifications
-            toasts: Vec::new(),
+            toasts: startup_toasts,
             error_toast_shown: false,
 
             // Template Editor
@@ -1420,13 +1531,10 @@ impl App {
                             },
                             _ => PipelineOutput::default(),
                         };
+                        if let Some(tab) = pick_preview_tab_for_output(&single_output) {
+                            self.preview_tab = tab;
+                        }
                         self.output = Some(single_output);
-                        self.preview_tab = match asset_type_id {
-                            asset_type::IMAGE => PreviewTab::Image,
-                            asset_type::MODEL => PreviewTab::Model3D,
-                            asset_type::TEXTURES => PreviewTab::Textures,
-                            _ => self.preview_tab,
-                        };
                     }
                 }
             }
@@ -1459,6 +1567,13 @@ impl App {
         .filter(|&&x| x)
         .count();
 
+        // Pick the most-derived preview tab (3D > image > textures) BEFORE
+        // moving `output` into self.output below. We prefer this over the
+        // `primary_asset_type` string because the string is just a label —
+        // the actual decision should be "what's the highest pipeline stage
+        // this bundle reached?"
+        let tab_for_output = pick_preview_tab_for_output(&output);
+
         // Set output
         self.output = Some(output);
 
@@ -1472,13 +1587,52 @@ impl App {
             self.add_toast(Toast::info(format!("Loaded {}", primary_asset_type)));
         }
 
-        // Set appropriate preview tab
-        self.preview_tab = match primary_asset_type {
-            asset_type::IMAGE => PreviewTab::Image,
-            asset_type::MODEL => PreviewTab::Model3D,
-            asset_type::TEXTURES => PreviewTab::Textures,
-            _ => self.preview_tab,
-        };
+        if let Some(tab) = tab_for_output {
+            self.preview_tab = tab;
+        }
+    }
+
+    /// Make `bundle_dir` the currently-active bundle: load it from disk,
+    /// install it as `self.output`, point `app_state.current_generation` at
+    /// it, refresh the bundle dropdown so it appears, and switch the preview
+    /// tab to whichever asset is most-derived in the bundle.
+    ///
+    /// Used by the three "we just produced or pulled a bundle from disk and
+    /// want to show it" code paths in `update()` — generation-failure
+    /// recovery (the rejection-leaves-an-image case), zip import, and demo
+    /// bundle download. Without this helper, all three would (and previously
+    /// did) carry near-identical 8-line blocks that diverged any time one
+    /// branch was updated and the others weren't.
+    ///
+    /// Returns `true` on success, `false` if the bundle on disk couldn't be
+    /// parsed. Failures are logged via tracing — callers don't need to do
+    /// their own error handling unless they want to act on the failure.
+    fn activate_bundle_from_dir(&mut self, bundle_dir: PathBuf) -> bool {
+        match load_bundle(&bundle_dir) {
+            Ok(bundle) => {
+                let output = PipelineOutput::from(bundle);
+                if let Some(tab) = pick_preview_tab_for_output(&output) {
+                    self.preview_tab = tab;
+                }
+                self.output = Some(output);
+                self.app_state
+                    .set_current_generation(Some(bundle_dir.clone()));
+                if let Err(e) = self.bundle_info_panel.load_bundle(bundle_dir.clone()) {
+                    tracing::warn!(
+                        "Failed to load bundle metadata for {}: {}",
+                        bundle_dir.display(),
+                        e
+                    );
+                }
+                self.bundle_info_panel
+                    .refresh_bundle_list(&self.settings.output_dir);
+                true
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load bundle from {}: {}", bundle_dir.display(), e);
+                false
+            }
+        }
     }
 
     /// Render toast notifications.
@@ -1601,65 +1755,117 @@ impl App {
             return;
         }
 
-        // Render toasts in bottom-right corner
-        let screen_rect = ctx.content_rect();
-        let toast_width = 280.0;
-        let toast_height = 44.0;
+        // Layout constants. Toast width is wide enough to comfortably hold a
+        // paragraph-length message (e.g. the corrupt-settings.json warning,
+        // which is ~250 chars) without overflowing the viewport on a normal
+        // window. Height is intentionally NOT fixed — each toast frame grows
+        // vertically with its wrapped content, which is the only way to
+        // handle multi-line messages without truncation.
+        let toast_width: f32 = 460.0;
         let padding = 16.0;
         let spacing = 8.0;
 
-        for (i, toast) in self.toasts.iter().enumerate() {
-            let y_offset = (toast_height + spacing) * i as f32;
-            let pos = egui::pos2(
-                screen_rect.right() - toast_width - padding,
-                screen_rect.bottom() - padding - toast_height - y_offset,
-            );
+        // Stack all toasts in a single bottom-right anchored Area. egui's
+        // vertical layout handles per-toast height naturally — we don't have
+        // to precompute heights or track y-offsets. Newest toast is rendered
+        // last so it sits closest to the anchor (visually "on top of" older
+        // toasts in stacking order, but at the bottom of the column).
+        egui::Area::new(egui::Id::new("toast-stack"))
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-padding, -padding))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_max_width(toast_width);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = spacing;
+                    for toast in &self.toasts {
+                        Self::render_single_toast(ui, toast, toast_width);
+                    }
+                });
+            });
+    }
 
-            let opacity = toast.opacity();
+    /// Render a single toast frame inside an existing vertical layout.
+    ///
+    /// Width is fixed (`toast_width`), height grows to fit wrapped content.
+    /// The icon sits in a fixed-width left column and the message wraps
+    /// inside the remaining space — without the explicit column split, a
+    /// horizontal layout would let the label occupy whatever's left after
+    /// the icon, which makes wrap behavior fragile.
+    fn render_single_toast(ui: &mut egui::Ui, toast: &Toast, toast_width: f32) {
+        let opacity = toast.opacity();
 
-            egui::Area::new(egui::Id::new("toast").with(i))
-                .fixed_pos(pos)
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    let (bg_color, icon) = match toast.toast_type {
-                        ToastType::Info => (egui::Color32::from_rgb(50, 70, 100), icons::INFO),
-                        ToastType::Success => (egui::Color32::from_rgb(40, 90, 60), icons::CHECK),
-                        ToastType::Error => (egui::Color32::from_rgb(140, 40, 40), icons::X),
-                    };
+        let (bg_color, icon) = match toast.toast_type {
+            ToastType::Info => (egui::Color32::from_rgb(50, 70, 100), icons::INFO),
+            ToastType::Success => (egui::Color32::from_rgb(40, 90, 60), icons::CHECK),
+            ToastType::Error => (egui::Color32::from_rgb(140, 40, 40), icons::X),
+        };
 
-                    egui::Frame::new()
-                        .fill(bg_color.gamma_multiply(opacity))
-                        .corner_radius(8)
-                        .inner_margin(egui::Margin::symmetric(12, 10))
-                        .shadow(egui::epaint::Shadow {
-                            offset: [0, 2],
-                            blur: 8,
-                            spread: 0,
-                            color: egui::Color32::from_black_alpha((40.0 * opacity) as u8),
-                        })
-                        .show(ui, |ui| {
-                            ui.set_width(toast_width - 24.0);
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(icon)
-                                        .size(16.0)
-                                        .color(egui::Color32::WHITE.gamma_multiply(opacity)),
-                                );
-                                ui.add_space(4.0);
-                                ui.label(
+        // Fixed inner margin so the visual frame thickness matches whether
+        // the content is one line or six.
+        let h_margin = 12.0;
+        let icon_col_width = 22.0;
+        let icon_gap = 6.0;
+        // Width available for the wrapped message text. Subtract both inner
+        // margins, the icon column, and the gap between icon and text.
+        let text_width = toast_width - (h_margin * 2.0) - icon_col_width - icon_gap;
+
+        egui::Frame::new()
+            .fill(bg_color.gamma_multiply(opacity))
+            .corner_radius(8)
+            .inner_margin(egui::Margin::symmetric(h_margin as i8, 10))
+            .shadow(egui::epaint::Shadow {
+                offset: [0, 2],
+                blur: 8,
+                spread: 0,
+                color: egui::Color32::from_black_alpha((40.0 * opacity) as u8),
+            })
+            .show(ui, |ui| {
+                ui.set_width(toast_width - (h_margin * 2.0));
+                ui.horizontal_top(|ui| {
+                    // Icon column — fixed width so the message text always
+                    // wraps inside the same horizontal slot, regardless of
+                    // which icon (some are wider than others in a monospace
+                    // icon font).
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(icon_col_width, 0.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new(icon)
+                                    .size(16.0)
+                                    .color(egui::Color32::WHITE.gamma_multiply(opacity)),
+                            );
+                        },
+                    );
+                    ui.add_space(icon_gap);
+                    // Message column — wrapped to the remaining width.
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(text_width, 0.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.set_max_width(text_width);
+                            ui.add(
+                                egui::Label::new(
                                     egui::RichText::new(&toast.message)
                                         .size(13.0)
                                         .color(egui::Color32::WHITE.gamma_multiply(opacity)),
-                                );
-                            });
-                        });
+                                )
+                                .wrap(),
+                            );
+                        },
+                    );
                 });
-        }
+            });
     }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Captured under the state lock and processed after release; see the
+        // error-toast branch below for context.
+        let mut pending_recovery_bundle: Option<PathBuf> = None;
+
         // Check for completed pipeline
         {
             let mut state = self.state.lock().unwrap();
@@ -1676,6 +1882,15 @@ impl eframe::App for App {
                 self.app_state.finish_generation();
                 self.current_generation_id = None;
 
+                // Auto-select the most-derived preview tab whose asset is
+                // present. Usually 3D, but for partial bundles (image-only,
+                // or runs that errored before 3D generation completed) we
+                // fall back to whatever's actually there. Computed before
+                // the move into self.output below.
+                if let Some(tab) = pick_preview_tab_for_output(&output) {
+                    self.preview_tab = tab;
+                }
+
                 self.output = Some(output);
 
                 // Refresh bundle list so the new bundle appears in the dropdown
@@ -1687,7 +1902,26 @@ impl eframe::App for App {
             if !self.error_toast_shown && state.error.is_some() && !state.running {
                 self.error_toast_shown = true;
                 self.toasts.push(Toast::error("Generation failed"));
+
+                // If the failure left a partial bundle on disk (e.g., the
+                // user rejected the image after the text-to-image stage
+                // succeeded), capture the bundle dir while we still hold
+                // the state lock. We process it below the lock release
+                // because activate_bundle_from_dir takes &mut self, which
+                // conflicts with the lock guard's borrow of self.
+                pending_recovery_bundle = state
+                    .recovery_info
+                    .as_ref()
+                    .and_then(|r| r.image_path.parent().map(|p| p.to_path_buf()));
             }
+        }
+        // Lock released. If we captured a recovery bundle above, surface
+        // it now — refreshes the dropdown so the new partial bundle appears
+        // and switches the preview tab to the most-derived asset present.
+        // Without this, the user would have to manually click "Refresh" to
+        // find the bundle they just generated.
+        if let Some(bundle_dir) = pending_recovery_bundle {
+            self.activate_bundle_from_dir(bundle_dir);
         }
 
         // Check for completed file selection
@@ -1736,13 +1970,7 @@ impl eframe::App for App {
             match rx.try_recv() {
                 Ok(Ok(bundle_dir)) => {
                     self.add_toast(Toast::success("Bundle imported"));
-                    if let Ok(bundle) = load_bundle(&bundle_dir) {
-                        self.output = Some(PipelineOutput::from(bundle));
-                        self.app_state.current_generation = Some(bundle_dir.clone());
-                        let _ = self.bundle_info_panel.load_bundle(bundle_dir);
-                    }
-                    self.bundle_info_panel
-                        .refresh_bundle_list(&self.settings.output_dir);
+                    self.activate_bundle_from_dir(bundle_dir);
                 }
                 Ok(Err(msg)) => {
                     tracing::error!("Bundle import failed: {}", msg);
@@ -1789,13 +2017,7 @@ impl eframe::App for App {
             match rx.try_recv() {
                 Ok(Ok(asset_tap_core::DemoDownloadResult::Downloaded(demo_dir))) => {
                     self.add_toast(Toast::success("Demo assets downloaded"));
-                    if let Ok(bundle) = load_bundle(&demo_dir) {
-                        self.output = Some(PipelineOutput::from(bundle));
-                        self.app_state.current_generation = Some(demo_dir.clone());
-                        let _ = self.bundle_info_panel.load_bundle(demo_dir);
-                    }
-                    self.bundle_info_panel
-                        .refresh_bundle_list(&self.settings.output_dir);
+                    self.activate_bundle_from_dir(demo_dir);
                 }
                 Ok(Ok(asset_tap_core::DemoDownloadResult::AlreadyExists(v))) => {
                     self.toasts
@@ -2341,5 +2563,235 @@ impl eframe::App for App {
             let mut history = self.history.lock().unwrap();
             history.cancel_generation(gen_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PreviewTab, ToastType, build_startup_toasts, pick_preview_tab_for_output};
+    use asset_tap_core::settings::LoadStatus;
+    use asset_tap_core::types::PipelineOutput;
+    use std::path::PathBuf;
+
+    /// `Ok` is the happy path: zero toasts, nothing to surface.
+    #[test]
+    fn test_build_startup_toasts_ok_yields_nothing() {
+        let toasts = build_startup_toasts(&LoadStatus::Ok);
+        assert!(toasts.is_empty(), "Ok status must not produce any toasts");
+    }
+
+    /// Each non-Ok variant must produce exactly one error toast whose message
+    /// includes the path the user needs to know about. We assert on substrings
+    /// rather than exact text so harmless wording tweaks don't break the test
+    /// — but the path itself is non-negotiable, since it's the only piece of
+    /// the message that's actually actionable for the user.
+    #[test]
+    fn test_build_startup_toasts_initial_create_failed() {
+        let path = PathBuf::from("/some/readonly/dir/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::InitialCreateFailed {
+            settings_path: path.clone(),
+            error: "Permission denied (os error 13)".to_string(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(
+            toast.message.contains(&path.display().to_string()),
+            "message should mention the settings path; got {:?}",
+            toast.message
+        );
+        assert!(
+            toast.message.contains("Permission denied"),
+            "message should include the underlying OS error; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_recovered_from_corrupt() {
+        let quarantine = PathBuf::from("/cfg/settings.json.corrupt-1234");
+        let toasts = build_startup_toasts(&LoadStatus::RecoveredFromCorrupt {
+            quarantined_to: quarantine.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(
+            toast.message.contains(&quarantine.display().to_string()),
+            "message should tell the user where the quarantined file is; got {:?}",
+            toast.message
+        );
+        assert!(
+            toast.message.to_lowercase().contains("corrupt"),
+            "message should explicitly use the word 'corrupt'; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_corrupt_and_in_place() {
+        let path = PathBuf::from("/cfg/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::CorruptAndInPlace {
+            settings_path: path.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(toast.message.contains(&path.display().to_string()));
+        // The previously-buggy copy claimed "changes will NOT be saved"; the
+        // current copy correctly warns that the corrupt file will end up in
+        // .bak on the next save. Guard against a regression to the wrong copy.
+        assert!(
+            toast.message.contains(".bak"),
+            "message must explain that the corrupt file moves to .bak on next save; got {:?}",
+            toast.message
+        );
+        assert!(
+            !toast.message.contains("NOT be saved"),
+            "message must NOT claim changes won't be saved — they will; got {:?}",
+            toast.message
+        );
+    }
+
+    #[test]
+    fn test_build_startup_toasts_unreadable_file() {
+        let path = PathBuf::from("/cfg/settings.json");
+        let toasts = build_startup_toasts(&LoadStatus::UnreadableFile {
+            settings_path: path.clone(),
+        });
+
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert!(matches!(toast.toast_type, ToastType::Error));
+        assert!(toast.message.contains(&path.display().to_string()));
+    }
+
+    /// All non-Ok variants must produce error toasts (not info or success).
+    /// This is a smoke test that catches accidental severity downgrades —
+    /// e.g., someone replacing `Toast::error` with `Toast::info` and the
+    /// user no longer noticing their settings just got nuked.
+    #[test]
+    fn test_build_startup_toasts_all_failures_are_errors() {
+        let path = PathBuf::from("/p");
+        let cases = [
+            LoadStatus::InitialCreateFailed {
+                settings_path: path.clone(),
+                error: "x".to_string(),
+            },
+            LoadStatus::RecoveredFromCorrupt {
+                quarantined_to: path.clone(),
+            },
+            LoadStatus::CorruptAndInPlace {
+                settings_path: path.clone(),
+            },
+            LoadStatus::UnreadableFile {
+                settings_path: path.clone(),
+            },
+        ];
+        for status in cases {
+            let toasts = build_startup_toasts(&status);
+            assert_eq!(toasts.len(), 1, "expected exactly one toast for {status:?}");
+            assert!(
+                matches!(toasts[0].toast_type, ToastType::Error),
+                "expected Error severity for {status:?}, got {:?}",
+                toasts[0].toast_type
+            );
+        }
+    }
+
+    // =========================================================================
+    // pick_preview_tab_for_output — auto-select the right preview tab based
+    // on which assets are actually present in a PipelineOutput.
+    // =========================================================================
+
+    /// Default constructor uses Default::default() which gives an empty output
+    /// with all paths None. Helper to keep tests terse.
+    fn empty_output() -> PipelineOutput {
+        PipelineOutput::default()
+    }
+
+    /// A bundle that made it all the way through 3D generation should land on
+    /// the 3D Model tab regardless of what other assets are also present.
+    /// This is the dominant case for fresh successful generations.
+    #[test]
+    fn test_pick_preview_tab_full_pipeline_picks_model3d() {
+        let mut out = empty_output();
+        out.image_path = Some(PathBuf::from("/x/image.png"));
+        out.model_path = Some(PathBuf::from("/x/model.glb"));
+        out.textures_dir = Some(PathBuf::from("/x/textures"));
+        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Model3D));
+    }
+
+    /// FBX-only outputs (Blender ran but the GLB got cleaned up, or some
+    /// alternate flow) still count as having a 3D model.
+    #[test]
+    fn test_pick_preview_tab_fbx_only_picks_model3d() {
+        let mut out = empty_output();
+        out.image_path = Some(PathBuf::from("/x/image.png"));
+        out.fbx_path = Some(PathBuf::from("/x/model.fbx"));
+        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Model3D));
+    }
+
+    /// The partial-bundle case the user explicitly asked for: a run that
+    /// errored out before reaching 3D, leaving only an image. Falling back
+    /// to 3D would land on a blank tab — fall back to Image instead.
+    #[test]
+    fn test_pick_preview_tab_image_only_picks_image() {
+        let mut out = empty_output();
+        out.image_path = Some(PathBuf::from("/x/image.png"));
+        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Image));
+    }
+
+    /// Textures-only is the lowest fallback. Vanishingly rare in practice
+    /// (you'd have to extract textures from an existing model and discard
+    /// everything else) but supported for completeness.
+    #[test]
+    fn test_pick_preview_tab_textures_only_picks_textures() {
+        let mut out = empty_output();
+        out.textures_dir = Some(PathBuf::from("/x/textures"));
+        assert_eq!(
+            pick_preview_tab_for_output(&out),
+            Some(PreviewTab::Textures)
+        );
+    }
+
+    /// An empty output (no assets at all) returns None so the caller leaves
+    /// the current tab alone. The caller's existing `if let Some(tab) = ...`
+    /// pattern relies on this.
+    #[test]
+    fn test_pick_preview_tab_empty_returns_none() {
+        assert_eq!(pick_preview_tab_for_output(&empty_output()), None);
+    }
+
+    /// 3D model takes priority over image when both are present. Belt-and-
+    /// suspenders given the dominant case test above — this isolates the
+    /// model > image precedence rule from the also-have-textures noise.
+    #[test]
+    fn test_pick_preview_tab_model_beats_image() {
+        let mut out = empty_output();
+        out.image_path = Some(PathBuf::from("/x/image.png"));
+        out.model_path = Some(PathBuf::from("/x/model.glb"));
+        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Model3D));
+    }
+
+    /// Image takes priority over textures when both are present (no model).
+    #[test]
+    fn test_pick_preview_tab_image_beats_textures() {
+        let mut out = empty_output();
+        out.image_path = Some(PathBuf::from("/x/image.png"));
+        out.textures_dir = Some(PathBuf::from("/x/textures"));
+        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Image));
+    }
+
+    /// `PreviewTab::default()` should be `Model3D` because that's the
+    /// leftmost tab in the visual tab bar (`gui/src/views/preview.rs`)
+    /// and the user-stated preferred default. If anyone reorders the enum
+    /// variants without thinking, this catches it.
+    #[test]
+    fn test_preview_tab_default_is_model3d() {
+        assert_eq!(PreviewTab::default(), PreviewTab::Model3D);
     }
 }

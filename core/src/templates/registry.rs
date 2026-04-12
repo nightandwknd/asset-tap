@@ -297,8 +297,8 @@ fn ensure_default_templates_exist() -> Result<()> {
             }
         };
 
-        // Version-aware write: creates new, upgrades older versions (with backup), or skips
-        crate::config_version::write_with_backup(&target_path, contents, "template")
+        // Content-compare write: creates new, overwrites (with .bak) when bytes differ, or skips.
+        crate::config_sync::write_with_backup(&target_path, contents, "template")
             .map_err(|e| anyhow!("Failed to write template {:?}: {}", filename, e))?;
     }
 

@@ -1,4 +1,3 @@
-config_version: 1
 id: "humanoid"
 name: "Humanoid Character"
 description: "Optimized for Mixamo and auto-rigging systems. Generates characters in T-pose with anatomically correct proportions for animation."

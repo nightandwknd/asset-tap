@@ -269,6 +269,41 @@ impl DynamicProvider {
         }
     }
 
+    /// Clamp every model's polling interval to at most `max_ms`.
+    ///
+    /// Used by mock mode to make pipeline tests run at memory speed instead
+    /// of paying the YAML-declared 1–2 second poll cadence per stage. The
+    /// real polling interval is preserved when running against a real API.
+    /// `max_attempts` is left alone — clamping the interval is enough to
+    /// shrink test latency without changing the loop's worst-case bound.
+    pub fn clamp_polling_interval(&self, max_ms: u64) {
+        let mut config = self.config.lock().unwrap();
+        let mut clamped = 0usize;
+        // Destructure first so the borrow checker sees two distinct mutable
+        // borrows of independent fields rather than a single borrow of `config`.
+        let ProviderConfig {
+            text_to_image,
+            image_to_3d,
+            ..
+        } = &mut *config;
+        for model in text_to_image.iter_mut().chain(image_to_3d.iter_mut()) {
+            if let Some(ref mut polling) = model.response.polling
+                && polling.interval_ms > max_ms
+            {
+                polling.interval_ms = max_ms;
+                clamped += 1;
+            }
+        }
+        if clamped > 0 {
+            tracing::debug!(
+                "Clamped polling interval to {}ms for {} model(s) on provider '{}'",
+                max_ms,
+                clamped,
+                self.metadata.id
+            );
+        }
+    }
+
     /// Override the provider's base URL (used for mock mode).
     ///
     /// This also overrides upload endpoints to use relative paths instead of
@@ -678,7 +713,6 @@ mod tests {
 
     fn create_test_config() -> ProviderConfig {
         ProviderConfig {
-            config_version: 0,
             provider: ProviderMetadataConfig {
                 upload: None,
                 id: "test-provider".to_string(),

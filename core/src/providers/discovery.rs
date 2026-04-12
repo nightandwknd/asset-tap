@@ -349,7 +349,6 @@ mod tests {
 
     fn create_test_config() -> ProviderConfig {
         ProviderConfig {
-            config_version: 0,
             provider: ProviderMetadataConfig {
                 id: "test-provider".to_string(),
                 name: "Test Provider".to_string(),

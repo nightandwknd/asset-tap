@@ -11,10 +11,6 @@ use std::path::Path;
 /// Complete provider configuration loaded from YAML/JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
-    /// Config file version for automatic upgrades. Missing = version 0.
-    #[serde(default)]
-    pub config_version: u32,
-
     /// Provider metadata (ID, name, description, etc.).
     pub provider: ProviderMetadataConfig,
 
@@ -678,7 +674,6 @@ mod tests {
     #[test]
     fn test_validation() {
         let mut config = ProviderConfig {
-            config_version: 0,
             provider: ProviderMetadataConfig {
                 id: "test".to_string(),
                 name: "Test".to_string(),

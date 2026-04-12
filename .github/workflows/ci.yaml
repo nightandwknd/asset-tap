@@ -237,6 +237,9 @@ jobs:
           name: asset-tap-macos-pr-${{ github.event.pull_request.number }}
           path: target/release/AssetTap.dmg
           if-no-files-found: error
+          # PR previews use a short retention; matches the build-and-package
+          # composite's `installer-retention-days: '7'` for the other platforms.
+          retention-days: 7
 
   build-linux:
     name: Build & Package (Linux)
@@ -251,6 +254,9 @@ jobs:
           artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
           upload-binaries: 'true'
           cargo-flags: '--features mock'
+          # PR-preview installers don't need 90 days of retention. Match the
+          # binary retention so PR storage costs scale with PR count, not time.
+          installer-retention-days: '7'
 
   build-windows:
     name: Build & Package (Windows)
@@ -264,6 +270,8 @@ jobs:
           version: '0.0.0-pr.${{ github.event.pull_request.number }}'
           artifact-suffix: '-pr-${{ github.event.pull_request.number }}'
           cargo-flags: '--features mock'
+          # See build-linux above — PR previews use a short retention.
+          installer-retention-days: '7'
 
   # ─── Layer 2: CLI tests (consumes Linux binary) ────────────────────
   cli-test:
@@ -281,3 +289,16 @@ jobs:
         run: chmod +x target/release/asset-tap
       - name: Run comprehensive CLI tests
         run: ./scripts/test_cli.sh
+      # Upload the per-test log dir on failure so we can debug without
+      # having to print every command's stdout to the workflow console.
+      # The script writes test_results/test_log_<timestamp>.txt with the
+      # full captured CLI output for each test, including the corruption
+      # warning paths and any pipeline traces.
+      - name: Upload test_results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-test-results-pr-${{ github.event.pull_request.number }}
+          path: test_results/
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,6 +1,5 @@
 # fal.ai Provider Configuration
 # Official fal.ai provider using the dynamic plugin system
-config_version: 1
 
 # YAML anchors for reusable configuration blocks
 x-fal-auth: &fal-auth
