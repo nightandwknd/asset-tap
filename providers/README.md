@@ -101,7 +101,8 @@ For async operations that require polling:
 response:
   response_type: Polling
   polling:
-    status_field: "job_id"              # Initial response field with job ID
+    status_field: "job_id"              # Initial response field with job ID (or full status URL)
+    status_url_template: "/v1/jobs/${job_id}"  # Optional: build the poll URL from initial response fields
     status_check_field: "status"        # Status field in poll response
     success_value: "completed"          # Value indicating success
     failure_value: "failed"             # Value indicating failure (optional)
@@ -130,6 +131,11 @@ See [fal-ai.yaml](fal-ai.yaml) for a complete example with:
 - Text-to-image models (multiple quality tiers)
 - Image-to-3D models (with polling)
 - All response type patterns
+
+See [meshy.yaml](meshy.yaml) for a provider that uses:
+
+- `status_url_template` — polling URL built from a task id (for APIs that return `{"result": "<id>"}` instead of a full status URL)
+- Data-URI image input — no upload endpoint configured; the pipeline inlines the image as `data:image/png;base64,...` automatically
 
 ## Notes
 

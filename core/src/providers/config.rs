@@ -169,7 +169,7 @@ fn default_http_method() -> HttpMethod {
 }
 
 /// HTTP method.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
     GET,
@@ -315,7 +315,19 @@ pub enum ResponseType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PollingConfig {
     /// Field containing the status URL or ID.
+    /// Required unless `status_url_template` is set.
+    #[serde(default)]
     pub status_field: String,
+
+    /// Optional template for constructing the poll URL from the initial response.
+    /// Supports `${field}` placeholders resolved against the initial response JSON
+    /// (nested paths like `${data.id}` and array indices like `${items[0]}` are
+    /// supported). Used for providers that return `{"result": "<task-id>"}`
+    /// instead of a full status URL (e.g., Meshy).
+    /// Relative paths are resolved against `provider.base_url`.
+    /// When set, `status_field` is ignored.
+    #[serde(default)]
+    pub status_url_template: Option<String>,
 
     /// Field containing the final result URL.
     pub result_field: String,
@@ -350,6 +362,11 @@ pub struct PollingConfig {
     /// Uses `${status_url}` as the base. Default behavior replaces `/status` with `/cancel`.
     #[serde(default)]
     pub cancel_url_template: Option<String>,
+
+    /// HTTP method used for the cancel request. Defaults to PUT (fal.ai's convention).
+    /// Providers using REST-style cancel should set this to DELETE (e.g., Meshy).
+    #[serde(default)]
+    pub cancel_method: Option<HttpMethod>,
 
     /// Poll interval in milliseconds.
     #[serde(default = "default_poll_interval")]

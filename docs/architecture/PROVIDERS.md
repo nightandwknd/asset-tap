@@ -8,7 +8,7 @@ The asset tap features a flexible, extensible plugin system for AI model provide
 Pipeline
   └─> ProviderRegistry (Discovery)
       ├─> fal.ai (YAML config)
-      ├─> Provider N (YAML config)
+      ├─> Meshy AI (YAML config)
       └─> Custom providers (user-defined)
 ```
 
@@ -52,6 +52,7 @@ Some providers require public URLs for image inputs instead of accepting direct 
 
 - **Multipart** - Single-step upload (see provider configs for examples)
 - **Initiate-then-put** - Two-step upload (e.g., fal.ai storage API)
+- **Data-URI fallback** - When a provider has no `upload` config, the image is inlined as `data:image/png;base64,...` directly in the request body. Used by providers that accept inline URIs (e.g., Meshy).
 
 See [Provider Schema Reference](../guides/PROVIDER_SCHEMA.md#upload-configuration) for configuration details.
 
@@ -61,7 +62,8 @@ All `providers/*.yaml` files are automatically embedded in the binary at compile
 
 **Currently included:**
 
-- **fal.ai** - Text-to-image and image-to-3D models with dynamic discovery
+- **fal.ai** ([`providers/fal-ai.yaml`](../../providers/fal-ai.yaml)) - Text-to-image and image-to-3D models with dynamic discovery. Pay-per-call billing; uses two-step upload (`initiate_then_put`).
+- **Meshy AI** ([`providers/meshy.yaml`](../../providers/meshy.yaml)) - Native Meshy API for text-to-image and image-to-3D. Subscription + credits billing; no upload endpoint (uses data-URI inline). Exposes `status_url_template` for task-id-based polling and `cancel_method: DELETE`.
 
 Each YAML file in `providers/` defines models and API configuration. Only files directly in `providers/` are embedded; removing a file excludes its provider from the binary.
 
@@ -166,7 +168,7 @@ End users see only the curated static models from provider YAML files.
 - **Cache**: `core/src/providers/discovery_cache.rs`
 - **Registry integration**: `core/src/providers/registry.rs`
 
-See `providers/fal-ai.yaml` for a complete working example.
+See [`providers/fal-ai.yaml`](../../providers/fal-ai.yaml) for a full example using `initiate_then_put` upload and queue-based polling, or [`providers/meshy.yaml`](../../providers/meshy.yaml) for the task-id polling / data-URI / DELETE-cancel pattern.
 
 ## Variable Interpolation
 
@@ -190,7 +192,10 @@ make refresh-models
 asset-tap -p <provider-id> -y "a dragon"
 
 # Use provider with specific models
-asset-tap -p fal.ai --image-model nano-banana-2 -y "a robot"
+asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 -y "a robot"
+
+# Use native Meshy end-to-end
+asset-tap -p meshy --image-model meshy/nano-banana-pro --3d-model meshy/v6/image-to-3d -y "a robot"
 ```
 
 ## GUI Usage

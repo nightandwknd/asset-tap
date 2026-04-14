@@ -35,6 +35,7 @@ cp .env.example .env
 # 3. Add your API keys to .env (optional - can use mock mode)
 # Edit .env and add one or more:
 #   FAL_KEY=your-key
+#   MESHY_API_KEY=your-key
 #
 # Add API keys for the providers you want to use.
 # Check providers/*.yaml for the required environment variable names.

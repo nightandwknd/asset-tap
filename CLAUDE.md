@@ -149,6 +149,13 @@ Value types are auto-detected (`true`/`false` → bool, integers, floats, or str
 - Auto-detects when `${image_url}` in request template
 - Two patterns: `multipart` (single-step) or `initiate_then_put` (two-step)
 - Configured per-provider in YAML
+- **Data-URI fallback:** providers with no `upload:` block get the image inlined as `data:image/png;base64,...` automatically. 10 MB cap. Used by Meshy (no upload endpoint). See [providers/meshy.yaml](providers/meshy.yaml).
+
+**Polling with task-id providers:**
+
+- Some providers (e.g. Meshy) return only a task id on task creation (`{"result": "<id>"}`) rather than a full status URL.
+- Set `status_url_template` on `PollingConfig` to build the poll URL from the initial response. Supports `${field}`, `${field.nested}`, `${array[0]}` substitution.
+- Fal uses the simpler path — `status_field` is already a full URL. Leave `status_url_template` unset.
 
 ### Template System
 

@@ -184,6 +184,7 @@ response:
   response_type: polling
   polling:
     status_field: "status_url"            # Field from initial response used to construct poll URL
+    status_url_template: "/v1/jobs/${status_field}"  # (Optional) template-built poll URL — see below
     status_check_field: "status"          # Field to check in polling response
     success_value: "COMPLETED"            # Value indicating completion
     failure_value: "FAILED"               # Value indicating failure
@@ -202,6 +203,20 @@ response:
 2. System polls `GET {base_url}/{endpoint}/{job_id}` every `interval_ms`
 3. Checks `status_check_field` until it equals `success_value` or `failure_value`
 4. On success, extracts result from `result_field`
+
+**`status_url_template`** (optional) — for providers that return only a task id
+instead of a full status URL (e.g. Meshy's `{"result": "<task-id>"}`). When set,
+the poll URL is built by substituting `${field}` tokens against the initial
+response JSON. Nested paths (`${data.id}`) and array indices (`${items[0]}`)
+are supported. Relative paths are resolved against `provider.base_url`.
+
+```yaml
+# Meshy example: initial response is {"result": "abc-123"}
+polling:
+  status_field: "result"
+  status_url_template: "/openapi/v1/image-to-3d/${result}"
+  # → polls https://api.meshy.ai/openapi/v1/image-to-3d/abc-123
+```
 
 **Guidelines:**
 
@@ -382,6 +397,19 @@ provider:
 3. Use `file_url` as `${image_url}` in model request
 
 **Example:** fal.ai storage API
+
+### Data-URI Fallback (no upload endpoint)
+
+When a provider omits `upload` entirely, the pipeline inlines the image as a
+`data:image/png;base64,...` URI wherever `${image_url}` appears in the model
+request body. Used for providers that accept inline data URIs directly and do
+not expose an upload endpoint (e.g. Meshy).
+
+No YAML configuration is required — simply omit the `upload` block from your
+provider. The pipeline enforces a 10 MB cap on the raw image bytes in this
+mode to prevent request-size failures on providers with body limits.
+
+**Example:** Meshy image-to-3D
 
 ## Complete Examples
 

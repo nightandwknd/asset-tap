@@ -380,27 +380,22 @@ pub async fn run_pipeline(
     // Clone config for the async task
     let config = config.clone();
 
-    // Get provider for image generation
-    let image_provider = if let Some(ref provider_id) = config.image_provider {
-        registry.get(provider_id).ok_or_else(|| {
-            Error::InvalidModel(format!("Image provider '{}' not found", provider_id))
-        })?
-    } else {
-        registry.get_default().ok_or_else(|| {
-            Error::MissingApiKey("No providers available for image generation".to_string())
-        })?
-    };
+    let image_provider = resolve_provider(
+        registry,
+        config.image_provider.as_deref(),
+        config.image_model.as_deref(),
+        ProviderCapability::TextToImage,
+        "image",
+    )?;
 
-    // Get provider for 3D generation
-    let model_3d_provider = if let Some(ref provider_id) = config.model_3d_provider {
-        registry.get(provider_id).ok_or_else(|| {
-            Error::InvalidModel(format!("3D provider '{}' not found", provider_id))
-        })?
-    } else {
-        registry.get_default().ok_or_else(|| {
-            Error::MissingApiKey("No providers available for 3D generation".to_string())
-        })?
-    };
+    let model_3d = config.model_3d.as_str();
+    let model_3d_provider = resolve_provider(
+        registry,
+        config.model_3d_provider.as_deref(),
+        (!model_3d.is_empty()).then_some(model_3d),
+        ProviderCapability::ImageTo3D,
+        "3D",
+    )?;
 
     // Set cancel flag on providers so polling loops can check it
     set_provider_cancel_flag(&image_provider, cancel_flag.clone());
@@ -420,6 +415,43 @@ pub async fn run_pipeline(
     });
 
     Ok((progress_rx, handle, approval_tx_for_caller, cancel_tx))
+}
+
+/// Resolve which provider handles a given pipeline stage.
+///
+/// Resolution order:
+///   1. Explicit provider override (e.g. `config.image_provider`).
+///   2. Provider that actually exposes `model_id` for the given capability.
+///      Prevents routing a `fal-ai/...` model to Meshy (or vice versa) when
+///      multiple providers are registered.
+///   3. First available provider supporting anything (legacy default).
+///
+/// `kind` is a human-readable label ("image", "3D") used in error messages.
+fn resolve_provider(
+    registry: &ProviderRegistry,
+    explicit_provider: Option<&str>,
+    model_id: Option<&str>,
+    capability: ProviderCapability,
+    kind: &str,
+) -> Result<Arc<dyn Provider>> {
+    if let Some(provider_id) = explicit_provider {
+        return registry.get(provider_id).ok_or_else(|| {
+            Error::InvalidModel(format!("{} provider '{}' not found", kind, provider_id))
+        });
+    }
+    if let Some(id) = model_id {
+        return registry
+            .find_provider_for_model(capability, id)
+            .ok_or_else(|| {
+                Error::InvalidModel(format!(
+                    "No available provider exposes {} model '{}'",
+                    kind, id
+                ))
+            });
+    }
+    registry.get_default().ok_or_else(|| {
+        Error::MissingApiKey(format!("No providers available for {} generation", kind))
+    })
 }
 
 /// Set the cancel flag on a provider if it's a DynamicProvider.

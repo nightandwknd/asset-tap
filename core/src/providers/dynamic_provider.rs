@@ -645,11 +645,31 @@ impl Provider for DynamicProvider {
             // Clone client to avoid holding lock across await
             let client = self.client.lock().unwrap().clone();
 
-            // Provider expects a URL - upload the image and get URL
-            let image_url = client.upload_image(image_data).await.map_err(|e| {
-                tracing::error!(model = %model_id, "Image upload error: {:#}", e);
-                convert_http_error(e, &self.metadata.name)
-            })?;
+            // Provider expects a URL. Prefer the provider's upload endpoint when
+            // available (fal.ai's preferred path per their docs); fall back to an
+            // inline `data:image/png;base64,...` URI for providers without an
+            // upload endpoint (Meshy, which only accepts URLs or data URIs).
+            let has_upload = self.config.lock().unwrap().provider.upload.is_some();
+
+            let image_url = if has_upload {
+                client.upload_image(image_data).await.map_err(|e| {
+                    tracing::error!(model = %model_id, "Image upload error: {:#}", e);
+                    convert_http_error(e, &self.metadata.name)
+                })?
+            } else {
+                use crate::constants::http::{MAX_DATA_URI_IMAGE_BYTES, data_uri};
+                if image_data.len() > MAX_DATA_URI_IMAGE_BYTES {
+                    return Err(crate::types::Error::Pipeline(format!(
+                        "Image is {} bytes; provider '{}' has no upload endpoint and data-URI fallback is capped at {} bytes",
+                        image_data.len(),
+                        self.metadata.name,
+                        MAX_DATA_URI_IMAGE_BYTES
+                    )));
+                }
+                use base64::Engine;
+                let encoded = base64::engine::general_purpose::STANDARD.encode(image_data);
+                format!("{}{}", data_uri::IMAGE_PNG_BASE64, encoded)
+            };
 
             // Execute model with image_url parameter
             client
@@ -870,5 +890,165 @@ mod tests {
         let default = provider.get_default_model(ProviderCapability::TextToImage);
         assert!(default.is_ok());
         assert_eq!(default.unwrap().id, "test-model");
+    }
+
+    /// Build a minimal image-to-3D provider config with no upload endpoint
+    /// and a polling model whose request body contains `${image_url}`.
+    /// The polling response inlines the result URL so the test completes
+    /// in a single status check.
+    #[cfg(feature = "mock")]
+    fn create_image_to_3d_config_no_upload(
+        base_url: String,
+        _result_url: String,
+    ) -> ProviderConfig {
+        use crate::providers::config::PollingConfig;
+        use serde_json::json;
+
+        ProviderConfig {
+            provider: ProviderMetadataConfig {
+                upload: None, // No upload endpoint → pipeline falls back to data URI
+                id: "test-meshy-like".to_string(),
+                name: "Test Meshy-like".to_string(),
+                description: "Test".to_string(),
+                env_vars: vec![],
+                base_url: Some(base_url),
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+                auth_format: None,
+            },
+            text_to_image: vec![],
+            image_to_3d: vec![ModelConfig {
+                id: "test-i23d".to_string(),
+                name: "Test I23D".to_string(),
+                description: "Test".to_string(),
+                endpoint: "/create".to_string(),
+                method: HttpMethod::POST,
+                request: RequestTemplate {
+                    headers: HashMap::new(),
+                    body: Some(json!({ "image_url": "${image_url}" })),
+                    multipart: None,
+                },
+                response: ResponseTemplate {
+                    response_type: ResponseType::Polling,
+                    field: None,
+                    polling: Some(PollingConfig {
+                        status_field: "result".to_string(),
+                        status_url_template: Some("/status/${result}".to_string()),
+                        status_check_field: "status".to_string(),
+                        success_value: "SUCCEEDED".to_string(),
+                        failure_value: Some("FAILED".to_string()),
+                        response_url_field: None,
+                        response_envelope_field: None,
+                        poll_query_params: None,
+                        cancel_url_template: None,
+                        cancel_method: None,
+                        result_field: "model_url".to_string(),
+                        interval_ms: 10,
+                        max_attempts: 5,
+                    }),
+                },
+                is_default: true,
+                cost_per_run: None,
+                parameters: vec![],
+            }],
+        }
+    }
+
+    /// When a provider has no upload endpoint, image-to-3D must inline the
+    /// image as a `data:image/png;base64,...` URI in the request body.
+    /// Regression test for the Meshy provider path.
+    #[cfg(feature = "mock")]
+    #[tokio::test]
+    async fn test_image_to_3d_uses_data_uri_when_no_upload_endpoint() {
+        use crate::constants::http::data_uri::IMAGE_PNG_BASE64;
+        use crate::constants::http::env as mock_env;
+        use serde_json::json;
+        use wiremock::matchers::{body_string_contains, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate as WmResponseTemplate};
+
+        // The mock wiremock server binds to 127.0.0.1; bypass SSRF validation.
+        // Tests run single-threaded (see .config/nextest.toml), so the env var
+        // mutation is safe. Removed at end of test.
+        unsafe { std::env::set_var(mock_env::MOCK_API, "1") };
+
+        let server = MockServer::start().await;
+
+        // Mock result file the pipeline will download after polling succeeds
+        Mock::given(method("GET"))
+            .and(path("/result.glb"))
+            .respond_with(WmResponseTemplate::new(200).set_body_bytes(b"GLB_BYTES".to_vec()))
+            .mount(&server)
+            .await;
+
+        // Status endpoint immediately returns SUCCEEDED with result URL
+        let result_url = format!("{}/result.glb", server.uri());
+        Mock::given(method("GET"))
+            .and(path("/status/task-abc"))
+            .respond_with(WmResponseTemplate::new(200).set_body_json(json!({
+                "status": "SUCCEEDED",
+                "model_url": result_url.clone(),
+            })))
+            .mount(&server)
+            .await;
+
+        // Create endpoint: verify body contains the data-URI prefix, then
+        // return a task id so polling proceeds.
+        Mock::given(method("POST"))
+            .and(path("/create"))
+            .and(body_string_contains(IMAGE_PNG_BASE64))
+            .respond_with(WmResponseTemplate::new(200).set_body_json(json!({
+                "result": "task-abc"
+            })))
+            .mount(&server)
+            .await;
+
+        let config = create_image_to_3d_config_no_upload(server.uri(), result_url);
+        let provider = DynamicProvider::new(config);
+
+        // Use a (progress_tx, _rx) so the pipeline can emit progress.
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = provider
+            .image_to_3d(b"fake-png-bytes", "test-i23d", None, Some(tx))
+            .await;
+
+        assert!(result.is_ok(), "expected success, got {:?}", result.err());
+        assert_eq!(result.unwrap().data, b"GLB_BYTES".to_vec());
+
+        unsafe { std::env::remove_var(mock_env::MOCK_API) };
+    }
+
+    /// Oversized images must be rejected before hitting the network.
+    #[cfg(feature = "mock")]
+    #[tokio::test]
+    async fn test_image_to_3d_rejects_oversize_image_in_data_uri_mode() {
+        use crate::constants::http::MAX_DATA_URI_IMAGE_BYTES;
+
+        // Mock server isn't contacted — the size check fails first — but we
+        // still provide a base_url so config construction is realistic.
+        let config = create_image_to_3d_config_no_upload(
+            "http://127.0.0.1:1".to_string(),
+            "http://127.0.0.1:1/unused".to_string(),
+        );
+        let provider = DynamicProvider::new(config);
+
+        let oversize = vec![0u8; MAX_DATA_URI_IMAGE_BYTES + 1];
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = provider
+            .image_to_3d(&oversize, "test-i23d", None, Some(tx))
+            .await;
+
+        let err = result.expect_err("oversize image should be rejected");
+        match err {
+            crate::types::Error::Pipeline(msg) => {
+                assert!(
+                    msg.contains("data-URI fallback is capped"),
+                    "unexpected message: {}",
+                    msg
+                );
+            }
+            other => panic!("expected Error::Pipeline, got {:?}", other),
+        }
     }
 }

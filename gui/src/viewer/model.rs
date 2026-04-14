@@ -13,6 +13,23 @@ use three_d::*;
 /// A renderable helper object (grid, axes) using unlit ColorMaterial.
 type HelperObject = Gm<Mesh, ColorMaterial>;
 
+/// Studio-lighting tuning for the procedural IBL environment.
+///
+/// Adjust these to make metallic PBR surfaces reflect a brighter or dimmer
+/// "room". All values are sRGB byte triplets used to fill solid-color faces
+/// of the environment cubemap; three-d's prefilter pipeline expands them
+/// into proper irradiance and specular mip chains.
+mod env_lighting {
+    /// Top face — sky/ceiling. Brightest.
+    pub const TOP: (u8, u8, u8) = (230, 230, 235);
+    /// Side faces — walls. Medium brightness.
+    pub const SIDES: (u8, u8, u8) = (200, 200, 205);
+    /// Bottom face — floor. Dimmest.
+    pub const BOTTOM: (u8, u8, u8) = (100, 100, 105);
+    /// Ambient light intensity. Scales the overall environment contribution.
+    pub const AMBIENT_INTENSITY: f32 = 0.3;
+}
+
 /// A renderable model object using physically-based material (affected by lights).
 type ModelObject = Gm<Mesh, PhysicalMaterial>;
 
@@ -163,6 +180,13 @@ pub struct ModelViewer {
     is_loading: bool,
     /// Cached offscreen color+depth textures for rendering with depth test.
     offscreen: Option<OffscreenTargets>,
+    /// Cached ambient light with prefiltered environment. Required so
+    /// metallic PBR surfaces have something to reflect (metals reflect their
+    /// environment exclusively — no env map = near-black). Building the
+    /// `AmbientLight::new_with_environment` involves GPU-side prefilter and
+    /// irradiance convolution passes; caching the whole light (which owns the
+    /// `Environment`) keeps per-frame cost at zero.
+    cached_ambient: Option<AmbientLight>,
 }
 
 impl ModelViewer {
@@ -182,6 +206,7 @@ impl ModelViewer {
             loading_rx: None,
             is_loading: false,
             offscreen: None,
+            cached_ambient: None,
         }
     }
 
@@ -309,19 +334,31 @@ impl ModelViewer {
 
         for primitive in &cpu_data.cpu_model.geometries {
             if let three_d_asset::geometry::Geometry::Triangles(ref mesh) = primitive.geometry {
-                let cpu_mesh = CpuMesh {
+                let mut cpu_mesh = CpuMesh {
                     positions: Positions::F32(mesh.positions.to_f32()),
                     indices: mesh.indices.clone(),
                     normals: mesh.normals.clone(),
                     uvs: mesh.uvs.clone(),
+                    tangents: mesh.tangents.clone(),
                     colors: mesh.colors.clone(),
-                    ..Default::default()
                 };
-
-                let gpu_mesh = Mesh::new(context, &cpu_mesh);
 
                 let material_index = primitive.material_index.unwrap_or(0);
                 let cpu_material = cpu_data.cpu_model.materials.get(material_index);
+
+                // PhysicalMaterial's shader requires vertex tangents when a
+                // normal map is present. Some GLBs (e.g., Meshy v6) ship normal
+                // maps without precomputed tangents, which causes three-d's
+                // shader link to fail. Compute them ourselves in that case.
+                let needs_tangents = cpu_mesh.tangents.is_none()
+                    && cpu_mesh.normals.is_some()
+                    && cpu_mesh.uvs.is_some()
+                    && cpu_material.is_some_and(|m| m.normal_texture.is_some());
+                if needs_tangents {
+                    cpu_mesh.compute_tangents();
+                }
+
+                let gpu_mesh = Mesh::new(context, &cpu_mesh);
 
                 let physical_material = if let Some(mat) = cpu_material {
                     PhysicalMaterial::new_opaque(context, mat)
@@ -584,8 +621,23 @@ impl ModelViewer {
             self.cached_axes = Some(Self::create_axes(&context, &self.model_bounds));
         }
 
-        // Lights
-        let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
+        // Lazily build the ambient+environment once per viewer lifetime.
+        // The Environment contained in AmbientLight requires GPU prefilter and
+        // irradiance convolution, so this must not run every frame.
+        if self.cached_ambient.is_none() {
+            let env = Self::build_environment(&context);
+            self.cached_ambient = Some(AmbientLight::new_with_environment(
+                &context,
+                env_lighting::AMBIENT_INTENSITY,
+                Srgba::WHITE,
+                &env,
+            ));
+        }
+        let ambient = self
+            .cached_ambient
+            .as_ref()
+            .expect("ambient just initialized");
+
         let directional = DirectionalLight::new(
             &context,
             2.0,
@@ -598,7 +650,7 @@ impl ModelViewer {
             Srgba::new(200, 210, 255, 255),
             vec3(1.0, 0.5, 0.5).normalize(),
         );
-        let lights: Vec<&dyn Light> = vec![&ambient, &directional, &fill];
+        let lights: Vec<&dyn Light> = vec![ambient, &directional, &fill];
 
         // Render model
         for obj in &self.gpu_objects {
@@ -674,6 +726,34 @@ impl ModelViewer {
             rect,
             callback: Arc::new(callback),
         }
+    }
+
+    /// Build a simple procedural environment cubemap. Gives metallic PBR
+    /// surfaces something to reflect — without this, metals render near-black
+    /// because they have no diffuse albedo and rely entirely on env reflection.
+    ///
+    /// Uses a neutral studio-style gradient: brighter on top (sky), mid on
+    /// sides, dimmer on bottom (ground). All faces are solid-color 1x1 textures
+    /// — three-d's prefilter pipeline expands these into proper irradiance and
+    /// specular mip chains.
+    fn build_environment(context: &Context) -> TextureCubeMap {
+        fn face(name: &str, rgb: (u8, u8, u8)) -> CpuTexture {
+            CpuTexture {
+                name: name.to_string(),
+                data: TextureData::RgbaU8(vec![[rgb.0, rgb.1, rgb.2, 255]]),
+                width: 1,
+                height: 1,
+                mipmap: None,
+                ..Default::default()
+            }
+        }
+        let top = face("env_top", env_lighting::TOP);
+        let right = face("env_right", env_lighting::SIDES);
+        let left = face("env_left", env_lighting::SIDES);
+        let front = face("env_front", env_lighting::SIDES);
+        let back = face("env_back", env_lighting::SIDES);
+        let bottom = face("env_bottom", env_lighting::BOTTOM);
+        TextureCubeMap::new(context, &right, &left, &top, &bottom, &front, &back)
     }
 
     /// Create the floor grid mesh.

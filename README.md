@@ -93,9 +93,10 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed setup instructions.
 
 Asset Tap ships with pre-configured provider integrations. Choose one or more AI providers that offer text-to-image and image-to-3D capabilities:
 
-**Included provider:**
+**Included providers** — pick either one (a single key runs the full pipeline):
 
-- [fal.ai](https://fal.ai) - [Get API Key](https://fal.ai/dashboard/keys)
+- [fal.ai](https://fal.ai) - [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
+- [Meshy AI](https://www.meshy.ai) - [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
 
 You can also add your own providers by creating YAML configuration files (see provider configs in `providers/` directory).
 
@@ -161,28 +162,32 @@ output/
 
 ### Text-to-Image
 
-| Model               | Description                                                      |
-| ------------------- | ---------------------------------------------------------------- |
-| **Nano Banana 2**   | Gemini 3.1 Flash Image — reasoning-guided generation _(default)_ |
-| **Nano Banana**     | Google Imagen 3-based — fast and affordable                      |
-| **Nano Banana Pro** | Premium Imagen 3 — higher quality with aspect ratio control      |
-| **FLUX.2 Dev**      | Open-source FLUX.2 with tunable guidance and steps               |
-| **FLUX.2 Pro**      | Premium FLUX.2 — best quality, zero-config                       |
+| Model               | Provider | Description                                                      |
+| ------------------- | -------- | ---------------------------------------------------------------- |
+| **Nano Banana 2**   | fal.ai   | Gemini 3.1 Flash Image — reasoning-guided generation _(default)_ |
+| **Nano Banana**     | fal.ai   | Google Imagen 3-based — fast and affordable                      |
+| **Nano Banana Pro** | fal.ai   | Premium Imagen 3 — higher quality with aspect ratio control      |
+| **FLUX.2 Dev**      | fal.ai   | Open-source FLUX.2 with tunable guidance and steps               |
+| **FLUX.2 Pro**      | fal.ai   | Premium FLUX.2 — best quality, zero-config                       |
+| **Nano Banana**     | Meshy    | Meshy's standard text-to-image tier                              |
+| **Nano Banana Pro** | Meshy    | Meshy's higher-quality text-to-image tier                        |
 
 ### Image-to-3D
 
-| Model             | Description                                                 |
-| ----------------- | ----------------------------------------------------------- |
-| **TRELLIS 2**     | Native 3D generative model — fast and versatile _(default)_ |
-| **Hunyuan3D Pro** | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
-| **Meshy v6**      | 3D models with PBR textures                                 |
+| Model             | Provider | Description                                                 |
+| ----------------- | -------- | ----------------------------------------------------------- |
+| **TRELLIS 2**     | fal.ai   | Native 3D generative model — fast and versatile _(default)_ |
+| **Hunyuan3D Pro** | fal.ai   | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
+| **Meshy v6**      | fal.ai   | Meshy 6 through fal — pay-per-call billing                  |
+| **Meshy v6**      | Meshy    | Meshy 6 — production-ready 3D with PBR textures             |
+| **Meshy v5**      | Meshy    | Previous generation, lower credit cost                      |
 
-All models are provided by [fal.ai](https://fal.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
+Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 
 ## Requirements
 
 - **Operating System**: macOS 10.15+, Linux (glibc 2.31+), Windows 10+
-- **AI Provider**: API key from [fal.ai](https://fal.ai/dashboard/keys)
+- **AI Provider**: API key from [fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai/settings/api) (one is enough)
 - **Blender** (optional): For FBX export
   - macOS: [Blender.org](https://www.blender.org/download/)
   - Linux: `sudo apt install blender` or Snap/Flatpak
