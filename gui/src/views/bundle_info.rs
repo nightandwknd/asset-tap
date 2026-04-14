@@ -145,6 +145,13 @@ impl BundleInfoPanel {
                     continue;
                 }
 
+                // Skip directories that don't look like bundles — empty dirs
+                // (e.g., partial/interrupted generations) were causing selection
+                // regressions in the browser.
+                if !asset_tap_core::bundle::looks_like_bundle(&path) {
+                    continue;
+                }
+
                 // Try to read custom name and favorite status from bundle.json
                 let bundle_json = path.join(bundle_files::METADATA);
                 let (display_name, is_favorite) = if bundle_json.exists() {

@@ -30,6 +30,22 @@ pub mod headers {
     pub const CONTENT_TYPE: &str = "Content-Type";
 }
 
+/// Inline data-URI prefixes for binary payloads.
+///
+/// Used when a provider exposes no upload endpoint and expects the image
+/// inline in the request body (e.g., Meshy's image-to-3D API).
+pub mod data_uri {
+    /// PNG data-URI prefix. Append base64-encoded bytes to form a full URI.
+    pub const IMAGE_PNG_BASE64: &str = "data:image/png;base64,";
+}
+
+/// Upper bound on image size when falling back to data-URI encoding.
+///
+/// Data URIs inflate request bodies by ~33% and some providers cap request
+/// size. This cap prevents surprise failures on pipelines that generate
+/// unusually large intermediate images.
+pub const MAX_DATA_URI_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+
 /// Environment variable names for mock mode
 pub mod env {
     /// Enable mock API mode

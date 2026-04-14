@@ -23,6 +23,8 @@ on:
       - 'dprint.json'
       - 'LICENSE'
 
+  workflow_dispatch:
+
 concurrency:
   group: release
   cancel-in-progress: false
@@ -34,6 +36,7 @@ jobs:
   version:
     name: Prepare Release
     runs-on: ubuntu-latest
+    if: github.event.head_commit.author.name != 'dependabot[bot]'
     outputs:
       new_version: ${{ steps.calver.outputs.new_version }}
       should_release: ${{ steps.calver.outputs.should_release }}

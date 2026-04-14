@@ -694,6 +694,17 @@ pub async fn download_demo_bundle(
     Ok(DemoDownloadResult::Downloaded(target_dir))
 }
 
+/// Check whether a directory looks like a bundle.
+///
+/// A bundle needs at least one of `bundle.json`, `image.png`, or `model.glb`
+/// to be considered non-empty. Used by the GUI bundle browser to skip
+/// partial/interrupted generations that would otherwise show as empty entries.
+pub fn looks_like_bundle(path: &Path) -> bool {
+    path.join(bundle_files::METADATA).exists()
+        || path.join(bundle_files::IMAGE).exists()
+        || path.join(bundle_files::MODEL_GLB).exists()
+}
+
 /// Discover all bundles in an output directory.
 ///
 /// This function is error-tolerant: it will skip directories that don't look
@@ -1160,6 +1171,34 @@ fn add_dir_to_zip(
 mod tests {
     use super::*;
     use chrono::{Datelike, Timelike};
+
+    #[test]
+    fn test_looks_like_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Empty dir → not a bundle
+        let empty = tmp.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        assert!(!looks_like_bundle(&empty));
+
+        // Dir with only an unrelated file → not a bundle
+        let junk = tmp.path().join("junk");
+        std::fs::create_dir(&junk).unwrap();
+        std::fs::write(junk.join("notes.txt"), "hi").unwrap();
+        assert!(!looks_like_bundle(&junk));
+
+        // Any one of the three bundle indicators is enough
+        for filename in [
+            bundle_files::METADATA,
+            bundle_files::IMAGE,
+            bundle_files::MODEL_GLB,
+        ] {
+            let dir = tmp.path().join(format!("bundle_{}", filename));
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(dir.join(filename), b"").unwrap();
+            assert!(looks_like_bundle(&dir), "expected {} to qualify", filename);
+        }
+    }
 
     #[test]
     fn test_parse_timestamp_dir_name() {

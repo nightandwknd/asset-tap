@@ -462,6 +462,29 @@ impl ProviderRegistry {
             .cloned()
     }
 
+    /// Find the first available provider that exposes the given model ID for
+    /// the given capability.
+    ///
+    /// Used by the pipeline to route a user-specified model to the right
+    /// provider without requiring an explicit `image_provider` / `model_3d_provider`
+    /// in `PipelineConfig`. Preserves insertion order (YAML discovery order),
+    /// so multiple providers exposing the same ID resolve deterministically to
+    /// the first registered one.
+    pub fn find_provider_for_model(
+        &self,
+        capability: ProviderCapability,
+        model_id: &str,
+    ) -> Option<Arc<dyn Provider>> {
+        self.providers
+            .values()
+            .find(|p| {
+                p.supports(capability)
+                    && p.is_available()
+                    && p.list_models(capability).iter().any(|m| m.id == model_id)
+            })
+            .cloned()
+    }
+
     /// List all registered provider IDs.
     pub fn list_provider_ids(&self) -> Vec<String> {
         self.providers.keys().cloned().collect()
@@ -771,5 +794,83 @@ mod tests {
         let ids = registry.list_provider_ids();
         assert_eq!(ids.len(), 1);
         assert!(ids.contains(&"test-provider".to_string()));
+    }
+
+    fn create_provider_with_text_model(provider_id: &str, model_id: &str) -> DynamicProvider {
+        let config = ProviderConfig {
+            provider: ProviderMetadataConfig {
+                upload: None,
+                id: provider_id.to_string(),
+                name: format!("Test {}", provider_id),
+                description: "Test".to_string(),
+                env_vars: vec![],
+                base_url: Some("https://example.com".to_string()),
+                auth_format: None,
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+            },
+            text_to_image: vec![ModelConfig {
+                id: model_id.to_string(),
+                name: model_id.to_string(),
+                description: "Test".to_string(),
+                endpoint: "/test".to_string(),
+                method: HttpMethod::POST,
+                request: RequestTemplate {
+                    headers: HashMap::new(),
+                    body: None,
+                    multipart: None,
+                },
+                response: ResponseTemplate {
+                    response_type: ResponseType::Binary,
+                    field: None,
+                    polling: None,
+                },
+                is_default: false,
+                cost_per_run: None,
+                parameters: vec![],
+            }],
+            image_to_3d: vec![],
+        };
+        DynamicProvider::new(config)
+    }
+
+    #[test]
+    fn test_find_provider_for_model() {
+        let mut registry = ProviderRegistry::empty();
+        registry.register(Arc::new(create_provider_with_text_model(
+            "fal.ai",
+            "fal-ai/nano-banana",
+        )));
+        registry.register(Arc::new(create_provider_with_text_model(
+            "meshy",
+            "meshy/nano-banana",
+        )));
+
+        // Each model routes to its owning provider
+        let p = registry
+            .find_provider_for_model(ProviderCapability::TextToImage, "meshy/nano-banana")
+            .expect("meshy model should route to meshy");
+        assert_eq!(p.id(), "meshy");
+
+        let p = registry
+            .find_provider_for_model(ProviderCapability::TextToImage, "fal-ai/nano-banana")
+            .expect("fal model should route to fal");
+        assert_eq!(p.id(), "fal.ai");
+
+        // Unknown model returns None — callers surface this as InvalidModel
+        assert!(
+            registry
+                .find_provider_for_model(ProviderCapability::TextToImage, "meshy/v7/ghost")
+                .is_none()
+        );
+
+        // Wrong capability (looking for a text-to-image model under ImageTo3D) returns None
+        assert!(
+            registry
+                .find_provider_for_model(ProviderCapability::ImageTo3D, "meshy/nano-banana")
+                .is_none()
+        );
     }
 }

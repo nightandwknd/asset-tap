@@ -573,6 +573,31 @@ impl HttpProviderClient {
         }
     }
 
+    /// Substitute `${field}` tokens in a template string with values pulled
+    /// from a JSON response via `extract_json_field`. Supports nested paths
+    /// (e.g. `${data.id}`) and array indexing (e.g. `${items[0]}`).
+    fn substitute_response_fields(
+        &self,
+        template: &str,
+        json: &serde_json::Value,
+    ) -> Result<String> {
+        let mut out = String::with_capacity(template.len());
+        let mut rest = template;
+        while let Some(start) = rest.find("${") {
+            out.push_str(&rest[..start]);
+            let after = &rest[start + 2..];
+            let end = after
+                .find('}')
+                .ok_or_else(|| anyhow!("Unterminated ${{ in status_url_template: {}", template))?;
+            let field_path = &after[..end];
+            let value = self.extract_json_field(json, Some(field_path))?;
+            out.push_str(&value);
+            rest = &after[end + 1..];
+        }
+        out.push_str(rest);
+        Ok(out)
+    }
+
     /// Resolve auth headers for use in polling and other authenticated requests.
     ///
     /// If the model's headers include an Authorization header, uses those.
@@ -619,7 +644,13 @@ impl HttpProviderClient {
         auth_headers: &HashMap<String, String>,
         progress: Option<PollingProgress>,
     ) -> Result<Vec<u8>> {
-        let status_url = self.extract_json_field(initial_response, Some(&polling.status_field))?;
+        let status_url = if let Some(template) = polling.status_url_template.as_deref() {
+            // Template-based poll URL: substitute ${field} tokens from initial response.
+            // Used by providers (e.g., Meshy) that return only a task id, not a full URL.
+            self.substitute_response_fields(template, initial_response)?
+        } else {
+            self.extract_json_field(initial_response, Some(&polling.status_field))?
+        };
 
         // Handle relative status URLs
         let full_status_url = self.resolve_url(&status_url);
@@ -891,8 +922,25 @@ impl HttpProviderClient {
                 .unwrap_or(status_url)
                 .to_string()
         };
-        tracing::info!("Sending cancel request to {}", cancel_url);
-        let cancel_request = self.client.put(&cancel_url);
+        // Default to PUT to preserve existing fal.ai behavior; providers using
+        // REST-style cancel (e.g., Meshy DELETE) configure `cancel_method`.
+        let method = polling
+            .cancel_method
+            .as_ref()
+            .copied()
+            .unwrap_or(super::config::HttpMethod::PUT);
+        tracing::info!(
+            "Sending cancel request ({}) to {}",
+            method.as_str(),
+            cancel_url
+        );
+        let cancel_request = match method {
+            super::config::HttpMethod::GET => self.client.get(&cancel_url),
+            super::config::HttpMethod::POST => self.client.post(&cancel_url),
+            super::config::HttpMethod::PUT => self.client.put(&cancel_url),
+            super::config::HttpMethod::DELETE => self.client.delete(&cancel_url),
+            super::config::HttpMethod::PATCH => self.client.patch(&cancel_url),
+        };
         let cancel_request = self.apply_headers(cancel_request, auth_headers);
         match cancel_request.send().await {
             Ok(resp) if resp.status().is_success() => {
@@ -1220,6 +1268,58 @@ mod tests {
             .interpolate("Prompt: ${prompt}", &[("prompt", "test")])
             .unwrap();
         assert_eq!(result, "Prompt: test");
+    }
+
+    #[test]
+    fn test_substitute_response_fields() {
+        let config = ProviderConfig {
+            provider: super::super::config::ProviderMetadataConfig {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: "Test".to_string(),
+                env_vars: vec![],
+                base_url: None,
+                upload: None,
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+                auth_format: None,
+            },
+            text_to_image: vec![],
+            image_to_3d: vec![],
+        };
+        let client = HttpProviderClient::new(config);
+
+        let json = serde_json::json!({
+            "result": "abc-123",
+            "data": { "id": "nested-id" },
+            "items": ["first", "second"]
+        });
+
+        assert_eq!(
+            client
+                .substitute_response_fields("/openapi/v1/x/${result}", &json)
+                .unwrap(),
+            "/openapi/v1/x/abc-123"
+        );
+        assert_eq!(
+            client
+                .substitute_response_fields("/p/${data.id}/sub", &json)
+                .unwrap(),
+            "/p/nested-id/sub"
+        );
+        assert_eq!(
+            client
+                .substitute_response_fields("/p/${items[1]}", &json)
+                .unwrap(),
+            "/p/second"
+        );
+        assert!(
+            client
+                .substitute_response_fields("/p/${unterminated", &json)
+                .is_err()
+        );
     }
 
     #[test]

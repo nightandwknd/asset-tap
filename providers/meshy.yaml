@@ -1,0 +1,203 @@
+# Meshy AI Provider Configuration
+# Native Meshy API — text-to-image and image-to-3D
+# Exists so users can run the full pipeline with only a Meshy key
+# (no fal.ai key required).
+
+# YAML anchors for reusable configuration blocks
+x-meshy-auth: &meshy-auth
+  Authorization: 'Bearer ${MESHY_API_KEY}'
+
+x-meshy-request-headers: &meshy-request-headers
+  <<: *meshy-auth
+  Content-Type: 'application/json'
+
+# Meshy returns {"result": "<task-id>"} on task creation and requires polling a
+# separate URL built from the task id. status_url_template does that substitution.
+x-meshy-t2i-polling: &meshy-t2i-polling
+  status_field: 'result'
+  status_url_template: '/openapi/v1/text-to-image/${result}'
+  status_check_field: 'status'
+  success_value: 'SUCCEEDED'
+  failure_value: 'FAILED'
+  result_field: 'image_urls[0]'
+  interval_ms: 1500
+  max_attempts: 120
+  # Meshy cancels via DELETE on the same task URL (no URL rewrite needed).
+  cancel_url_template: '${status_url}'
+  cancel_method: DELETE
+
+x-meshy-i23d-polling: &meshy-i23d-polling
+  status_field: 'result'
+  status_url_template: '/openapi/v1/image-to-3d/${result}'
+  status_check_field: 'status'
+  success_value: 'SUCCEEDED'
+  failure_value: 'FAILED'
+  result_field: 'model_urls.glb'
+  interval_ms: 2000
+  max_attempts: 300
+  cancel_url_template: '${status_url}'
+  cancel_method: DELETE
+
+# Shared parameter lists. YAML anchor+alias replaces the whole list, which is
+# exactly what we want here — every model in a family exposes the same knobs.
+x-meshy-t2i-params: &meshy-t2i-params
+  - name: 'aspect_ratio'
+    label: 'Aspect Ratio'
+    description: 'Output image aspect ratio.'
+    type: select
+    default: '1:1'
+    options: ['1:1', '16:9', '9:16', '4:3', '3:4']
+  - name: 'generate_multi_view'
+    label: 'Multi-View'
+    description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects.'
+    type: boolean
+    default: false
+
+x-meshy-i23d-params: &meshy-i23d-params
+  - name: 'topology'
+    label: 'Topology'
+    description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default.'
+    type: select
+    default: 'triangle'
+    options: ['triangle', 'quad']
+  - name: 'target_polycount'
+    label: 'Target Polycount'
+    description: 'Target polygon count. Higher = more detail.'
+    type: integer
+    default: 30000
+    min: 100
+    max: 300000
+  - name: 'enable_pbr'
+    label: 'PBR Materials'
+    description: 'Generate metallic/roughness/normal maps.'
+    type: boolean
+    default: true
+  - name: 'should_remesh'
+    label: 'Remesh'
+    description: 'Enable the remesh phase for cleaner topology.'
+    type: boolean
+    default: true
+  - name: 'should_texture'
+    label: 'Generate Textures'
+    description: 'Generate texture maps. Disable for untextured geometry only.'
+    type: boolean
+    default: true
+
+# Shared image-to-3D request body. ai_model is overridden per-model.
+x-meshy-i23d-body: &meshy-i23d-body
+  image_url: '${image_url}'
+  topology: 'triangle'
+  target_polycount: 30000
+  enable_pbr: true
+  should_remesh: true
+  should_texture: true
+  target_formats: ['glb']
+
+provider:
+  id: 'meshy'
+  name: 'Meshy AI'
+  description: 'Native Meshy API — text-to-image and production-grade image-to-3D'
+  env_vars:
+    - 'MESHY_API_KEY'
+  base_url: 'https://api.meshy.ai'
+  auth_format: 'Bearer ${MESHY_API_KEY}'
+  api_key_url: 'https://www.meshy.ai/settings/api'
+  website_url: 'https://www.meshy.ai'
+  docs_url: 'https://docs.meshy.ai/en/api/quick-start'
+  # Meshy has no file upload endpoint — image-to-3D accepts inline
+  # `data:image/png;base64,...` URIs directly. The pipeline falls back to
+  # data-URI encoding automatically when `upload` is absent.
+
+# =============================================================================
+# Text-to-Image (verified 2026-04-13)
+# =============================================================================
+text_to_image:
+  # --- Nano Banana ---
+  # Meshy's standard text-to-image model. Shares naming with fal's nano-banana;
+  # Meshy does not publicly document the underlying architecture.
+  - id: 'meshy/nano-banana'
+    name: 'Nano Banana'
+    description: 'Meshy text-to-image — standard quality'
+    is_default: true
+    endpoint: '/openapi/v1/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        ai_model: 'nano-banana'
+        prompt: '${prompt}'
+        aspect_ratio: '1:1'
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-t2i-polling
+    parameters: *meshy-t2i-params
+
+  # --- Nano Banana Pro ---
+  # Higher quality tier with the same parameter surface.
+  - id: 'meshy/nano-banana-pro'
+    name: 'Nano Banana Pro'
+    description: 'Meshy text-to-image — higher quality'
+    endpoint: '/openapi/v1/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        ai_model: 'nano-banana-pro'
+        prompt: '${prompt}'
+        aspect_ratio: '1:1'
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-t2i-polling
+    parameters: *meshy-t2i-params
+
+# =============================================================================
+# Image-to-3D (verified 2026-04-13)
+# =============================================================================
+image_to_3d:
+  # --- Meshy v6 ---
+  # Production-grade 3D models with PBR textures, served directly by Meshy
+  # without fal.ai's wrapper markup. Accepts either a public image URL or a
+  # `data:image/png;base64,...` data URI (the pipeline auto-uses data URI when
+  # the provider has no upload endpoint).
+  - id: 'meshy/v6/image-to-3d'
+    name: 'Meshy v6'
+    description: 'Meshy 6 — production-ready 3D with PBR textures'
+    is_default: true
+    endpoint: '/openapi/v1/image-to-3d'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        <<: *meshy-i23d-body
+        ai_model: 'meshy-6'
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-i23d-polling
+    parameters: *meshy-i23d-params
+
+  # --- Meshy v5 ---
+  # Previous-generation model — roughly 4× cheaper on mesh generation
+  # (5 credits vs 20) and 2× cheaper fully textured (15 vs 30). Use this to
+  # stretch a Meshy subscription's credit pool for drafts or bulk work.
+  - id: 'meshy/v5/image-to-3d'
+    name: 'Meshy v5'
+    description: 'Meshy 5 — previous generation, lower credit cost'
+    endpoint: '/openapi/v1/image-to-3d'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        <<: *meshy-i23d-body
+        ai_model: 'meshy-5'
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-i23d-polling
+    parameters: *meshy-i23d-params

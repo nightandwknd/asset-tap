@@ -14,11 +14,16 @@ tags = ["reference", "providers"]
 
 Asset Tap uses a data-driven provider system where AI providers are defined entirely through YAML configuration files. No code changes are needed to add, remove, or modify providers.
 
-## Included Provider
+## Included Providers
 
-Asset Tap ships with pre-configured support for [fal.ai](https://fal.ai), providing both text-to-image and image-to-3D models.
+Asset Tap ships with pre-configured support for two providers. You only need an API key for one of them to run the full pipeline.
 
-### Text-to-Image Models
+- **[fal.ai](https://fal.ai)** -- Pay-per-generation pricing, broadest model selection.
+- **[Meshy AI](https://www.meshy.ai)** -- Subscription-based, credit pool; specialized in 3D.
+
+### fal.ai
+
+#### Text-to-Image Models
 
 | Model                                                           | Description                                                         |
 | --------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -28,15 +33,48 @@ Asset Tap ships with pre-configured support for [fal.ai](https://fal.ai), provid
 | [FLUX.2 Dev](https://fal.ai/models/fal-ai/flux-2)               | Open-source FLUX.2 with tunable guidance and steps                  |
 | [FLUX.2 Pro](https://fal.ai/models/fal-ai/flux-2-pro)           | Premium FLUX.2 -- best quality, zero-config                         |
 
-### Image-to-3D Models
+#### Image-to-3D Models
 
 | Model                                                                         | Description                                                  |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | [TRELLIS 2](https://fal.ai/models/fal-ai/trellis-2)                           | Native 3D generative model -- fast and versatile _(default)_ |
 | [Hunyuan3D Pro](https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d) | Tencent Hunyuan3D v3.1 Pro -- high quality 3D generation     |
-| [Meshy v6](https://fal.ai/models/fal-ai/meshy/v6/image-to-3d)                 | Production-ready 3D models with PBR textures                 |
+| [Meshy v6](https://fal.ai/models/fal-ai/meshy/v6/image-to-3d)                 | Meshy 6 proxied through fal -- pay-per-call billing          |
 
 > **Tip:** Your [fal.ai Dashboard](https://fal.ai/dashboard/recent-history) shows all generation requests, results, and costs. This is the source of truth for your usage and a handy way to recover past outputs.
+
+### Meshy AI
+
+Native Meshy API -- bypasses fal's proxy markup and unlocks the full Meshy feature set. Requires `MESHY_API_KEY` from the [Meshy API settings page](https://www.meshy.ai/settings/api).
+
+#### Text-to-Image Models
+
+| Model                                                         | Description                                     |
+| ------------------------------------------------------------- | ----------------------------------------------- |
+| [Nano Banana](https://docs.meshy.ai/en/api/text-to-image)     | Meshy's standard text-to-image tier _(default)_ |
+| [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | Higher-quality text-to-image tier               |
+
+Tunable parameters: `aspect_ratio` (1:1, 16:9, 9:16, 4:3, 3:4), `generate_multi_view`.
+
+#### Image-to-3D Models
+
+| Model                                                | Description                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | Meshy 6 -- production-ready 3D with PBR textures _(default)_ |
+| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | Previous generation, lower credit cost                       |
+
+Tunable parameters: `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`.
+
+> **Why two ways to reach Meshy?** The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a `FAL_KEY`. The Meshy provider's entry uses Meshy's subscription credits and requires a `MESHY_API_KEY`. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.
+
+### Pricing Models
+
+| Provider | Billing      | How it works                                                                |
+| -------- | ------------ | --------------------------------------------------------------------------- |
+| fal.ai   | Pay-per-call | Charged per generation at the model's listed cost; no monthly minimum.      |
+| Meshy AI | Subscription | Monthly plan grants a credit pool; each generation deducts credits from it. |
+
+Meshy credit costs (verified 2026-04): v5 image-to-3D is 5 credits (15 with textures); v6 is 20 credits (30 with textures). See the [Meshy pricing page](https://www.meshy.ai/pricing) for plan details.
 
 ---
 
@@ -135,7 +173,18 @@ response:
     result_field: "images[0].url"       # JSONPath to extract from the output
     interval_ms: 1000
     max_attempts: 120
+
+    # Optional: build the poll URL from a task id instead of reading a full URL
+    # from the initial response. Used when the API returns only {"result": "<id>"}.
+    status_url_template: "/v1/jobs/${result}"
+
+    # Optional: override the cancel HTTP method. Defaults to PUT.
+    # Meshy uses DELETE for its cancel endpoint.
+    cancel_method: DELETE
+    cancel_url_template: "${status_url}"
 ```
+
+`status_url_template` supports nested paths (`${data.id}`) and array indices (`${items[0]}`). Relative paths are resolved against `base_url`.
 
 **Binary / Base64** -- For direct file responses:
 
@@ -178,7 +227,7 @@ image_to_3d:
 
 ### Upload Configuration
 
-Required when models use `${image_url}`. The `upload` section is nested under `provider:`:
+Required when models use `${image_url}` **and** the provider exposes an upload endpoint. The `upload` section is nested under `provider:`:
 
 ```yaml
 provider:
@@ -199,6 +248,12 @@ provider:
       upload_url_field: "upload_url"
       file_url_field: "file_url"
 ```
+
+### Data-URI Fallback (No Upload Endpoint)
+
+If a provider doesn't offer an upload endpoint but accepts inline `data:image/png;base64,...` URIs directly (like [Meshy](https://docs.meshy.ai/en/api/image-to-3d)), simply **omit the `upload:` block** from your YAML. Asset Tap automatically inlines the image as a base64 data URI wherever `${image_url}` appears in the request body.
+
+A 10 MB cap on the raw image bytes is enforced in this mode to prevent request-size failures on providers with body limits. For typical Asset Tap workflows (where the intermediate image is 1-4 MB), this is well within limits.
 
 ### Testing Your Provider
 
@@ -261,18 +316,21 @@ text_to_image:     # or image_to_3d
       field: string            # JSONPath for Json/Base64
       polling:                 # Required for polling type
         status_field: string
+        status_url_template: string  # Optional: build poll URL from initial response
         status_check_field: string
         success_value: string
         failure_value: string
         result_field: string
         interval_ms: integer
         max_attempts: integer
+        cancel_method: string    # Optional: HTTP method for cancel (default PUT)
+        cancel_url_template: string  # Optional: template using ${status_url}
 ```
 
 ### Variable Interpolation
 
 - `${prompt}` -- User's text prompt
-- `${image_url}` -- Auto-generated public URL for uploaded image
+- `${image_url}` -- Publicly accessible URL for the generated image. Produced by the provider's `upload` endpoint if configured, otherwise inlined as a `data:image/png;base64,...` URI.
 - `${ENV_VAR}` -- Any environment variable listed in `env_vars`
 
 ### Complete Example

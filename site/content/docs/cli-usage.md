@@ -30,15 +30,17 @@ sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bi
 
 ## API Key Configuration
 
-The CLI needs an API key from your provider (e.g., [fal.ai](https://fal.ai/dashboard/keys)). There are two ways to configure it:
+The CLI needs an API key from at least one provider -- [fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai/settings/api). A single key unlocks the full pipeline. There are two ways to configure keys:
 
 **Option 1: Environment variable** (recommended for CLI)
 
 ```bash
-export FAL_KEY=your_key_here
+# Pick one (or both) — Asset Tap uses whichever provider owns the model you select.
+export FAL_KEY=your_fal_key
+export MESHY_API_KEY=your_meshy_key
 ```
 
-Add this to your shell profile (`~/.zshrc`, `~/.bashrc`) to persist across sessions.
+Add these to your shell profile (`~/.zshrc`, `~/.bashrc`) to persist across sessions.
 
 **Option 2: GUI settings** (shared automatically)
 
@@ -61,14 +63,19 @@ asset-tap
 asset-tap -p fal.ai "a spaceship"
 
 # Choose specific models
-asset-tap -p fal.ai --image-model nano-banana-2 --3d-model trellis-2 "a robot"
+asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 --3d-model fal-ai/trellis-2 "a robot"
 
 # Use premium image model
-asset-tap -p fal.ai --image-model nano-banana-pro "a detailed castle"
+asset-tap -p fal.ai --image-model fal-ai/nano-banana-pro "a detailed castle"
 
-# Use original Nano Banana
-asset-tap -p fal.ai --image-model nano-banana "a simple cube"
+# Native Meshy end-to-end (requires MESHY_API_KEY)
+asset-tap -p meshy --image-model meshy/nano-banana-pro --3d-model meshy/v6/image-to-3d "a detailed castle"
+
+# Budget tier on Meshy (meshy-5 — 2-4× cheaper)
+asset-tap -p meshy --3d-model meshy/v5/image-to-3d "a simple cube"
 ```
+
+> **Tip:** If you omit `-p/--provider`, Asset Tap routes the request to whichever provider owns the model you pick. `--3d-model fal-ai/trellis-2` goes to fal.ai; `--3d-model meshy/v6/image-to-3d` goes to Meshy. Set the provider explicitly only when you're not specifying a model.
 
 ## Using an Existing Image
 

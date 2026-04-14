@@ -16,9 +16,10 @@ tags = ["guide"]
 
 Asset Tap works in two AI-powered steps: first it generates an image from your text prompt (text-to-image), then it converts that image into a 3D model (image-to-3D). You'll need an API key from at least one provider that supports these models.
 
-**Included provider:**
+**Included providers** -- pick either one (a single key unlocks the full pipeline):
 
-- [fal.ai](https://fal.ai) -- [Get API Key](https://fal.ai/dashboard/keys)
+- [fal.ai](https://fal.ai) -- [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
+- [Meshy AI](https://www.meshy.ai) -- [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
 
 You can also [add your own providers](@/docs/providers.md#adding-custom-providers) by creating YAML configuration files.
 

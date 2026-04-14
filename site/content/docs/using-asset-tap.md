@@ -16,7 +16,7 @@ This guide walks through the Asset Tap GUI from first launch to exporting your 3
 
 ## First Launch
 
-When you open Asset Tap for the first time, the welcome screen asks for your API key. Enter your [fal.ai API key](https://fal.ai/dashboard/keys) and click **Save**. You can change this later in Settings.
+When you open Asset Tap for the first time, the welcome screen asks for your API key. Enter a key from either supported provider -- a [fal.ai API key](https://fal.ai/dashboard/keys) or a [Meshy API key](https://www.meshy.ai/settings/api) -- and click **Save**. You only need one to run the full pipeline. You can add the other later (or swap between them) in Settings.
 
 ## Main Window
 

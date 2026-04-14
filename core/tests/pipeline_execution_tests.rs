@@ -363,10 +363,15 @@ async fn test_multiple_pipelines_concurrent() {
     }
 
     // Wait for all to complete
-    for (pipeline_handle, drain_handle) in handles {
+    for (i, (pipeline_handle, drain_handle)) in handles.into_iter().enumerate() {
         drain_handle.await.unwrap();
         let result = pipeline_handle.await.unwrap();
-        assert!(result.is_ok(), "Each pipeline should succeed");
+        assert!(
+            result.is_ok(),
+            "Pipeline {} should succeed, got: {:?}",
+            i,
+            result.err()
+        );
     }
 
     cleanup_mock_env();

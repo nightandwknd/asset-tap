@@ -229,6 +229,7 @@ impl ModelDiscoveryClient {
                 field: None,
                 polling: Some(PollingConfig {
                     status_field: "status_url".to_string(),
+                    status_url_template: None,
                     result_field: result_field.to_string(),
                     status_check_field: "status".to_string(),
                     success_value: "COMPLETED".to_string(),
@@ -237,6 +238,7 @@ impl ModelDiscoveryClient {
                     response_envelope_field: Some("response".to_string()),
                     poll_query_params: None,
                     cancel_url_template: None,
+                    cancel_method: None,
                     interval_ms: 2000,
                     max_attempts: 180,
                 }),
