@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.12 — 2026-04-14
+
+### Features
+
+- add meshy provider config ([#19](https://github.com/nightandwknd/asset-tap/pull/19))
+
 ## v26.4.11 — 2026-04-12
 
 ### Chores
