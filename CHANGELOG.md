@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.13 — 2026-04-15
+
+### Bug Fixes
+
+- align provider defaults and persist model params ([#20](https://github.com/nightandwknd/asset-tap/pull/20))
+
+### Chores
+
+- bump indexmap in the rust-dependencies group ([#18](https://github.com/nightandwknd/asset-tap/pull/18)) _(deps)_
+
 ## v26.4.12 — 2026-04-14
 
 ### Features
