@@ -89,7 +89,7 @@ provider:
         openapi_field: 'openapi'
 
 # =============================================================================
-# Curated Text-to-Image Models (verified 2026-02-28)
+# Curated Text-to-Image Models (verified 2026-04-15)
 # =============================================================================
 text_to_image:
   # --- Nano Banana 2 ---
@@ -99,7 +99,6 @@ text_to_image:
     name: 'Nano Banana 2'
     description: 'Gemini 3.1 Flash Image — reasoning-guided generation with text rendering'
     is_default: true
-    cost_per_run: 0.08
     endpoint: '/fal-ai/nano-banana-2'
     method: POST
     request:
@@ -122,7 +121,6 @@ text_to_image:
   - id: 'fal-ai/nano-banana'
     name: 'Nano Banana'
     description: 'Google Imagen 3-based image generation — fast and affordable'
-    cost_per_run: 0.04
     endpoint: '/fal-ai/nano-banana'
     method: POST
     request:
@@ -130,7 +128,7 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
-        image_size: 'square_hd'
+        aspect_ratio: '1:1'
         num_images: 1
     response:
       response_type: polling
@@ -145,7 +143,6 @@ text_to_image:
   - id: 'fal-ai/nano-banana-pro'
     name: 'Nano Banana Pro'
     description: 'Premium Google Imagen 3 — higher quality with aspect ratio control'
-    cost_per_run: 0.15
     endpoint: '/fal-ai/nano-banana-pro'
     method: POST
     request:
@@ -168,7 +165,6 @@ text_to_image:
   - id: 'fal-ai/flux-2'
     name: 'FLUX.2 Dev'
     description: 'Open-source FLUX.2 with tunable guidance and steps'
-    cost_per_run: 0.025
     endpoint: '/fal-ai/flux-2'
     method: POST
     request:
@@ -176,9 +172,9 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
-        image_size: 'square_hd'
+        image_size: 'landscape_4_3'
         num_images: 1
-        guidance_scale: 3.5
+        guidance_scale: 2.5
         num_inference_steps: 28
     response:
       response_type: polling
@@ -192,7 +188,7 @@ text_to_image:
         label: 'Guidance Scale'
         description: 'Higher values follow prompt more strictly. Increase for precise geometry.'
         type: float
-        default: 3.5
+        default: 2.5
         min: 1.0
         max: 20.0
         step: 0.5
@@ -209,7 +205,6 @@ text_to_image:
   - id: 'fal-ai/flux-2-pro'
     name: 'FLUX.2 Pro'
     description: 'Premium FLUX.2 — best quality, zero-config'
-    cost_per_run: 0.03
     endpoint: '/fal-ai/flux-2-pro'
     method: POST
     request:
@@ -217,8 +212,7 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
-        image_size: 'square_hd'
-        num_images: 1
+        image_size: 'landscape_4_3'
     response:
       response_type: polling
       polling:
@@ -228,7 +222,7 @@ text_to_image:
         max_attempts: 120
 
 # =============================================================================
-# Curated Image-to-3D Models (verified 2026-02-08)
+# Curated Image-to-3D Models (verified 2026-04-15)
 # =============================================================================
 image_to_3d:
   # --- TRELLIS 2 ---
@@ -237,7 +231,6 @@ image_to_3d:
     name: 'TRELLIS 2'
     description: 'Native 3D generative model — best quality, versatile asset creation'
     is_default: true
-    cost_per_run: 0.30
     endpoint: '/fal-ai/trellis-2'
     method: POST
     request:
@@ -246,9 +239,9 @@ image_to_3d:
       body:
         image_url: '${image_url}'
         ss_guidance_strength: 7.5
-        slat_guidance_strength: 3.0
+        shape_slat_guidance_strength: 7.5
         ss_sampling_steps: 12
-        slat_sampling_steps: 12
+        shape_slat_sampling_steps: 12
     response:
       response_type: polling
       polling:
@@ -265,13 +258,13 @@ image_to_3d:
         min: 1.0
         max: 15.0
         step: 0.5
-      - name: 'slat_guidance_strength'
+      - name: 'shape_slat_guidance_strength'
         label: 'Detail Guidance'
         description: 'Fine geometric detail control. Increase cautiously for complex shapes.'
         type: float
-        default: 3.0
+        default: 7.5
         min: 1.0
-        max: 10.0
+        max: 15.0
         step: 0.5
       - name: 'ss_sampling_steps'
         label: 'Sampling Steps'
@@ -280,7 +273,7 @@ image_to_3d:
         default: 12
         min: 4
         max: 30
-      - name: 'slat_sampling_steps'
+      - name: 'shape_slat_sampling_steps'
         label: 'Detail Steps'
         description: 'Additional detail refinement steps.'
         type: integer
@@ -294,7 +287,6 @@ image_to_3d:
   - id: 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
     name: 'Hunyuan3D Pro'
     description: 'Tencent Hunyuan3D v3.1 Pro — highest quality 3D generation'
-    cost_per_run: 0.225
     endpoint: '/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
     method: POST
     request:
@@ -302,7 +294,7 @@ image_to_3d:
         <<: *fal-request-headers
       body:
         input_image_url: '${image_url}'
-        enable_pbr: true
+        enable_pbr: false
     response:
       response_type: polling
       polling:
@@ -313,9 +305,9 @@ image_to_3d:
     parameters:
       - name: 'enable_pbr'
         label: 'PBR Materials'
-        description: 'Enable physically-based rendering materials for realistic lighting.'
+        description: 'Enable physically-based rendering materials (normal + metallic-roughness maps). The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
-        default: true
+        default: false
 
   # --- Meshy v6 ---
   # Production-ready 3D models with PBR textures.
@@ -323,7 +315,6 @@ image_to_3d:
   - id: 'fal-ai/meshy/v6/image-to-3d'
     name: 'Meshy v6'
     description: 'Meshy 6 — production-ready 3D models with PBR textures'
-    cost_per_run: 0.80
     endpoint: '/fal-ai/meshy/v6/image-to-3d'
     method: POST
     request:
@@ -333,7 +324,7 @@ image_to_3d:
         image_url: '${image_url}'
         topology: 'triangle'
         target_polycount: 30000
-        enable_pbr: true
+        enable_pbr: false
     response:
       response_type: polling
       polling:
@@ -353,10 +344,10 @@ image_to_3d:
         description: 'Target polygon count. Higher = more detail.'
         type: integer
         default: 30000
-        min: 5000
-        max: 100000
+        min: 100
+        max: 300000
       - name: 'enable_pbr'
         label: 'PBR Materials'
-        description: 'Enable physically-based rendering materials.'
+        description: 'Enable physically-based rendering materials (normal + metallic-roughness maps). The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
-        default: true
+        default: false

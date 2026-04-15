@@ -56,10 +56,17 @@ The `bundle.json` file contains complete information about the generation:
 
   "config": {
     "prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
-    "image_model": "nano-banana-2",
-    "model_3d": "trellis-2",
-    "provider": "fal.ai",
-    "export_fbx": true
+    "image_model": "fal-ai/nano-banana-2",
+    "model_3d": "fal-ai/trellis-2",
+    "export_fbx": true,
+    "image_model_params": {
+      "guidance_scale": 4.5,
+      "num_inference_steps": 32
+    },
+    "model_3d_params": {
+      "topology": "quad",
+      "target_polycount": 50000
+    }
   },
 
   "model_info": {
@@ -67,28 +74,6 @@ The `bundle.json` file contains complete information about the generation:
     "format": "GLB",
     "vertex_count": 27398,
     "triangle_count": 9132
-  },
-
-  "files": {
-    "image": "image.png",
-    "model": "model.glb",
-    "fbx": "model.fbx",
-    "textures": ["textures/texture_0.png"]
-  },
-
-  "generation_metadata": {
-    "image_generation": {
-      "duration_ms": 2341,
-      "model": "nano-banana-2"
-    },
-    "model_3d_generation": {
-      "duration_ms": 45823,
-      "model": "trellis-2"
-    },
-    "fbx_conversion": {
-      "duration_ms": 3421,
-      "success": true
-    }
   }
 }
 ```
@@ -100,8 +85,9 @@ The `bundle.json` file contains complete information about the generation:
 - `prompt` -- Text prompt
 - `image_model` -- Image generation model
 - `model_3d` -- 3D generation model
-- `provider` -- Provider ID
 - `export_fbx` -- Whether FBX export was requested
+- `image_model_params` -- User-tuned parameter overrides applied to the image model (omitted when empty)
+- `model_3d_params` -- User-tuned parameter overrides applied to the 3D model (omitted when empty)
 
 **model_info** -- 3D model statistics:
 
@@ -110,9 +96,9 @@ The `bundle.json` file contains complete information about the generation:
 - `vertex_count` -- Number of vertices
 - `triangle_count` -- Number of triangles
 
-**files** -- Relative paths to each file in the bundle
+## Privacy
 
-**generation_metadata** -- Timing and status for each pipeline stage
+`existing_image` is sanitized before serialization: if the user provided a local file path, only the filename is recorded (e.g. `/Users/alice/secret-project/input.png` -> `input.png`). URLs (`http://`, `https://`) and data URIs pass through unchanged. This keeps shared bundles free of the originating filesystem layout.
 
 ## Output Location
 

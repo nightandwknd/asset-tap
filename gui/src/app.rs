@@ -941,7 +941,7 @@ impl App {
         // Start tracking in history
         let generation_id = {
             let mut history = self.history.lock().unwrap();
-            history.start_generation(&config, Some(&self.provider_registry))
+            history.start_generation(&config)
         };
         self.current_generation_id = Some(generation_id.clone());
 

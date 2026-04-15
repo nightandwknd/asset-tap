@@ -50,7 +50,6 @@ impl OpenApiParser {
             request,
             response,
             is_default: false,
-            cost_per_run: None,
             parameters: vec![],
         })
     }

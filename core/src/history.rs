@@ -27,7 +27,7 @@ use crate::settings::is_dev_mode;
 use crate::types::PipelineOutput;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 /// History filename.
@@ -59,13 +59,10 @@ pub struct GenerationRecord {
 
     /// Error information (populated on failure).
     pub error: Option<ErrorInfo>,
-
-    /// Cost estimate for this generation.
-    pub estimated_cost: Option<f64>,
 }
 
 /// Serializable version of pipeline configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenerationConfig {
     /// Text prompt used (after template expansion, if any).
     pub prompt: Option<String>,
@@ -88,6 +85,17 @@ pub struct GenerationConfig {
 
     /// Whether FBX export was enabled.
     pub export_fbx: bool,
+
+    /// User-tuned parameter overrides applied to the image model (e.g.
+    /// `guidance_scale`, `num_inference_steps`). Empty when no overrides were
+    /// set; serialized only when non-empty so older bundles stay clean.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub image_model_params: HashMap<String, serde_json::Value>,
+
+    /// User-tuned parameter overrides applied to the 3D model (e.g.
+    /// `topology`, `target_polycount`, `enable_pbr`).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub model_3d_params: HashMap<String, serde_json::Value>,
 }
 
 impl From<&PipelineConfig> for GenerationConfig {
@@ -96,12 +104,31 @@ impl From<&PipelineConfig> for GenerationConfig {
             prompt: config.prompt.clone(),
             user_prompt: config.user_prompt.clone(),
             template: config.template.clone(),
-            existing_image: config.image_url.clone(),
+            existing_image: config.image_url.as_deref().map(sanitize_image_reference),
             image_model: config.image_model.clone(),
             model_3d: config.model_3d.clone(),
             export_fbx: config.export_fbx,
+            image_model_params: config.image_model_params.clone(),
+            model_3d_params: config.model_3d_params.clone(),
         }
     }
+}
+
+/// Sanitize an image reference for serialization into shareable bundle metadata.
+///
+/// Local filesystem paths leak the user's directory layout (PII when bundles are
+/// shared). Strip them to just the filename. Pass URLs and data URIs through
+/// unchanged — they're already non-PII and may be useful for reference.
+fn sanitize_image_reference(reference: &str) -> String {
+    let lower = reference.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("data:") {
+        return reference.to_string();
+    }
+    std::path::Path::new(reference)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| reference.to_string())
 }
 
 /// Status of a generation.
@@ -220,12 +247,7 @@ impl GenerationHistory {
     /// Start a new generation and add it to history.
     ///
     /// Returns the generation ID for tracking.
-    /// If a `ProviderRegistry` is provided, model costs are looked up from YAML configs.
-    pub fn start_generation(
-        &mut self,
-        config: &PipelineConfig,
-        registry: Option<&crate::providers::ProviderRegistry>,
-    ) -> String {
+    pub fn start_generation(&mut self, config: &PipelineConfig) -> String {
         let id = crate::config::generate_timestamp();
 
         let record = GenerationRecord {
@@ -237,7 +259,6 @@ impl GenerationHistory {
             status: GenerationStatus::InProgress,
             output: None,
             error: None,
-            estimated_cost: Some(estimate_cost(config, registry)),
         };
 
         // Add to front (newest first)
@@ -341,8 +362,6 @@ impl GenerationHistory {
 
     /// Get statistics about generation history.
     pub fn stats(&self) -> HistoryStats {
-        let total_cost: f64 = self.records.iter().filter_map(|r| r.estimated_cost).sum();
-
         let avg_duration: Option<f64> = {
             let durations: Vec<u64> = self.records.iter().filter_map(|r| r.duration_ms).collect();
             if durations.is_empty() {
@@ -356,7 +375,6 @@ impl GenerationHistory {
             total_generations: self.total_generations,
             successful_generations: self.successful_generations,
             failed_generations: self.failed_generations,
-            total_estimated_cost: total_cost,
             average_duration_ms: avg_duration,
         }
     }
@@ -368,53 +386,7 @@ pub struct HistoryStats {
     pub total_generations: u64,
     pub successful_generations: u64,
     pub failed_generations: u64,
-    pub total_estimated_cost: f64,
     pub average_duration_ms: Option<f64>,
-}
-
-/// Estimate cost for a generation based on model configs.
-///
-/// Looks up `cost_per_run` from the provider registry's model configs.
-/// If no registry is provided or model has no cost configured, returns 0.0.
-fn estimate_cost(
-    config: &PipelineConfig,
-    registry: Option<&crate::providers::ProviderRegistry>,
-) -> f64 {
-    use crate::providers::ProviderCapability;
-
-    let lookup_cost = |model_id: &str| -> f64 {
-        registry
-            .and_then(|reg| {
-                for provider in reg.list_all() {
-                    // Search text-to-image models
-                    if let Some(cost) = provider
-                        .list_models(ProviderCapability::TextToImage)
-                        .iter()
-                        .chain(provider.list_models(ProviderCapability::ImageTo3D).iter())
-                        .find(|m| m.id == model_id)
-                        .and_then(|m| m.cost_per_run)
-                    {
-                        return Some(cost);
-                    }
-                }
-                None
-            })
-            .unwrap_or(0.0)
-    };
-
-    let mut total = 0.0;
-
-    // Image generation cost (if not using existing image)
-    if config.image_url.is_none()
-        && let Some(ref model_id) = config.image_model
-    {
-        total += lookup_cost(model_id);
-    }
-
-    // 3D generation cost
-    total += lookup_cost(&config.model_3d);
-
-    total
 }
 
 /// Get the path to the history file.
@@ -454,11 +426,12 @@ mod tests {
                 image_model: Some("nano-banana".to_string()),
                 model_3d: "trellis-2".to_string(),
                 export_fbx: true,
+                            image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::InProgress,
             output: None,
             error: None,
-            estimated_cost: Some(0.34),
         };
 
         let json = serde_json::to_string(&record).unwrap();
@@ -469,44 +442,50 @@ mod tests {
     }
 
     #[test]
-    fn test_cost_estimation_without_registry() {
-        // Without a registry, all costs are 0.0 (costs come from YAML model configs)
-        let config = PipelineConfig::new()
-            .with_prompt("test")
-            .with_image_model("nano-banana")
-            .with_3d_model("trellis-2");
+    fn test_sanitize_image_reference_strips_absolute_paths() {
+        // Absolute paths are stripped to filename to avoid leaking PII when
+        // bundles are shared.
+        assert_eq!(
+            sanitize_image_reference("/Users/alice/Documents/secret/image.png"),
+            "image.png"
+        );
+        assert_eq!(
+            sanitize_image_reference("/home/bob/projects/work/photo.jpg"),
+            "photo.jpg"
+        );
+        // Windows-style paths: Path::file_name only splits on the platform's
+        // separator, so we don't assert on backslash splitting here. The PII
+        // case we care about — POSIX absolute paths from shared bundles — is
+        // covered above.
 
-        let cost = estimate_cost(&config, None);
-        assert_eq!(cost, 0.0);
+        // URLs and data URIs pass through unchanged.
+        assert_eq!(
+            sanitize_image_reference("https://example.com/image.png"),
+            "https://example.com/image.png"
+        );
+        assert_eq!(
+            sanitize_image_reference("HTTP://example.com/x.jpg"),
+            "HTTP://example.com/x.jpg"
+        );
+        assert_eq!(
+            sanitize_image_reference("data:image/png;base64,iVBOR..."),
+            "data:image/png;base64,iVBOR..."
+        );
+
+        // Already-relative paths get reduced to their filename too — consistent
+        // and still non-leaky.
+        assert_eq!(sanitize_image_reference("photo.png"), "photo.png");
+        assert_eq!(sanitize_image_reference("./local/photo.png"), "photo.png");
     }
 
     #[test]
-    fn test_cost_estimation_with_existing_image() {
-        // With existing image, image generation cost is skipped
+    fn test_generation_config_from_pipeline_sanitizes_existing_image() {
         let config = PipelineConfig::new()
-            .with_existing_image("http://example.com/image.png")
-            .with_3d_model("trellis-2");
-
-        let cost = estimate_cost(&config, None);
-        assert_eq!(cost, 0.0); // No registry = no cost data
-    }
-
-    #[test]
-    fn test_cost_estimation_skips_image_with_existing() {
-        // When an existing image is provided, the image model cost should be excluded
-        let config_with_image = PipelineConfig::new()
             .with_prompt("test")
-            .with_existing_image("http://example.com/image.png")
+            .with_existing_image("/Users/alice/secret-project/input.png")
             .with_3d_model("trellis-2");
-
-        let config_without = PipelineConfig::new()
-            .with_prompt("test")
-            .with_image_model("nano-banana-pro")
-            .with_3d_model("trellis-2");
-
-        // Both return 0.0 without a registry, but the logic paths are different
-        assert_eq!(estimate_cost(&config_with_image, None), 0.0);
-        assert_eq!(estimate_cost(&config_without, None), 0.0);
+        let g = GenerationConfig::from(&config);
+        assert_eq!(g.existing_image.as_deref(), Some("input.png"));
     }
 
     #[test]
@@ -577,7 +556,6 @@ mod tests {
         assert_eq!(stats.total_generations, 0);
         assert_eq!(stats.successful_generations, 0);
         assert_eq!(stats.failed_generations, 0);
-        assert_eq!(stats.total_estimated_cost, 0.0);
         assert!(stats.average_duration_ms.is_none());
     }
 
@@ -604,11 +582,12 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::Completed,
             output: None,
             error: None,
-            estimated_cost: Some(0.10),
         });
 
         history.records.push_back(GenerationRecord {
@@ -624,16 +603,16 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::Completed,
             output: None,
             error: None,
-            estimated_cost: Some(0.20),
         });
 
         let stats = history.stats();
         assert_eq!(stats.total_generations, 3);
-        assert!((stats.total_estimated_cost - 0.30).abs() < 0.001);
         assert_eq!(stats.average_duration_ms, Some(1500.0));
     }
 
@@ -654,11 +633,12 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status,
             output: None,
             error: None,
-            estimated_cost: None,
         };
 
         history
@@ -695,11 +675,12 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::Completed,
             output: None,
             error: None,
-            estimated_cost: None,
         };
 
         history.records.push_back(make_record(
@@ -744,11 +725,12 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::Completed,
             output: None,
             error: None,
-            estimated_cost: None,
         };
 
         history.records.push_front(make_record("3"));
@@ -778,11 +760,12 @@ mod tests {
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
                 export_fbx: false,
+                image_model_params: std::collections::HashMap::new(),
+                model_3d_params: std::collections::HashMap::new(),
             },
             status: GenerationStatus::InProgress,
             output: None,
             error: None,
-            estimated_cost: None,
         });
 
         assert!(history.get_record("test123").is_some());

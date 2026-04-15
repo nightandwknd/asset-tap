@@ -69,14 +69,14 @@ x-meshy-i23d-params: &meshy-i23d-params
     max: 300000
   - name: 'enable_pbr'
     label: 'PBR Materials'
-    description: 'Generate metallic/roughness/normal maps.'
+    description: 'Generate metallic/roughness/normal maps. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
     type: boolean
-    default: true
+    default: false
   - name: 'should_remesh'
     label: 'Remesh'
-    description: 'Enable the remesh phase for cleaner topology.'
+    description: 'Enable the remesh phase for cleaner topology. Recommended on for meshy-5 and earlier; meshy-6 produces clean topology without it.'
     type: boolean
-    default: true
+    default: false
   - name: 'should_texture'
     label: 'Generate Textures'
     description: 'Generate texture maps. Disable for untextured geometry only.'
@@ -88,8 +88,8 @@ x-meshy-i23d-body: &meshy-i23d-body
   image_url: '${image_url}'
   topology: 'triangle'
   target_polycount: 30000
-  enable_pbr: true
-  should_remesh: true
+  enable_pbr: false
+  should_remesh: false
   should_texture: true
   target_formats: ['glb']
 
@@ -109,7 +109,7 @@ provider:
   # data-URI encoding automatically when `upload` is absent.
 
 # =============================================================================
-# Text-to-Image (verified 2026-04-13)
+# Text-to-Image (verified 2026-04-15)
 # =============================================================================
 text_to_image:
   # --- Nano Banana ---
@@ -155,7 +155,7 @@ text_to_image:
     parameters: *meshy-t2i-params
 
 # =============================================================================
-# Image-to-3D (verified 2026-04-13)
+# Image-to-3D (verified 2026-04-15)
 # =============================================================================
 image_to_3d:
   # --- Meshy v6 ---

@@ -86,8 +86,25 @@ Skip the text-to-image step by providing your own image:
 asset-tap --image "photo.png"
 
 # With a specific 3D model
-asset-tap --image "photo.png" --3d-model trellis-2
+asset-tap --image "photo.png" --3d-model fal-ai/trellis-2
 ```
+
+## Tuning Model Parameters
+
+Models declare user-tunable parameters in their provider YAML (e.g. `guidance_scale`, `target_polycount`, `enable_pbr`). Override them from the command line with `--param KEY=VALUE`:
+
+```bash
+# Override a single parameter
+asset-tap -y "a robot" --image-model fal-ai/flux-2 --param guidance_scale=7.0
+
+# Multiple parameters
+asset-tap -y "a robot" --param guidance_scale=7.0 --param num_inference_steps=10
+
+# 3D model parameters (auto-routed to whichever model declares them)
+asset-tap -y "a robot" --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad --param enable_pbr=false
+```
+
+Value types are auto-detected (`true`/`false` -> bool, integers, floats, strings). Invalid parameter names error out with a list of valid options. The applied overrides are recorded into `bundle.json` under `config.image_model_params` and `config.model_3d_params`, and shown in the GUI's bundle info panel.
 
 ## Templates
 

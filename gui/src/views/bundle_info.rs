@@ -21,6 +21,54 @@ const SUCCESS_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 200, 100);
 /// Color for the favorite star when active.
 const FAVORITE_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 200, 50);
 
+/// Render a labeled, read-only, scrollable multi-line text field for prompts.
+/// Keeps long prompts from blowing out panel layout.
+fn scrollable_prompt_field(
+    ui: &mut egui::Ui,
+    label: &str,
+    text: &str,
+    id_salt: &str,
+    max_height: f32,
+) {
+    ui.label(egui::RichText::new(label).size(12.0).weak());
+    egui::ScrollArea::vertical()
+        .id_salt(id_salt)
+        .max_height(max_height)
+        .show(ui, |ui| {
+            let mut s = text;
+            ui.add(
+                egui::TextEdit::multiline(&mut s)
+                    .interactive(false)
+                    .desired_width(f32::INFINITY)
+                    .frame(true),
+            );
+        });
+}
+
+/// Render a labeled parameter list as `key: value` lines.
+/// Values are JSON-serialized in compact form (booleans, numbers, strings, etc.).
+fn render_parameter_list(
+    ui: &mut egui::Ui,
+    section_label: &str,
+    params: &std::collections::HashMap<String, serde_json::Value>,
+) {
+    ui.label(egui::RichText::new(section_label).size(12.0).weak());
+    let mut keys: Vec<&String> = params.keys().collect();
+    keys.sort();
+    for key in keys {
+        let value = &params[key];
+        let value_str = match value {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(format!("{}:", key)).size(12.0).weak());
+            ui.label(egui::RichText::new(value_str).size(12.0).monospace());
+        });
+    }
+}
+
 /// Show a save/add indicator or a hint label.
 fn save_indicator(
     ui: &mut egui::Ui,
@@ -441,25 +489,23 @@ impl BundleInfoPanel {
                         ui.add_space(2.0);
 
                         if let Some(ref user_prompt) = config.user_prompt {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Original input:").size(12.0).weak());
-                                ui.label(egui::RichText::new(user_prompt).size(12.0));
-                            });
+                            scrollable_prompt_field(
+                                ui,
+                                "Original input:",
+                                user_prompt,
+                                "bundle_info_user_prompt",
+                                60.0,
+                            );
                             ui.add_space(2.0);
                         }
                     }
 
-                    // Scrollable prompt display (expanded prompt)
-                    egui::ScrollArea::vertical()
-                        .max_height(80.0)
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut prompt.as_str())
-                                    .interactive(false)
-                                    .desired_width(f32::INFINITY)
-                                    .frame(true),
-                            );
-                        });
+                    let expanded_label = if config.template.is_some() {
+                        "Expanded prompt:"
+                    } else {
+                        "Prompt:"
+                    };
+                    scrollable_prompt_field(ui, expanded_label, prompt, "bundle_info_prompt", 80.0);
 
                     ui.add_space(4.0);
 
@@ -476,6 +522,30 @@ impl BundleInfoPanel {
                     ui.add_space(18.0);
                     ui.separator();
                     ui.add_space(8.0);
+                }
+
+                // =================================================================
+                // Parameters Section (only shown when overrides were applied)
+                // =================================================================
+                if let Some(ref config) = config {
+                    let has_image_params = !config.image_model_params.is_empty();
+                    let has_model_3d_params = !config.model_3d_params.is_empty();
+                    if has_image_params || has_model_3d_params {
+                        ui.label(egui::RichText::new("Parameters").strong());
+                        ui.add_space(4.0);
+                        if has_image_params {
+                            render_parameter_list(ui, "Image model:", &config.image_model_params);
+                        }
+                        if has_model_3d_params {
+                            if has_image_params {
+                                ui.add_space(4.0);
+                            }
+                            render_parameter_list(ui, "3D model:", &config.model_3d_params);
+                        }
+                        ui.add_space(18.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                    }
                 }
 
                 // =================================================================

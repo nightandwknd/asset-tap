@@ -51,9 +51,6 @@ pub struct ModelInfo {
     /// Additional provider-specific metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
-    /// Estimated cost per run in USD (from provider YAML config)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost_per_run: Option<f64>,
 
     /// User-tunable parameters for this model (from provider YAML).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
