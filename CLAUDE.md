@@ -223,7 +223,7 @@ PipelineConfig → ProviderRegistry → Provider → HttpProviderClient → API
 
 ```
 output/YYYY-MM-DD_HHMMSS/
-├── bundle.json      # Metadata (prompt, models, costs, stats)
+├── bundle.json      # Metadata (prompt, models, params, stats)
 ├── image.png        # Generated image
 ├── model.glb        # 3D model
 ├── model.fbx        # FBX (if exported)

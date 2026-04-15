@@ -30,7 +30,6 @@ Each model requires:
 - **id**: Unique model identifier
 - **name**: Display name
 - **description**: Model description
-- **cost_per_run**: Approximate cost per run as a float (e.g., `0.05`)
 - **endpoint**: API endpoint path
 - **method**: HTTP method (GET, POST, PUT, DELETE, PATCH)
 - **request**: Request configuration
@@ -150,6 +149,5 @@ Models support additional optional fields beyond the basics:
 
 - **`is_default`** (`bool`) - Mark this model as the default selection for its capability. Only one model per capability should have this set to `true`.
 - **`auth_format`** (`string`) - Override the authentication header format for this model (e.g., `"Bearer ${FAL_KEY}"`, `"Key ${FAL_KEY}"`).
-- **`cost_per_run`** (`f64`) - Approximate cost per generation run displayed to the user (e.g., `0.05`).
 - **`poll_query_params`** (`string`) - Additional query parameters to append to each polling status check URL (e.g., `"?logs=1"`).
 - **`cancel_url_template`** (`string`) - URL template for cancelling in-progress requests (e.g., `"https://queue.fal.run/{model_id}/requests/{request_id}/cancel"`).

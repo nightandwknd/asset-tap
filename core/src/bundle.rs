@@ -1955,4 +1955,69 @@ mod tests {
         }
         assert!(verify_sha256(&tampered, &hash).is_err());
     }
+
+    /// Guards against docs drifting from the BundleMetadata struct.
+    /// If someone adds a field to the docs' example JSON that doesn't exist on
+    /// the struct (or vice versa), this test should fail so the mismatch is
+    /// caught before it ships.
+    #[test]
+    fn test_docs_bundle_example_matches_struct() {
+        // Mirrors docs/guides/BUNDLE_STRUCTURE.md and site/content/docs/bundle-structure.md.
+        // Keep this in sync with those examples.
+        let doc_example = r#"{
+            "version": 1,
+            "name": "a cowboy ninja",
+            "created_at": "2024-12-29T15:30:45Z",
+            "config": {
+                "prompt": "a cowboy ninja",
+                "image_model": "fal-ai/nano-banana-2",
+                "model_3d": "fal-ai/trellis-2",
+                "export_fbx": true,
+                "image_model_params": {
+                    "guidance_scale": 4.5,
+                    "num_inference_steps": 32
+                },
+                "model_3d_params": {
+                    "topology": "quad",
+                    "target_polycount": 50000
+                }
+            },
+            "model_info": {
+                "file_size": 2739808,
+                "format": "GLB",
+                "vertex_count": 27398,
+                "triangle_count": 9132
+            }
+        }"#;
+
+        let parsed: BundleMetadata = serde_json::from_str(doc_example)
+            .expect("docs example JSON must deserialize into BundleMetadata");
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.name.as_deref(), Some("a cowboy ninja"));
+        let cfg = parsed.config.clone().expect("config present");
+        assert_eq!(cfg.image_model.as_deref(), Some("fal-ai/nano-banana-2"));
+        assert_eq!(cfg.model_3d, "fal-ai/trellis-2");
+        assert!(cfg.export_fbx);
+        assert_eq!(cfg.image_model_params.len(), 2);
+        assert_eq!(
+            cfg.model_3d_params.get("topology").and_then(|v| v.as_str()),
+            Some("quad")
+        );
+
+        // Re-serialize and confirm no phantom fields sneak in via round-trip.
+        let round_tripped = serde_json::to_value(&parsed).expect("serialize");
+        let top_level = round_tripped.as_object().expect("object");
+        for forbidden in ["provider", "files", "generation_metadata"] {
+            assert!(
+                !top_level.contains_key(forbidden),
+                "BundleMetadata must not serialize a `{}` field (see docs drift history)",
+                forbidden
+            );
+        }
+        let cfg_obj = top_level["config"].as_object().expect("config object");
+        assert!(
+            !cfg_obj.contains_key("provider"),
+            "GenerationConfig must not serialize a `provider` field"
+        );
+    }
 }

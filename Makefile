@@ -4,7 +4,7 @@
 	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
-	site-serve site-build site-check test-checklist
+	site-serve site-build site-check
 
 # Dependency check helpers
 CHECK_DPRINT := $(shell command -v dprint 2> /dev/null)
@@ -271,11 +271,3 @@ ifndef CHECK_ZOLA
 else
 	cd site && zola check
 endif
-
-# =============================================================================
-# Testing
-# =============================================================================
-
-test-checklist: ## Launch manual test checklist at http://localhost:8111
-	@rustc docs/test-checklist/server.rs -o docs/test-checklist/server 2>/dev/null || { echo "Failed to compile checklist server"; exit 1; }
-	@docs/test-checklist/server

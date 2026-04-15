@@ -80,7 +80,7 @@ text_to_image:
 
 **Guidelines:**
 
-- `id`: Lowercase with hyphens (e.g., "nano-banana", "trellis-2")
+- `id`: Fully-qualified, lowercase with hyphens, namespaced by provider (e.g., "fal-ai/nano-banana-2", "fal-ai/trellis-2", "meshy/v6/image-to-3d")
 - `endpoint`: Relative to `base_url` (e.g., "/predictions") or absolute URL
 - Set `is_default: true` on the model that should be the default; if none specified, the first model in the array is used as fallback
 
@@ -427,7 +427,7 @@ provider:
   docs_url: "https://docs.fal.ai/model-apis"
 
 text_to_image:
-  - id: "nano-banana-2"
+  - id: "fal-ai/nano-banana-2"
     name: "Nano Banana 2"
     description: "Gemini 3.1 Flash Image — reasoning-guided generation"
     endpoint: "/fal-ai/nano-banana-2"
@@ -505,7 +505,7 @@ provider:
 
 # Static fallback models (used until discovery runs)
 text_to_image:
-  - id: "nano-banana-2"
+  - id: "fal-ai/nano-banana-2"
     name: "Nano Banana 2"
     description: "Gemini 3.1 Flash Image — reasoning-guided generation"
     endpoint: "/fal-ai/nano-banana-2"

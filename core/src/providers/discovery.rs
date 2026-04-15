@@ -244,7 +244,6 @@ impl ModelDiscoveryClient {
                 }),
             },
             is_default: false,
-            cost_per_run: None,
             parameters: vec![],
         })
     }

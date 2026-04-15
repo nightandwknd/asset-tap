@@ -359,7 +359,7 @@ provider:
       file_url_field: "file_url"
 
 text_to_image:
-  - id: "nano-banana-2"
+  - id: "fal-ai/nano-banana-2"
     name: "Nano Banana 2"
     description: "Gemini 3.1 Flash Image -- reasoning-guided generation"
     endpoint: "/fal-ai/nano-banana-2"
@@ -386,7 +386,7 @@ text_to_image:
         max_attempts: 120
 
 image_to_3d:
-  - id: "trellis-2"
+  - id: "fal-ai/trellis-2"
     name: "Trellis 2"
     description: "High quality 3D model generation"
     endpoint: "/fal-ai/trellis-2"

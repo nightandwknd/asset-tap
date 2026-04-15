@@ -574,7 +574,6 @@ impl Provider for DynamicProvider {
                 is_default: m.is_default,
                 endpoint: m.endpoint.clone(),
                 metadata: None,
-                cost_per_run: m.cost_per_run,
                 parameters: m.parameters.clone(),
             })
             .collect()
@@ -763,7 +762,6 @@ mod tests {
                     polling: None,
                 },
                 is_default: false,
-                cost_per_run: None,
                 parameters: vec![],
             }],
             image_to_3d: vec![],
@@ -950,7 +948,6 @@ mod tests {
                     }),
                 },
                 is_default: true,
-                cost_per_run: None,
                 parameters: vec![],
             }],
         }

@@ -97,10 +97,6 @@ pub struct ModelConfig {
     #[serde(default)]
     pub is_default: bool,
 
-    /// Estimated cost per run in USD (for cost tracking in history).
-    #[serde(default)]
-    pub cost_per_run: Option<f64>,
-
     /// User-tunable parameters for this model.
     /// Declared in YAML, exposed in GUI as sliders/checkboxes/dropdowns.
     #[serde(default)]
@@ -732,7 +728,6 @@ mod tests {
                 polling: None,
             },
             is_default: false,
-            cost_per_run: None,
             parameters: vec![],
         });
 

@@ -44,7 +44,3 @@ test_results/
 
 # Zola site build output
 site/public/
-
-# Test checklist (compiled binary + saved state)
-docs/test-checklist/server
-docs/test-checklist/state.json

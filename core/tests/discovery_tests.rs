@@ -430,7 +430,6 @@ fn create_test_model(id: &str) -> asset_tap_core::providers::config::ModelConfig
             polling: None,
         },
         is_default: false,
-        cost_per_run: None,
         parameters: vec![],
     }
 }

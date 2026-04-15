@@ -303,7 +303,6 @@ mod tests {
                 polling: None,
             },
             is_default: false,
-            cost_per_run: None,
             parameters: vec![],
         }
     }

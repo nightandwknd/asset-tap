@@ -126,6 +126,8 @@ fn test_bundle_metadata_save_and_load() {
         image_model: Some("nano-banana".to_string()),
         model_3d: "trellis-2".to_string(),
         export_fbx: true,
+        image_model_params: std::collections::HashMap::new(),
+        model_3d_params: std::collections::HashMap::new(),
     };
 
     let mut metadata = BundleMetadata::with_config(config);
@@ -173,6 +175,8 @@ fn test_bundle_metadata_user_prompt_round_trip() {
         image_model: Some("nano-banana".to_string()),
         model_3d: "trellis-2".to_string(),
         export_fbx: true,
+        image_model_params: std::collections::HashMap::new(),
+        model_3d_params: std::collections::HashMap::new(),
     };
 
     let metadata = BundleMetadata::with_config(config);
@@ -207,6 +211,8 @@ fn test_bundle_metadata_user_prompt_omitted_when_none() {
         image_model: Some("nano-banana".to_string()),
         model_3d: "trellis-2".to_string(),
         export_fbx: true,
+        image_model_params: std::collections::HashMap::new(),
+        model_3d_params: std::collections::HashMap::new(),
     };
 
     let metadata = BundleMetadata::with_config(config);
