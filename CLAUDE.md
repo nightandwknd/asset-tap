@@ -36,6 +36,11 @@ make dev                # GUI debug
 make mock ARGS='-y "test"'
 make mock-gui
 
+# Manage API keys without launching the GUI
+asset-tap auth set <provider-id>     # Prompts (no echo); or pipe value on stdin
+asset-tap auth remove <provider-id>
+asset-tap auth list                  # Shows source: settings.json / env: VAR / missing
+
 # Quality
 make test                    # ALL tests (uses cargo-nextest, auto-installed if missing)
 make test-cli-comprehensive  # Comprehensive CLI test suite (mock mode)

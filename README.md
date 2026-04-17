@@ -140,6 +140,11 @@ asset-tap --list-providers
 
 # Auto-confirm the image approval step (only matters if you have approval enabled)
 asset-tap -y "a wooden treasure chest"
+
+# Store an API key without launching the GUI (prompts with no echo, or pipe it)
+asset-tap auth set fal.ai
+echo "$FAL_KEY" | asset-tap auth set fal.ai
+asset-tap auth list
 ```
 
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.
@@ -219,7 +224,8 @@ This is required once because the app is not yet signed with an Apple Developer 
 
 - Verify your API key is set correctly
 - Check that environment variable matches provider requirements
-- Settings → API Keys in the GUI
+- Settings → API Keys in the GUI, or `asset-tap auth set <provider>` from the CLI
+- Run `asset-tap auth list` to see which providers have a key and where it's loaded from
 
 **"Blender not found"**
 

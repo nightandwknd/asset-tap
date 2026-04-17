@@ -47,3 +47,6 @@ walkdir = { workspace = true }
 
 # Serialization
 serde_json = { workspace = true }
+
+# Hidden password/key input for `auth set` interactive prompt
+rpassword = "7"

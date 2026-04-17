@@ -19,10 +19,10 @@ use asset_tap_core::{
     types::Progress,
 };
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -116,6 +116,39 @@ struct Cli {
     /// Set model parameter overrides (repeatable, e.g. --param guidance_scale=7.0 --param topology=quad)
     #[arg(long = "param", value_name = "KEY=VALUE")]
     params: Vec<String>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Manage provider API keys stored in settings.json
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Store an API key for a provider in settings.json.
+    ///
+    /// If KEY is omitted, reads from stdin (pipe-friendly: `echo $K | asset-tap auth set fal-ai`)
+    /// or prompts when stdin is a TTY.
+    Set {
+        /// Provider id (see `asset-tap auth list` or `asset-tap --list-providers`)
+        provider: String,
+        /// API key value. Omit to read from stdin.
+        key: Option<String>,
+    },
+    /// Remove a stored API key for a provider.
+    Remove {
+        /// Provider id
+        provider: String,
+    },
+    /// List providers and the source of their currently-effective API key.
+    List,
 }
 
 /// Print ASCII art banner
@@ -156,6 +189,12 @@ fn main() -> anyhow::Result<()> {
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Initialize tracing with dual output: console + rolling log file
     let _guard = asset_tap_core::error_log::init_tracing();
+
+    // Handle subcommands before any banner/pipeline setup. Auth commands
+    // mutate settings.json directly and don't need the generation pipeline.
+    if let Some(Command::Auth { action }) = cli.command {
+        return handle_auth(action);
+    }
 
     // Show banner for main commands (not for --list or --inspect)
     if !cli.list && !cli.list_providers && cli.inspect_template.is_none() && !cli.convert_webp {
@@ -702,6 +741,132 @@ fn validate_api_keys(
     }
 
     Ok(())
+}
+
+fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
+    use asset_tap_core::settings::Settings;
+
+    let registry = ProviderRegistry::new();
+
+    match action {
+        AuthAction::Set { provider, key } => {
+            let provider_id = validate_provider_id(&provider, &registry)?;
+            let key = resolve_key_value(key, &provider_id)?;
+            if key.is_empty() {
+                anyhow::bail!("Refusing to store an empty key. Use `auth remove` to clear.");
+            }
+
+            let mut settings = Settings::load();
+            settings.set_provider_api_key(&provider_id, key);
+            settings
+                .save()
+                .map_err(|e| anyhow::anyhow!("Failed to save settings: {}", e))?;
+
+            println!("✅ Stored API key for `{}` in settings.json", provider_id);
+            Ok(())
+        }
+        AuthAction::Remove { provider } => {
+            let provider_id = validate_provider_id(&provider, &registry)?;
+            let mut settings = Settings::load();
+            let existed = settings.provider_api_keys.remove(&provider_id).is_some();
+            if !existed {
+                println!(
+                    "ℹ️  No stored key for `{}` (nothing to remove)",
+                    provider_id
+                );
+                return Ok(());
+            }
+            settings
+                .save()
+                .map_err(|e| anyhow::anyhow!("Failed to save settings: {}", e))?;
+            println!("🗑️  Removed stored API key for `{}`", provider_id);
+            Ok(())
+        }
+        AuthAction::List => {
+            let settings = Settings::load();
+            println!();
+            println!("Provider API Keys");
+            println!("{}", "=".repeat(60));
+
+            let providers = registry.list_all();
+            if providers.is_empty() {
+                println!("No providers registered.");
+                return Ok(());
+            }
+
+            for provider in &providers {
+                let meta = provider.metadata();
+                let stored = settings
+                    .provider_api_keys
+                    .get(&meta.id)
+                    .filter(|k| !k.is_empty());
+                let env_hit = meta.required_env_vars.iter().find_map(|var| {
+                    std::env::var(var)
+                        .ok()
+                        .filter(|v| !v.is_empty())
+                        .map(|_| var.clone())
+                });
+
+                let (status, source) = match (stored, env_hit.as_ref()) {
+                    (Some(_), _) => ("configured", "settings.json".to_string()),
+                    (None, Some(var)) => ("configured", format!("env: {}", var)),
+                    (None, None) => ("missing", "—".to_string()),
+                };
+
+                println!("\n{} ({})", meta.name, meta.id);
+                println!("  Status: {}", status);
+                println!("  Source: {}", source);
+                if !meta.required_env_vars.is_empty() {
+                    println!("  Env var(s): {}", meta.required_env_vars.join(", "));
+                }
+            }
+            println!();
+            Ok(())
+        }
+    }
+}
+
+/// Confirm `provider` matches a registered provider id; otherwise list valid ones.
+fn validate_provider_id(provider: &str, registry: &ProviderRegistry) -> anyhow::Result<String> {
+    let valid: Vec<String> = registry
+        .list_all()
+        .iter()
+        .map(|p| p.metadata().id.clone())
+        .collect();
+    if valid.iter().any(|id| id == provider) {
+        Ok(provider.to_string())
+    } else {
+        anyhow::bail!(
+            "Unknown provider `{}`. Valid ids: {}",
+            provider,
+            valid.join(", ")
+        );
+    }
+}
+
+/// Resolve a key value: inline arg wins; otherwise read stdin (piped) or prompt (TTY).
+fn resolve_key_value(inline: Option<String>, provider_id: &str) -> anyhow::Result<String> {
+    if let Some(k) = inline {
+        return Ok(k.trim().to_string());
+    }
+
+    let stdin = io::stdin();
+    if !stdin.is_terminal() {
+        // Piped input: read entire stdin, strip trailing newline.
+        let mut buf = String::new();
+        stdin
+            .lock()
+            .read_to_string(&mut buf)
+            .map_err(|e| anyhow::anyhow!("Failed to read stdin: {}", e))?;
+        return Ok(buf.trim().to_string());
+    }
+
+    // Interactive: read with echo disabled so the key isn't visible on screen
+    // or captured by terminal scrollback.
+    let prompt = format!("API key for {}: ", provider_id);
+    let key = rpassword::prompt_password(&prompt)
+        .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+    Ok(key.trim().to_string())
 }
 
 fn handle_convert_webp(output_override: &Option<PathBuf>) -> anyhow::Result<()> {

@@ -848,8 +848,26 @@ async fn run_pipeline_internal(
 
     // Save bundle metadata
     let mut gen_config = GenerationConfig::from(&config);
-    gen_config.image_model = resolved_image_model;
-    gen_config.model_3d = resolved_3d_model;
+    gen_config.image_model = resolved_image_model.clone();
+    gen_config.model_3d = resolved_3d_model.clone();
+
+    // Record the effective parameter set (YAML defaults merged with user overrides)
+    // so bundles are reproducible even if defaults change later. Only records
+    // when the model actually ran — a skipped image stage leaves the map empty.
+    if let Some(ref model_id) = resolved_image_model {
+        gen_config.image_model_params = effective_params(
+            image_provider.as_ref(),
+            ProviderCapability::TextToImage,
+            model_id,
+            &config.image_model_params,
+        );
+    }
+    gen_config.model_3d_params = effective_params(
+        model_3d_provider.as_ref(),
+        ProviderCapability::ImageTo3D,
+        &resolved_3d_model,
+        &config.model_3d_params,
+    );
 
     let metadata = BundleMetadata {
         version: 1,
@@ -872,6 +890,44 @@ async fn run_pipeline_internal(
     Ok(output)
 }
 
+/// Build the effective parameter map for a model by layering user overrides
+/// over the YAML-declared defaults.
+///
+/// Returns the full parameter set actually sent to the provider, so bundles can
+/// be reproduced later even if provider defaults change. Returns an empty map
+/// if the model declares no parameters.
+fn effective_params(
+    provider: &dyn Provider,
+    capability: ProviderCapability,
+    model_id: &str,
+    overrides: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let Some(model) = provider
+        .list_models(capability)
+        .into_iter()
+        .find(|m| m.id == model_id)
+    else {
+        return overrides.clone();
+    };
+    merge_param_overrides(&model.parameters, overrides)
+}
+
+/// Merge user-provided overrides on top of a model's declared parameter defaults.
+fn merge_param_overrides(
+    param_defs: &[crate::providers::config::ParameterDef],
+    overrides: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let mut effective = HashMap::with_capacity(param_defs.len());
+    for param in param_defs {
+        let value = overrides
+            .get(&param.name)
+            .cloned()
+            .unwrap_or_else(|| param.default.clone());
+        effective.insert(param.name.clone(), value);
+    }
+    effective
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -886,6 +942,78 @@ mod tests {
         assert_eq!(config.prompt, Some("a robot".to_string()));
         assert_eq!(config.model_3d, "trellis-2");
         assert!(!config.export_fbx);
+    }
+
+    #[test]
+    fn test_merge_param_overrides_records_defaults() {
+        use crate::providers::config::{ParameterDef, ParameterType};
+
+        let param_defs = vec![
+            ParameterDef {
+                name: "guidance_scale".into(),
+                label: "Guidance Scale".into(),
+                description: None,
+                param_type: ParameterType::Float,
+                default: serde_json::json!(3.5),
+                min: Some(1.0),
+                max: Some(20.0),
+                step: Some(0.5),
+                options: None,
+            },
+            ParameterDef {
+                name: "topology".into(),
+                label: "Topology".into(),
+                description: None,
+                param_type: ParameterType::Select,
+                default: serde_json::json!("triangle"),
+                min: None,
+                max: None,
+                step: None,
+                options: Some(vec![
+                    serde_json::json!("triangle"),
+                    serde_json::json!("quad"),
+                ]),
+            },
+        ];
+
+        // No overrides: YAML defaults are recorded so bundles stay reproducible.
+        let effective = merge_param_overrides(&param_defs, &HashMap::new());
+        assert_eq!(
+            effective.get("guidance_scale"),
+            Some(&serde_json::json!(3.5))
+        );
+        assert_eq!(
+            effective.get("topology"),
+            Some(&serde_json::json!("triangle"))
+        );
+
+        // User override on one param: default kept for the other.
+        let mut overrides = HashMap::new();
+        overrides.insert("guidance_scale".into(), serde_json::json!(7.0));
+        let effective = merge_param_overrides(&param_defs, &overrides);
+        assert_eq!(
+            effective.get("guidance_scale"),
+            Some(&serde_json::json!(7.0))
+        );
+        assert_eq!(
+            effective.get("topology"),
+            Some(&serde_json::json!("triangle"))
+        );
+
+        // Undeclared override keys are dropped (only declared params are recorded).
+        let mut overrides = HashMap::new();
+        overrides.insert("not_a_real_param".into(), serde_json::json!("ignored"));
+        let effective = merge_param_overrides(&param_defs, &overrides);
+        assert!(!effective.contains_key("not_a_real_param"));
+        assert_eq!(effective.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_param_overrides_empty_defs() {
+        // Models with no declared params produce an empty map, which
+        // serde skips via `skip_serializing_if = "HashMap::is_empty"`.
+        let effective = merge_param_overrides(&[], &HashMap::new());
+        assert!(effective.is_empty());
     }
 
     #[test]
