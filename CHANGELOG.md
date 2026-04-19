@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.14 — 2026-04-19
+
+### Features
+
+- add cli auth subcommand and persist effective model params ([#21](https://github.com/nightandwknd/asset-tap/pull/21))
+
 ## v26.4.13 — 2026-04-15
 
 ### Bug Fixes
