@@ -37,7 +37,7 @@ fn main() -> eframe::Result<()> {
     dotenvy::dotenv().ok();
 
     // Initialize tracing with dual output: console + rolling log file
-    let _guard = asset_tap_core::error_log::init_tracing();
+    let _guard = asset_tap_core::error_log::init_tracing(false);
 
     // Load window icon
     let icon_data = load_icon();

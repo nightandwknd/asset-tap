@@ -895,21 +895,21 @@ async fn run_pipeline_internal(
 ///
 /// Returns the full parameter set actually sent to the provider, so bundles can
 /// be reproduced later even if provider defaults change. Returns an empty map
-/// if the model declares no parameters.
+/// if the model declares no parameters, or if the model id can't be resolved
+/// against the registry (shouldn't happen after a successful stage, since the
+/// stage itself would have failed first).
 fn effective_params(
     provider: &dyn Provider,
     capability: ProviderCapability,
     model_id: &str,
     overrides: &HashMap<String, serde_json::Value>,
 ) -> HashMap<String, serde_json::Value> {
-    let Some(model) = provider
+    provider
         .list_models(capability)
         .into_iter()
         .find(|m| m.id == model_id)
-    else {
-        return overrides.clone();
-    };
-    merge_param_overrides(&model.parameters, overrides)
+        .map(|model| merge_param_overrides(&model.parameters, overrides))
+        .unwrap_or_default()
 }
 
 /// Merge user-provided overrides on top of a model's declared parameter defaults.

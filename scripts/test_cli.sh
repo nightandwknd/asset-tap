@@ -507,7 +507,7 @@ else
 fi
 echo "" | tee -a "$LOG_FILE"
 
-# 3. Round-trip: set inline → list shows settings.json → remove → list shows missing.
+# 3. Round-trip: set inline → list shows stored → remove → list shows missing.
 TOTAL=$((TOTAL + 1))
 echo -e "${BLUE}TEST $TOTAL: auth set/list/remove round-trip${NC}" | tee -a "$LOG_FILE"
 set +e
@@ -524,7 +524,7 @@ set -e
     echo "--- remove ---"; echo "$REMOVE_OUT"
     echo "--- list after remove ---"; echo "$LIST_AFTER_REMOVE"
 } >> "$LOG_FILE"
-# Pass criteria: set succeeded, list shows fal.ai sourced from settings.json,
+# Pass criteria: set succeeded, list shows fal.ai sourced as "stored",
 # remove succeeded, post-remove list shows fal.ai missing. We grep for the
 # fal.ai block specifically — `awk` block-extract because `grep -A` would
 # also match the meshy entry that follows. Anchor `^` is critical: the
@@ -533,7 +533,7 @@ set -e
 FAL_BLOCK_AFTER_SET=$(echo "$LIST_AFTER_SET" | awk '/^fal\.ai \(fal\.ai\)/{flag=1} flag && /Source:/{print; exit}')
 FAL_BLOCK_AFTER_REMOVE=$(echo "$LIST_AFTER_REMOVE" | awk '/^fal\.ai \(fal\.ai\)/{flag=1} flag && /Status:/{print; exit}')
 if [ $SET_EXIT -eq 0 ] && [ $REMOVE_EXIT -eq 0 ] \
-    && echo "$FAL_BLOCK_AFTER_SET" | grep -q "settings.json" \
+    && echo "$FAL_BLOCK_AFTER_SET" | grep -q "stored" \
     && echo "$FAL_BLOCK_AFTER_REMOVE" | grep -q "missing"; then
     echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
     PASSED=$((PASSED + 1))
@@ -556,7 +556,7 @@ set -e
     echo "--- list ---"; echo "$PIPE_LIST"
 } >> "$LOG_FILE"
 MESHY_BLOCK=$(echo "$PIPE_LIST" | awk '/^Meshy AI \(meshy\)/{flag=1} flag && /Source:/{print; exit}')
-if [ $PIPE_EXIT -eq 0 ] && echo "$MESHY_BLOCK" | grep -q "settings.json"; then
+if [ $PIPE_EXIT -eq 0 ] && echo "$MESHY_BLOCK" | grep -q "stored"; then
     echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
     PASSED=$((PASSED + 1))
 else
@@ -607,7 +607,33 @@ else
 fi
 echo "" | tee -a "$LOG_FILE"
 
-rm -rf "$AUTH_HOME" "$NOOP_HOME"
+# 7. stderr is quiet on auth commands — INFO logs must not leak over the
+# interactive prompt area. We assert no "INFO" level lines in the output
+# of a successful `auth set` (which we already exercise above).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth stderr has no INFO logs${NC}" | tee -a "$LOG_FILE"
+QUIET_HOME="${TMPDIR:-/tmp}/asset_tap_test_auth_quiet_home"
+rm -rf "$QUIET_HOME"
+mkdir -p "$QUIET_HOME"
+set +e
+QUIET_OUT=$(cd "$QUIET_HOME" && env \
+    -u FAL_KEY -u MESHY_API_KEY \
+    -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    HOME="$QUIET_HOME" \
+    "$CLI_ABS" auth set fal.ai quiet-test-key < /dev/null 2>&1)
+QUIET_EXIT=$?
+set -e
+echo "$QUIET_OUT" >> "$LOG_FILE"
+if [ $QUIET_EXIT -eq 0 ] && ! echo "$QUIET_OUT" | grep -qE "\bINFO\b"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$QUIET_EXIT, expected exit 0 with no INFO lines)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+rm -rf "$AUTH_HOME" "$NOOP_HOME" "$QUIET_HOME"
 
 echo "=== 12. MULTIPLE RUNS TO SAME OUTPUT ===" | tee -a "$LOG_FILE"
 

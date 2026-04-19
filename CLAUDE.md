@@ -39,7 +39,7 @@ make mock-gui
 # Manage API keys without launching the GUI
 asset-tap auth set <provider-id>     # Prompts (no echo); or pipe value on stdin
 asset-tap auth remove <provider-id>
-asset-tap auth list                  # Shows source: settings.json / env: VAR / missing
+asset-tap auth list                  # Shows source: stored / env: VAR / missing
 
 # Quality
 make test                    # ALL tests (uses cargo-nextest, auto-installed if missing)

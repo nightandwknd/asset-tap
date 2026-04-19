@@ -123,7 +123,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Manage provider API keys stored in settings.json
+    /// Manage stored provider API keys
     Auth {
         #[command(subcommand)]
         action: AuthAction,
@@ -132,7 +132,7 @@ enum Command {
 
 #[derive(Subcommand)]
 enum AuthAction {
-    /// Store an API key for a provider in settings.json.
+    /// Store an API key for a provider.
     ///
     /// If KEY is omitted, reads from stdin (pipe-friendly: `echo $K | asset-tap auth set fal-ai`)
     /// or prompts when stdin is a TTY.
@@ -187,8 +187,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn async_main(cli: Cli) -> anyhow::Result<()> {
-    // Initialize tracing with dual output: console + rolling log file
-    let _guard = asset_tap_core::error_log::init_tracing();
+    // Auth subcommands run an interactive prompt, so suppress INFO logs on
+    // stderr — they'd drown out the "API key for ...:" prompt. File logging
+    // still captures INFO for debugging.
+    let quiet_console = matches!(cli.command, Some(Command::Auth { .. }));
+    let _guard = asset_tap_core::error_log::init_tracing(quiet_console);
 
     // Handle subcommands before any banner/pipeline setup. Auth commands
     // mutate settings.json directly and don't need the generation pipeline.
@@ -762,7 +765,7 @@ fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
                 .save()
                 .map_err(|e| anyhow::anyhow!("Failed to save settings: {}", e))?;
 
-            println!("✅ Stored API key for `{}` in settings.json", provider_id);
+            println!("✅ Stored API key for `{}`", provider_id);
             Ok(())
         }
         AuthAction::Remove { provider } => {
@@ -808,7 +811,7 @@ fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
                 });
 
                 let (status, source) = match (stored, env_hit.as_ref()) {
-                    (Some(_), _) => ("configured", "settings.json".to_string()),
+                    (Some(_), _) => ("configured", "stored".to_string()),
                     (None, Some(var)) => ("configured", format!("env: {}", var)),
                     (None, None) => ("missing", "—".to_string()),
                 };
