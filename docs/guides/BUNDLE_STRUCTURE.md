@@ -83,8 +83,8 @@ Generation configuration:
 - `image_model` - Image generation model used
 - `model_3d` - 3D generation model used
 - `export_fbx` - Whether FBX export was requested
-- `image_model_params` - User-tuned parameter overrides applied to the image model (omitted when empty)
-- `model_3d_params` - User-tuned parameter overrides applied to the 3D model (omitted when empty)
+- `image_model_params` - Effective parameters sent to the image provider: YAML-declared defaults with any user overrides merged in (omitted when the model declares no parameters or the stage was skipped)
+- `model_3d_params` - Effective parameters sent to the 3D provider: YAML-declared defaults with any user overrides merged in (omitted when the model declares no parameters)
 
 ### model_info
 

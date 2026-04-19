@@ -384,7 +384,11 @@ pub fn cleanup_old_app_logs_in(
 /// Returns a guard that must be held alive for the duration of the program
 /// to ensure log flushing. The guard is returned as a boxed `dyn Send` so callers
 /// don't need to depend on `tracing_appender` directly.
-pub fn init_tracing() -> Box<dyn Send> {
+///
+/// When `quiet_console` is true, the stderr layer is filtered to WARN+ so
+/// interactive prompts (e.g. `auth set`) aren't buried in startup INFO logs.
+/// The file layer still captures INFO for debugging.
+pub fn init_tracing(quiet_console: bool) -> Box<dyn Send> {
     use tracing_subscriber::prelude::*;
 
     let env_filter = tracing_subscriber::EnvFilter::from_default_env()
@@ -395,9 +399,17 @@ pub fn init_tracing() -> Box<dyn Send> {
     let file_appender = tracing_appender::rolling::daily(&logs_dir, "app.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
+    let stderr_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_filter(if quiet_console {
+            tracing_subscriber::filter::LevelFilter::WARN
+        } else {
+            tracing_subscriber::filter::LevelFilter::TRACE
+        });
+
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(stderr_layer)
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)

@@ -454,6 +454,187 @@ run_test "--list ignores extra prompt argument" \
 run_test "--inspect-template ignores --mock flag" \
     "$CLI --mock --inspect-template humanoid" 0
 
+echo "=== 11b. AUTH SUBCOMMAND ===" | tee -a "$LOG_FILE"
+
+# All auth tests use an isolated HOME and unset XDG_* so they read/write only
+# under the scratch dir — never the user's real settings.json. We also `cd`
+# outside the repo so dotenvy doesn't pull in real keys from the repo's .env.
+# Same isolation pattern as the missing-key and corrupt-settings tests above.
+AUTH_HOME="${TMPDIR:-/tmp}/asset_tap_test_auth_home"
+rm -rf "$AUTH_HOME"
+mkdir -p "$AUTH_HOME"
+
+# Wraps a command with the auth-test isolation env.
+auth_cli() {
+    cd "$AUTH_HOME" && env \
+        -u FAL_KEY -u MESHY_API_KEY \
+        -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+        HOME="$AUTH_HOME" \
+        "$CLI_ABS" "$@"
+}
+
+# 1. `auth list` works against an empty HOME (no settings file yet).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth list on empty HOME exits 0${NC}" | tee -a "$LOG_FILE"
+set +e
+AUTH_LIST_OUT=$(auth_cli auth list < /dev/null 2>&1)
+AUTH_LIST_EXIT=$?
+set -e
+echo "$AUTH_LIST_OUT" >> "$LOG_FILE"
+if [ $AUTH_LIST_EXIT -eq 0 ] && echo "$AUTH_LIST_OUT" | grep -q "Provider API Keys"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$AUTH_LIST_EXIT, expected exit 0 with header)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 2. Unknown provider id is rejected with helpful error.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth set rejects unknown provider${NC}" | tee -a "$LOG_FILE"
+set +e
+BAD_OUT=$(auth_cli auth set bogus-provider some-key < /dev/null 2>&1)
+BAD_EXIT=$?
+set -e
+echo "$BAD_OUT" >> "$LOG_FILE"
+if [ $BAD_EXIT -ne 0 ] && echo "$BAD_OUT" | grep -q "Unknown provider"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$BAD_EXIT, expected non-zero with 'Unknown provider')${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 3. Round-trip: set inline → list shows stored → remove → list shows missing.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth set/list/remove round-trip${NC}" | tee -a "$LOG_FILE"
+set +e
+SET_OUT=$(auth_cli auth set fal.ai test-key-12345 < /dev/null 2>&1)
+SET_EXIT=$?
+LIST_AFTER_SET=$(auth_cli auth list < /dev/null 2>&1)
+REMOVE_OUT=$(auth_cli auth remove fal.ai < /dev/null 2>&1)
+REMOVE_EXIT=$?
+LIST_AFTER_REMOVE=$(auth_cli auth list < /dev/null 2>&1)
+set -e
+{
+    echo "--- set ---"; echo "$SET_OUT"
+    echo "--- list after set ---"; echo "$LIST_AFTER_SET"
+    echo "--- remove ---"; echo "$REMOVE_OUT"
+    echo "--- list after remove ---"; echo "$LIST_AFTER_REMOVE"
+} >> "$LOG_FILE"
+# Pass criteria: set succeeded, list shows fal.ai sourced as "stored",
+# remove succeeded, post-remove list shows fal.ai missing. We grep for the
+# fal.ai block specifically — `awk` block-extract because `grep -A` would
+# also match the meshy entry that follows. Anchor `^` is critical: the
+# tracing log line "Loaded custom provider: fal.ai (fal.ai)" also matches
+# `(fal.ai)` and would set flag too early, picking up Meshy's Source line.
+FAL_BLOCK_AFTER_SET=$(echo "$LIST_AFTER_SET" | awk '/^fal\.ai \(fal\.ai\)/{flag=1} flag && /Source:/{print; exit}')
+FAL_BLOCK_AFTER_REMOVE=$(echo "$LIST_AFTER_REMOVE" | awk '/^fal\.ai \(fal\.ai\)/{flag=1} flag && /Status:/{print; exit}')
+if [ $SET_EXIT -eq 0 ] && [ $REMOVE_EXIT -eq 0 ] \
+    && echo "$FAL_BLOCK_AFTER_SET" | grep -q "stored" \
+    && echo "$FAL_BLOCK_AFTER_REMOVE" | grep -q "missing"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (set=$SET_EXIT, remove=$REMOVE_EXIT, source-after-set='$FAL_BLOCK_AFTER_SET', status-after-remove='$FAL_BLOCK_AFTER_REMOVE')${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 4. Stdin pipe: omit inline KEY, pipe the value in.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth set reads from piped stdin${NC}" | tee -a "$LOG_FILE"
+set +e
+PIPE_OUT=$(echo "piped-key-value" | auth_cli auth set meshy 2>&1)
+PIPE_EXIT=$?
+PIPE_LIST=$(auth_cli auth list < /dev/null 2>&1)
+set -e
+{
+    echo "--- set via pipe ---"; echo "$PIPE_OUT"
+    echo "--- list ---"; echo "$PIPE_LIST"
+} >> "$LOG_FILE"
+MESHY_BLOCK=$(echo "$PIPE_LIST" | awk '/^Meshy AI \(meshy\)/{flag=1} flag && /Source:/{print; exit}')
+if [ $PIPE_EXIT -eq 0 ] && echo "$MESHY_BLOCK" | grep -q "stored"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$PIPE_EXIT, source='$MESHY_BLOCK')${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 5. Empty piped key is rejected (don't silently store an empty string).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth set rejects empty piped key${NC}" | tee -a "$LOG_FILE"
+set +e
+EMPTY_OUT=$(printf '' | auth_cli auth set fal.ai 2>&1)
+EMPTY_EXIT=$?
+set -e
+echo "$EMPTY_OUT" >> "$LOG_FILE"
+if [ $EMPTY_EXIT -ne 0 ] && echo "$EMPTY_OUT" | grep -qi "empty"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$EMPTY_EXIT, expected non-zero with empty-key error)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 6. `auth remove` on an unset provider is a no-op (not an error).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth remove on unset provider exits 0 with hint${NC}" | tee -a "$LOG_FILE"
+# Use a clean fresh dir so we know fal.ai isn't set.
+NOOP_HOME="${TMPDIR:-/tmp}/asset_tap_test_auth_noop_home"
+rm -rf "$NOOP_HOME"
+mkdir -p "$NOOP_HOME"
+set +e
+NOOP_OUT=$(cd "$NOOP_HOME" && env \
+    -u FAL_KEY -u MESHY_API_KEY \
+    -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    HOME="$NOOP_HOME" \
+    "$CLI_ABS" auth remove fal.ai < /dev/null 2>&1)
+NOOP_EXIT=$?
+set -e
+echo "$NOOP_OUT" >> "$LOG_FILE"
+if [ $NOOP_EXIT -eq 0 ] && echo "$NOOP_OUT" | grep -qi "nothing to remove"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$NOOP_EXIT, expected exit 0 with 'nothing to remove')${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+# 7. stderr is quiet on auth commands — INFO logs must not leak over the
+# interactive prompt area. We assert no "INFO" level lines in the output
+# of a successful `auth set` (which we already exercise above).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: auth stderr has no INFO logs${NC}" | tee -a "$LOG_FILE"
+QUIET_HOME="${TMPDIR:-/tmp}/asset_tap_test_auth_quiet_home"
+rm -rf "$QUIET_HOME"
+mkdir -p "$QUIET_HOME"
+set +e
+QUIET_OUT=$(cd "$QUIET_HOME" && env \
+    -u FAL_KEY -u MESHY_API_KEY \
+    -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    HOME="$QUIET_HOME" \
+    "$CLI_ABS" auth set fal.ai quiet-test-key < /dev/null 2>&1)
+QUIET_EXIT=$?
+set -e
+echo "$QUIET_OUT" >> "$LOG_FILE"
+if [ $QUIET_EXIT -eq 0 ] && ! echo "$QUIET_OUT" | grep -qE "\bINFO\b"; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$QUIET_EXIT, expected exit 0 with no INFO lines)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
+rm -rf "$AUTH_HOME" "$NOOP_HOME" "$QUIET_HOME"
+
 echo "=== 12. MULTIPLE RUNS TO SAME OUTPUT ===" | tee -a "$LOG_FILE"
 
 MULTI_OUT="$TEST_OUTPUT/multi_run"
