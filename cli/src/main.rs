@@ -43,6 +43,10 @@ struct Cli {
     #[arg(long)]
     no_fbx: bool,
 
+    /// Stop after image generation — produce an image-only bundle with no 3D model
+    #[arg(long)]
+    image_only: bool,
+
     /// Only convert existing GLB files to FBX (no API calls)
     #[arg(long)]
     convert_only: bool,
@@ -363,8 +367,10 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
-    // Enable approval if: --approve flag OR settings require it (but not in auto-confirm mode)
-    if (cli.approve || settings.require_image_approval) && !cli.yes {
+    // Enable approval if: --approve flag OR settings require it (but not in
+    // auto-confirm mode, and not in image-only mode where there's no 3D stage
+    // to approve continuing to).
+    if (cli.approve || settings.require_image_approval) && !cli.yes && !cli.image_only {
         config = config.with_image_approval();
     }
 
@@ -667,6 +673,10 @@ fn build_config(
 
     if cli.no_fbx {
         config = config.without_fbx();
+    }
+
+    if cli.image_only {
+        config = config.with_skip_3d();
     }
 
     // Apply custom Blender path from settings

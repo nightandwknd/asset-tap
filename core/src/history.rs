@@ -80,7 +80,8 @@ pub struct GenerationConfig {
     /// Image generation model.
     pub image_model: Option<String>,
 
-    /// 3D generation model.
+    /// 3D generation model. Empty for image-only bundles where no 3D stage ran.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model_3d: String,
 
     /// Whether FBX export was enabled.

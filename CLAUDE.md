@@ -32,6 +32,9 @@ make cli ARGS='-y "a cowboy ninja with a leather duster, bandana mask, and dual 
 make gui                # GUI release
 make dev                # GUI debug
 
+# Image-only mode: stop after text-to-image, no 3D model written
+make cli ARGS='--image-only -y "a wooden treasure chest"'
+
 # Mock mode (zero API cost)
 make mock ARGS='-y "test"'
 make mock-gui

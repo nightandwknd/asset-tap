@@ -147,6 +147,10 @@ pub struct LibraryBrowser {
     refresh_rx: Option<Receiver<Vec<LibraryItem>>>,
     /// Whether library is currently refreshing in the background.
     is_refreshing: bool,
+    /// Set when the user right-clicks an image and picks "Use this image for
+    /// generation" — consumed by the app loop after render() returns so it can
+    /// wire the path into the sidebar's existing_image field and close the modal.
+    pub pending_use_as_existing_image: Option<PathBuf>,
 }
 
 impl Default for LibraryBrowser {
@@ -219,6 +223,7 @@ impl LibraryBrowser {
             output_dir: None,
             refresh_rx: None,
             is_refreshing: false,
+            pending_use_as_existing_image: None,
         }
     }
 
@@ -751,9 +756,30 @@ impl LibraryBrowser {
                                         clicked_path = Some(item.path.clone());
                                     }
 
-                                    if response.secondary_clicked() {
-                                        right_clicked_path = Some(item.path.clone());
-                                    }
+                                    // Right-click opens a context menu. "Use
+                                    // this image for generation" shows for
+                                    // image items in any mode *except* the
+                                    // sidebar's existing-image picker, where
+                                    // a regular click already does that.
+                                    let is_image = matches!(item.asset_type, AssetType::Images);
+                                    let is_existing_image_picker = self.callback_id.as_deref()
+                                        == Some(crate::constants::callback::EXISTING_IMAGE);
+                                    let item_path_for_menu = item.path.clone();
+                                    response.context_menu(|ui| {
+                                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                        if is_image
+                                            && !is_existing_image_picker
+                                            && ui.button("Use for generation").clicked()
+                                        {
+                                            self.pending_use_as_existing_image =
+                                                Some(item_path_for_menu.clone());
+                                            ui.close();
+                                        }
+                                        if ui.button("Open in system viewer").clicked() {
+                                            right_clicked_path = Some(item_path_for_menu.clone());
+                                            ui.close();
+                                        }
+                                    });
                                 }
                             });
                         });

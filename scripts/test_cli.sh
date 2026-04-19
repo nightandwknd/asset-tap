@@ -443,6 +443,44 @@ run_test "Convert FBX on non-existent path" \
 run_test "Convert FBX on non-GLB file" \
     "$CLI --convert-fbx '$TEST_OUTPUT/bundle_validation'" 1
 
+echo "=== 10c. IMAGE-ONLY MODE ===" | tee -a "$LOG_FILE"
+
+# --image-only short-circuits the 3D stage. Bundle has image.png + bundle.json
+# but no model.glb / model.fbx. bundle.json should also omit model_3d and
+# model_3d_params since no 3D stage ran.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: --image-only produces bundle with image but no GLB${NC}" | tee -a "$LOG_FILE"
+IMG_ONLY_OUT="$TEST_OUTPUT/image_only_run"
+rm -rf "$IMG_ONLY_OUT"
+set +e
+IMG_ONLY_LOG=$($CLI --mock --image-only -y --image-model fal-ai/flux-2 --3d-model fal-ai/meshy/v6/image-to-3d -o "$IMG_ONLY_OUT" "image-only test" 2>&1)
+IMG_ONLY_EXIT=$?
+set -e
+echo "$IMG_ONLY_LOG" >> "$LOG_FILE"
+GEN_DIR=$(ls -d "$IMG_ONLY_OUT"/*/ 2>/dev/null | head -1)
+HAS_IMAGE=0
+NO_GLB=0
+NO_FBX=0
+NO_MODEL_3D_IN_JSON=0
+if [ -n "$GEN_DIR" ]; then
+    [ -f "${GEN_DIR}image.png" ] && HAS_IMAGE=1
+    [ ! -f "${GEN_DIR}model.glb" ] && NO_GLB=1
+    [ ! -f "${GEN_DIR}model.fbx" ] && NO_FBX=1
+    # bundle.json must not carry "model_3d" (should be omitted via skip_serializing_if)
+    if ! grep -q '"model_3d"' "${GEN_DIR}bundle.json" 2>/dev/null; then
+        NO_MODEL_3D_IN_JSON=1
+    fi
+fi
+if [ $IMG_ONLY_EXIT -eq 0 ] && [ $HAS_IMAGE -eq 1 ] && [ $NO_GLB -eq 1 ] \
+    && [ $NO_FBX -eq 1 ] && [ $NO_MODEL_3D_IN_JSON -eq 1 ]; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$IMG_ONLY_EXIT, has_image=$HAS_IMAGE, no_glb=$NO_GLB, no_fbx=$NO_FBX, no_model_3d_in_json=$NO_MODEL_3D_IN_JSON)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
+
 echo "=== 11. ADDITIONAL EDGE CASES ===" | tee -a "$LOG_FILE"
 
 run_test "Inspect non-existent template" \

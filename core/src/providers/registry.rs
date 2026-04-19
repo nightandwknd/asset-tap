@@ -10,6 +10,13 @@ use std::sync::Arc;
 /// Embedded provider configs (all *.yaml files from providers/ directory).
 static EMBEDDED_PROVIDERS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../providers");
 
+/// Providers whose queue/poll/result shapes the shared mock server emulates.
+/// When mock mode is on, providers outside this list are hidden so users
+/// can't pick a provider whose pipeline would break at runtime. Expand this
+/// list as the mock server gains support for more provider shapes.
+#[cfg(feature = "mock")]
+const MOCK_SUPPORTED_PROVIDERS: &[&str] = &["fal.ai"];
+
 /// Provider info collected for discovery refresh: (provider, capabilities, has_cache).
 type DiscoveryTarget = (Arc<dyn Provider>, Vec<ProviderCapability>, bool);
 
@@ -238,9 +245,15 @@ impl ProviderRegistry {
             }
         };
 
-        for entry in entries.flatten() {
-            let path = entry.path();
+        // Sort by path so provider registration order (and therefore the
+        // default-provider pick in `get_default`) is deterministic across
+        // machines and filesystems. APFS/ext4 don't guarantee alphabetical
+        // iteration of read_dir, which previously made the default provider
+        // whichever one the filesystem listed first.
+        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
 
+        for path in paths {
             // Skip directories
             if !path.is_file() {
                 continue;
@@ -256,6 +269,23 @@ impl ProviderRegistry {
 
             match self.load_provider_config(&path) {
                 Ok(provider) => {
+                    // In mock mode, only register providers whose behavior the
+                    // shared mock server actually emulates. Today that's fal.ai
+                    // only — Meshy uses a different task-id + status-URL shape
+                    // that the mock doesn't speak. Loading other providers in
+                    // mock mode would offer the user a choice that silently
+                    // breaks at runtime, which is worse than hiding it.
+                    #[cfg(feature = "mock")]
+                    if crate::api::is_mock_mode()
+                        && !MOCK_SUPPORTED_PROVIDERS.contains(&provider.id())
+                    {
+                        tracing::info!(
+                            "Hiding provider {} ({}) in mock mode — not supported by mock server",
+                            provider.name(),
+                            provider.id()
+                        );
+                        continue;
+                    }
                     tracing::info!(
                         "Loaded custom provider: {} ({})",
                         provider.name(),
@@ -869,6 +899,78 @@ mod tests {
             registry
                 .find_provider_for_model(ProviderCapability::ImageTo3D, "meshy/nano-banana")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn test_discover_providers_sorts_by_path() {
+        // std::fs::read_dir is not guaranteed alphabetical — APFS and ext4
+        // both return entries in filesystem-dependent order. We sort in
+        // discover_providers_from_dir so that get_default() picks the same
+        // provider on every machine regardless of on-disk order. This test
+        // writes two YAMLs with names that bracket the alphabet and asserts
+        // that registration order follows the sort, not whatever read_dir
+        // happened to return.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let yaml_a = r#"
+provider:
+    id: "aaa-provider"
+    name: "AAA Provider"
+    description: "First alphabetically"
+    env_vars:
+        - AAA_KEY
+    base_url: "https://example.com"
+
+text_to_image:
+    -   id: "aaa-model"
+        name: "AAA Model"
+        description: "Test"
+        endpoint: "/generate"
+        method: POST
+        request:
+            headers: {}
+            body:
+                prompt: "${prompt}"
+        response:
+            response_type: json
+            field: "url"
+"#;
+        let yaml_z = r#"
+provider:
+    id: "zzz-provider"
+    name: "ZZZ Provider"
+    description: "Last alphabetically"
+    env_vars:
+        - ZZZ_KEY
+    base_url: "https://example.com"
+
+text_to_image:
+    -   id: "zzz-model"
+        name: "ZZZ Model"
+        description: "Test"
+        endpoint: "/generate"
+        method: POST
+        request:
+            headers: {}
+            body:
+                prompt: "${prompt}"
+        response:
+            response_type: json
+            field: "url"
+"#;
+        std::fs::write(tmp.path().join("zzz-provider.yaml"), yaml_z).unwrap();
+        std::fs::write(tmp.path().join("aaa-provider.yaml"), yaml_a).unwrap();
+
+        let mut registry = ProviderRegistry::empty();
+        registry.discover_providers_from_dir(&tmp.path().to_path_buf());
+
+        let ids = registry.list_provider_ids();
+        assert_eq!(
+            ids.first().map(String::as_str),
+            Some("aaa-provider"),
+            "expected aaa-provider to register first (sorted), got {:?} (load_errors: {:?})",
+            ids,
+            registry.load_errors,
         );
     }
 }

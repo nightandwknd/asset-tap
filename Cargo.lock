@@ -457,6 +457,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "tauri-winres",
+ "tempfile",
  "three-d",
  "three-d-asset",
  "tokio",

@@ -88,6 +88,10 @@ pub struct PipelineConfig {
     /// Whether to export FBX (requires Blender).
     pub export_fbx: bool,
 
+    /// Whether to skip the image-to-3D stage and produce an image-only bundle.
+    /// When true, no `model.glb` or `model.fbx` is written.
+    pub skip_3d: bool,
+
     /// Custom Blender path (overrides auto-detection).
     pub blender_path: Option<String>,
 
@@ -237,6 +241,17 @@ impl PipelineConfig {
     /// Disable FBX export.
     pub fn without_fbx(mut self) -> Self {
         self.export_fbx = false;
+        self
+    }
+
+    /// Skip the image-to-3D stage — produce an image-only bundle.
+    /// Implies no FBX export (FBX comes from the GLB) and no image approval
+    /// gate (the gate's purpose is "do we want to pay for 3D on this image?",
+    /// which is moot when 3D was never going to run).
+    pub fn with_skip_3d(mut self) -> Self {
+        self.skip_3d = true;
+        self.export_fbx = false;
+        self.require_image_approval = false;
         self
     }
 
@@ -810,46 +825,54 @@ async fn run_pipeline_internal(
         return Err(Error::Pipeline("Generation cancelled by user".to_string()));
     }
 
-    // Stage 2: Generate 3D model
-    let model_3d_params = if config.model_3d_params.is_empty() {
-        None
+    // Stages 2–3 (3D + FBX) and model stats are skipped when the caller asked
+    // for an image-only run. The bundle still saves below with whatever stages
+    // did run.
+    let (resolved_3d_model, model_info) = if config.skip_3d {
+        (None, None)
     } else {
-        Some(&config.model_3d_params)
-    };
-    let (model_path, resolved_3d_model) = generate_3d_stage(
-        &config,
-        &model_3d_provider,
-        &image_data,
-        &gen_dir,
-        output.prompt.as_deref(),
-        &progress_tx,
-        model_3d_params,
-    )
-    .await?;
-    output.model_path = Some(model_path.clone());
-
-    // Check for cancellation before FBX conversion
-    if cancel_flag.load(Ordering::Acquire) {
-        return Err(Error::Pipeline("Generation cancelled by user".to_string()));
-    }
-
-    // Stage 3: Convert to FBX (optional, best-effort)
-    if config.export_fbx {
-        export_fbx_stage(
-            &model_path,
-            &mut output,
+        // Stage 2: Generate 3D model
+        let model_3d_params = if config.model_3d_params.is_empty() {
+            None
+        } else {
+            Some(&config.model_3d_params)
+        };
+        let (model_path, resolved_3d_model) = generate_3d_stage(
+            &config,
+            &model_3d_provider,
+            &image_data,
+            &gen_dir,
+            output.prompt.as_deref(),
             &progress_tx,
-            config.blender_path.as_deref(),
-        );
-    }
+            model_3d_params,
+        )
+        .await?;
+        output.model_path = Some(model_path.clone());
 
-    // Extract model stats from the GLB before saving metadata
-    let model_info = crate::bundle::extract_model_info(&model_path);
+        // Check for cancellation before FBX conversion
+        if cancel_flag.load(Ordering::Acquire) {
+            return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+        }
+
+        // Stage 3: Convert to FBX (optional, best-effort)
+        if config.export_fbx {
+            export_fbx_stage(
+                &model_path,
+                &mut output,
+                &progress_tx,
+                config.blender_path.as_deref(),
+            );
+        }
+
+        // Extract model stats from the GLB before saving metadata
+        let model_info = crate::bundle::extract_model_info(&model_path);
+        (Some(resolved_3d_model), model_info)
+    };
 
     // Save bundle metadata
     let mut gen_config = GenerationConfig::from(&config);
     gen_config.image_model = resolved_image_model.clone();
-    gen_config.model_3d = resolved_3d_model.clone();
+    gen_config.model_3d = resolved_3d_model.clone().unwrap_or_default();
 
     // Record the effective parameter set (YAML defaults merged with user overrides)
     // so bundles are reproducible even if defaults change later. Only records
@@ -862,12 +885,14 @@ async fn run_pipeline_internal(
             &config.image_model_params,
         );
     }
-    gen_config.model_3d_params = effective_params(
-        model_3d_provider.as_ref(),
-        ProviderCapability::ImageTo3D,
-        &resolved_3d_model,
-        &config.model_3d_params,
-    );
+    if let Some(ref model_id) = resolved_3d_model {
+        gen_config.model_3d_params = effective_params(
+            model_3d_provider.as_ref(),
+            ProviderCapability::ImageTo3D,
+            model_id,
+            &config.model_3d_params,
+        );
+    }
 
     let metadata = BundleMetadata {
         version: 1,
@@ -942,6 +967,17 @@ mod tests {
         assert_eq!(config.prompt, Some("a robot".to_string()));
         assert_eq!(config.model_3d, "trellis-2");
         assert!(!config.export_fbx);
+    }
+
+    #[test]
+    fn test_with_skip_3d_disables_downstream_concerns() {
+        // skip_3d implies no FBX (derived from the GLB that never gets made)
+        // and no approval gate (the gate's purpose — "pay for 3D on this
+        // image?" — is moot when 3D was never going to run).
+        let config = PipelineConfig::new().with_image_approval().with_skip_3d();
+        assert!(config.skip_3d);
+        assert!(!config.export_fbx);
+        assert!(!config.require_image_approval);
     }
 
     #[test]

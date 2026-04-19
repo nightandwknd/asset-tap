@@ -15,6 +15,47 @@ pub fn open_with_system(
     }
 }
 
+/// Reconcile a persisted (provider, model) selection against the live registry.
+///
+/// - Both valid → returned unchanged.
+/// - Provider valid but model doesn't belong to it → keep provider, pick that
+///   provider's default model.
+/// - Provider missing → fall back to `default_provider` and its default model.
+///
+/// Used at startup to recover from mock-mode provider hiding, removed YAMLs,
+/// etc. — anything that would otherwise leave the sidebar pointing at a dead
+/// reference until the user manually clicks a dropdown.
+fn reconcile_provider_selection(
+    registry: &asset_tap_core::providers::ProviderRegistry,
+    capability: asset_tap_core::providers::ProviderCapability,
+    provider_id: String,
+    model_id: String,
+    default_provider_id: String,
+) -> (String, String) {
+    if let Some(provider) = registry.get(&provider_id) {
+        let has_model = provider
+            .list_models(capability)
+            .iter()
+            .any(|m| m.id == model_id);
+        if has_model {
+            return (provider_id, model_id);
+        }
+        let fallback_model = provider
+            .get_default_model(capability)
+            .ok()
+            .map(|m| m.id)
+            .unwrap_or_default();
+        return (provider_id, fallback_model);
+    }
+    // Provider gone — fall back to the registry default and its default model.
+    let fallback_model = registry
+        .get(&default_provider_id)
+        .and_then(|p| p.get_default_model(capability).ok())
+        .map(|m| m.id)
+        .unwrap_or_default();
+    (default_provider_id, fallback_model)
+}
+
 /// Embedded logo image for in-app branding (512x512 with "ASSET TAP" text).
 const LOGO_BYTES: &[u8] = include_bytes!("../../assets/logo.png");
 
@@ -216,6 +257,9 @@ pub struct App {
 
     /// Whether to export FBX.
     pub export_fbx: bool,
+
+    /// Stop after image generation (image-only bundle, no 3D stage).
+    pub skip_3d: bool,
 
     /// Existing image path/URL (skips image generation).
     pub existing_image: Option<String>,
@@ -549,7 +593,7 @@ impl App {
         let image_provider = app_state
             .selected_image_provider
             .clone()
-            .unwrap_or(default_image_provider);
+            .unwrap_or(default_image_provider.clone());
         let image_model = app_state
             .selected_image_model
             .clone()
@@ -557,11 +601,30 @@ impl App {
         let model_3d_provider = app_state
             .selected_3d_provider
             .clone()
-            .unwrap_or(default_3d_provider);
+            .unwrap_or(default_3d_provider.clone());
         let model_3d = app_state
             .selected_3d_model
             .clone()
             .unwrap_or(default_3d_model);
+
+        // Persisted provider/model selections can point at things that aren't
+        // currently registered — e.g. mock mode hides non-fal providers, or a
+        // user's provider YAML was removed. Fall back to the registry's default
+        // rather than handing the pipeline a dead reference.
+        let (image_provider, image_model) = reconcile_provider_selection(
+            &provider_registry,
+            ProviderCapability::TextToImage,
+            image_provider,
+            image_model,
+            default_image_provider,
+        );
+        let (model_3d_provider, model_3d) = reconcile_provider_selection(
+            &provider_registry,
+            ProviderCapability::ImageTo3D,
+            model_3d_provider,
+            model_3d,
+            default_3d_provider,
+        );
 
         // Load and clean up history (mark any in-progress as interrupted)
         let mut history = GenerationHistory::load();
@@ -621,6 +684,7 @@ impl App {
             image_model_params: std::collections::HashMap::new(),
             model_3d_params: std::collections::HashMap::new(),
             export_fbx: settings.export_fbx_default,
+            skip_3d: false,
             existing_image: None,
 
             // State
@@ -927,14 +991,25 @@ impl App {
             config = config.without_fbx();
         }
 
+        // Only honor skip_3d when there's actually an image stage to stop after.
+        // With an existing image supplied, image-only would mean "do nothing" —
+        // the sidebar checkbox is already disabled in that case; this guards
+        // against a stale `skip_3d=true` from before the image was supplied.
+        if self.skip_3d && self.existing_image.is_none() {
+            config = config.with_skip_3d();
+        }
+
         if let Some(ref blender) = self.settings.blender_path
             && !blender.is_empty()
         {
             config = config.with_blender_path(blender);
         }
 
-        // Enable approval if required by settings (and image is being generated, not using existing)
-        if self.settings.require_image_approval && self.existing_image.is_none() {
+        // Enable approval if required by settings (and image is being
+        // generated, not using existing, and we're actually going to 3D —
+        // the approval gate asks "continue to 3D?", which is meaningless
+        // when the pipeline stops after the image stage).
+        if self.settings.require_image_approval && self.existing_image.is_none() && !self.skip_3d {
             config = config.with_image_approval();
         }
 
@@ -1224,6 +1299,20 @@ impl App {
         false
     }
 
+    /// Queue an image as the pipeline's `existing_image` and notify the user
+    /// with a success toast. Returns whether the path was accepted. All UI
+    /// entry points that let the user pick an image for the next generation
+    /// (library context menu, preview-pane button/menu, sidebar library
+    /// selection) go through this so the toast copy and validation stay
+    /// consistent.
+    pub fn queue_image_for_generation(&mut self, path: String) -> bool {
+        let accepted = self.set_existing_image(path);
+        if accepted {
+            self.add_toast(Toast::success("Image queued for generation"));
+        }
+        accepted
+    }
+
     /// Clear the existing image selection.
     pub fn clear_existing_image(&mut self) {
         self.existing_image = None;
@@ -1449,9 +1538,8 @@ impl App {
 
         match callback_id.as_deref() {
             Some(callback::EXISTING_IMAGE) => {
-                // For input selection, just use the specific file
                 if let Some(path) = paths.first() {
-                    self.existing_image = Some(path.to_string_lossy().to_string());
+                    self.queue_image_for_generation(path.to_string_lossy().into_owned());
                 }
             }
             Some(callback::PREVIEW_IMAGE)
@@ -2428,6 +2516,15 @@ impl eframe::App for App {
             self.handle_library_selection(selected_paths);
         }
 
+        // Consume any "Use this image for generation" request raised by the
+        // library's context menu. This pipes a library image into the
+        // existing_image sidebar slot without the user having to navigate via
+        // the file picker.
+        if let Some(path) = self.library_browser.pending_use_as_existing_image.take() {
+            self.queue_image_for_generation(path.to_string_lossy().into_owned());
+            self.library_browser.close();
+        }
+
         // Render settings modal (if open)
         if self
             .settings_modal
@@ -2793,5 +2890,115 @@ mod tests {
     #[test]
     fn test_preview_tab_default_is_model3d() {
         assert_eq!(PreviewTab::default(), PreviewTab::Model3D);
+    }
+
+    // =========================================================================
+    // reconcile_provider_selection
+    // =========================================================================
+
+    use super::reconcile_provider_selection;
+    use asset_tap_core::providers::{
+        DynamicProvider, ProviderCapability, ProviderConfig, ProviderRegistry,
+    };
+    use std::sync::Arc;
+
+    /// Build a minimal in-memory provider with the given id and one text-to-image
+    /// model. Enough for `reconcile_provider_selection` to exercise the
+    /// registry + capability + model lookups it cares about.
+    fn make_test_provider(id: &str, model_id: &str) -> Arc<DynamicProvider> {
+        use asset_tap_core::providers::config::{
+            HttpMethod, ModelConfig, ProviderMetadataConfig, RequestTemplate, ResponseTemplate,
+            ResponseType,
+        };
+        use std::collections::HashMap;
+        let config = ProviderConfig {
+            provider: ProviderMetadataConfig {
+                upload: None,
+                id: id.to_string(),
+                name: format!("Test {}", id),
+                description: "Test".to_string(),
+                env_vars: vec!["TEST_KEY".to_string()],
+                base_url: Some("https://example.com".to_string()),
+                auth_format: None,
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+            },
+            text_to_image: vec![ModelConfig {
+                id: model_id.to_string(),
+                name: model_id.to_string(),
+                description: "Test".to_string(),
+                endpoint: "/test".to_string(),
+                method: HttpMethod::POST,
+                request: RequestTemplate {
+                    headers: HashMap::new(),
+                    body: None,
+                    multipart: None,
+                },
+                response: ResponseTemplate {
+                    response_type: ResponseType::Binary,
+                    field: None,
+                    polling: None,
+                },
+                is_default: true,
+                parameters: vec![],
+            }],
+            image_to_3d: vec![],
+        };
+        Arc::new(DynamicProvider::new(config))
+    }
+
+    /// Happy path: persisted selection still exists → return it unchanged.
+    #[test]
+    fn reconcile_keeps_valid_selection() {
+        let mut registry = ProviderRegistry::empty();
+        registry.register(make_test_provider("fal.ai", "flux-2"));
+        let (p, m) = reconcile_provider_selection(
+            &registry,
+            ProviderCapability::TextToImage,
+            "fal.ai".to_string(),
+            "flux-2".to_string(),
+            "fal.ai".to_string(),
+        );
+        assert_eq!(p, "fal.ai");
+        assert_eq!(m, "flux-2");
+    }
+
+    /// Provider is still registered but the persisted model id is stale (e.g.
+    /// renamed or removed). Keep the provider, swap in its default model.
+    #[test]
+    fn reconcile_swaps_stale_model_for_provider_default() {
+        let mut registry = ProviderRegistry::empty();
+        registry.register(make_test_provider("fal.ai", "flux-2"));
+        let (p, m) = reconcile_provider_selection(
+            &registry,
+            ProviderCapability::TextToImage,
+            "fal.ai".to_string(),
+            "deleted-model".to_string(),
+            "fal.ai".to_string(),
+        );
+        assert_eq!(p, "fal.ai");
+        assert_eq!(
+            m, "flux-2",
+            "should fall back to the provider's default model"
+        );
+    }
+
+    /// Provider disappeared entirely (e.g. mock mode hid it, YAML removed).
+    /// Fall back to the registry default and its default model.
+    #[test]
+    fn reconcile_falls_back_when_provider_missing() {
+        let mut registry = ProviderRegistry::empty();
+        registry.register(make_test_provider("fal.ai", "flux-2"));
+        let (p, m) = reconcile_provider_selection(
+            &registry,
+            ProviderCapability::TextToImage,
+            "meshy".to_string(),
+            "meshy/nano-banana".to_string(),
+            "fal.ai".to_string(),
+        );
+        assert_eq!(p, "fal.ai");
+        assert_eq!(m, "flux-2");
     }
 }
