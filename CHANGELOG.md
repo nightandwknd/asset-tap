@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.15 — 2026-04-20
+
+### Features
+
+- image-only mode and library generation shortcuts ([#22](https://github.com/nightandwknd/asset-tap/pull/22))
+
 ## v26.4.14 — 2026-04-19
 
 ### Features
