@@ -16,6 +16,8 @@ output/
         └── ...
 ```
 
+**Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb`, `model.fbx`, and `textures/` are absent; `bundle.json` omits `model_3d`, `model_3d_params`, and `model_info`.
+
 ## Bundle Metadata (bundle.json)
 
 ```json

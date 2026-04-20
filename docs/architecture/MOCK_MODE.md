@@ -86,6 +86,14 @@ Model discovery is disabled in mock mode because:
 
 Only static models defined in provider YAML files are available in mock mode.
 
+### Provider Allowlist
+
+Not every provider's queue/poll/result shape is emulated by the shared mock server. Providers outside the allowlist are hidden at registry-load time when `MOCK_API=1` is set, so the GUI never offers a choice that would silently break at runtime.
+
+The allowlist lives in `core/src/providers/registry.rs` (`MOCK_SUPPORTED_PROVIDERS`). At the time of writing it contains only `fal.ai` — Meshy's polling response uses a different `result`/`status_url_template` shape that the mock doesn't speak. The GUI's startup-time provider reconciliation (`reconcile_provider_selection` in `gui/src/app.rs`) transparently swaps a persisted Meshy selection back to the default fal.ai when mock mode is on, so users with saved state don't see a broken dropdown.
+
+To add mock coverage for a new provider, extend `core/src/api/mock/generic_handlers.rs` and `fixtures.rs` to emit the shape the provider expects, then add the provider id to `MOCK_SUPPORTED_PROVIDERS`. When all providers have mock support we can drop the allowlist entirely.
+
 ## Synthetic Responses
 
 ### Image Generation

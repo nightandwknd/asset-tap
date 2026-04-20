@@ -176,8 +176,8 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     .map(|poll| matches!(poll, egui::load::TexturePoll::Ready { .. }))
                     .unwrap_or(false);
 
-                if is_loaded {
-                    ui.add(image);
+                let image_response = if is_loaded {
+                    Some(ui.add(image.sense(egui::Sense::click())))
                 } else {
                     // Show loading placeholder with consistent spinner
                     let placeholder_size = egui::vec2(max_size.x.min(300.0), max_size.y.min(300.0));
@@ -194,6 +194,25 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     });
                     // Still add the image (hidden) to trigger loading
                     ui.add(image);
+                    None
+                };
+
+                // Right-click context menu on the displayed image — offers the
+                // "use this for a new generation" shortcut so the user doesn't
+                // have to re-navigate via the sidebar's file picker. Only wired
+                // when the image is actually loaded and visible to the user.
+                let mut use_for_generation = false;
+                if let Some(resp) = image_response {
+                    resp.context_menu(|ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        if ui.button("Use for generation").clicked() {
+                            use_for_generation = true;
+                            ui.close();
+                        }
+                    });
+                }
+                if use_for_generation {
+                    app.queue_image_for_generation(path.to_string_lossy().into_owned());
                 }
 
                 ui.add_space(10.0);
@@ -205,6 +224,14 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                         .clicked()
                     {
                         crate::app::open_with_system(path, Some(&mut app.toasts));
+                    }
+
+                    if ui
+                        .button(format!("{} Use for Generation", icons::MAGIC_WAND))
+                        .on_hover_text("Load this image into the sidebar to skip text-to-image on the next generation")
+                        .clicked()
+                    {
+                        app.queue_image_for_generation(path.to_string_lossy().into_owned());
                     }
 
                     if ui

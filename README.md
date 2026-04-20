@@ -117,6 +117,8 @@ Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. O
 - **Built-in 3D Viewer** - Preview and inspect models before export
 - **Multiple AI Models** - Choose the best text-to-image and image-to-3D models for your workflow
 - **Template System** - Create and reuse prompt templates
+- **Image-only mode** - Stop after text-to-image when you just want a 2D result
+- **Reuse past images** - Right-click any library item or preview image and pick "Use for Generation" to skip text-to-image on the next run
 - **FBX Export** - Automatic conversion via Blender (optional)
 - **Library Management** - Browse and organize your generated models
 - **Real-time Progress** - Watch generation stages in real-time
@@ -134,6 +136,9 @@ asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 "a dragon"
 
 # Use an existing image instead of generating one
 asset-tap --image "photo.png"
+
+# Stop after image generation — produce an image-only bundle with no 3D model
+asset-tap --image-only -y "a wooden treasure chest"
 
 # List available providers and models
 asset-tap --list-providers

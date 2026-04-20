@@ -7,6 +7,7 @@ use crate::views::walkthrough::WalkthroughStep;
 use asset_tap_core::constants::files::APP_DISPLAY_NAME;
 use asset_tap_core::providers::ProviderCapability;
 use eframe::egui;
+use std::path::PathBuf;
 
 /// Render the configuration sidebar.
 pub fn render(app: &mut App, ui: &mut egui::Ui) {
@@ -241,17 +242,42 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(4.0);
 
         let mut should_clear_image = false;
+        let mut should_show_in_folder: Option<PathBuf> = None;
         if let Some(ref path) = app.existing_image {
-            let path_display = truncate_path(path, 30);
+            let label = format_existing_image_label(path);
+            let hover = normalize_whitespace_for_display(path);
+            let path_buf = PathBuf::from(path);
             ui.horizontal(|ui| {
-                ui.label(path_display);
-                if ui
-                    .small_button(icons::X)
-                    .on_hover_text("Clear image")
-                    .clicked()
-                {
-                    should_clear_image = true;
+                // Small thumbnail so the user can eyeball the queued image
+                // without opening the file externally. Uses the same
+                // file:// URI loader as the preview pane's image tab.
+                if path_buf.is_file() {
+                    let uri = super::path_to_file_uri(&path_buf);
+                    ui.add(
+                        egui::Image::new(&uri)
+                            .fit_to_exact_size(egui::vec2(56.0, 56.0))
+                            .maintain_aspect_ratio(true)
+                            .corner_radius(4)
+                            .show_loading_spinner(false),
+                    );
                 }
+                ui.label(&label).on_hover_text(&hover);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button(icons::X)
+                        .on_hover_text("Clear image")
+                        .clicked()
+                    {
+                        should_clear_image = true;
+                    }
+                    if ui
+                        .small_button(icons::FOLDER_OPEN)
+                        .on_hover_text("Show in folder")
+                        .clicked()
+                        && let Some(parent) = path_buf.parent() {
+                            should_show_in_folder = Some(parent.to_path_buf());
+                        }
+                });
             });
         } else {
             // Dropzone area
@@ -438,6 +464,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         if should_clear_image {
             app.clear_existing_image();
         }
+        if let Some(folder) = should_show_in_folder {
+            crate::app::open_with_system(&folder, Some(&mut app.toasts));
+        }
 
         ui.add_space(8.0);
         ui.separator();
@@ -471,7 +500,11 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space(4.0);
         }
 
-        // Image Generation Section
+        // Image Generation Section — fully disabled (but visible) when the
+        // user has supplied an existing image, since the pipeline will skip
+        // text-to-image. Mirrors the 3D section's behavior when skip_3d is on.
+        let image_gen_enabled = !has_existing_image;
+        ui.add_enabled_ui(image_gen_enabled, |ui| {
         ui.label(egui::RichText::new("Image Generation").size(13.0).strong());
         ui.add_space(2.0);
 
@@ -553,92 +586,101 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
         // Image model settings (directly under image model selector)
         render_image_model_settings(ui, app, &old_image_provider);
+        }); // end Image Generation add_enabled_ui
 
         ui.add_space(8.0);
 
-        // 3D Generation Section
-        ui.label(egui::RichText::new("3D Generation").size(13.0).strong());
-        ui.add_space(2.0);
+        // 3D Generation Section — fully disabled (but visible) when image-only.
+        // Keeping the controls visible with a grayed-out appearance makes the
+        // mode change feel intentional rather than hiding UI.
+        let three_d_enabled = !app.skip_3d;
+        ui.add_enabled_ui(three_d_enabled, |ui| {
+            ui.label(egui::RichText::new("3D Generation").size(13.0).strong());
+            ui.add_space(2.0);
 
-        let model_3d_provider_list: Vec<_> = available_providers
-            .iter()
-            .filter(|p| p.supports(ProviderCapability::ImageTo3D))
-            .collect();
+            let model_3d_provider_list: Vec<_> = available_providers
+                .iter()
+                .filter(|p| p.supports(ProviderCapability::ImageTo3D))
+                .collect();
 
-        egui::Grid::new("3d_generation_selectors")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                // 3D provider selector
-                let current_3d_provider = model_3d_provider_list
-                    .iter()
-                    .find(|p| p.id() == app.model_3d_provider.as_str())
-                    .map(|p| p.name())
-                    .unwrap_or(&app.model_3d_provider);
+            egui::Grid::new("3d_generation_selectors")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    // 3D provider selector
+                    let current_3d_provider = model_3d_provider_list
+                        .iter()
+                        .find(|p| p.id() == app.model_3d_provider.as_str())
+                        .map(|p| p.name())
+                        .unwrap_or(&app.model_3d_provider);
 
-                ui.label("Provider:");
-                egui::ComboBox::from_id_salt("3d_provider_selector")
-                    .selected_text(current_3d_provider)
-                    .show_ui(ui, |ui| {
-                        for provider in &model_3d_provider_list {
-                            let provider_id = provider.id();
-                            if ui
-                                .add(egui::Button::selectable(
-                                    app.model_3d_provider == provider_id,
-                                    provider.name(),
-                                ))
-                                .on_hover_text(provider.metadata().description.clone())
-                                .clicked()
-                            {
-                                app.model_3d_provider = provider_id.to_string();
-                            }
-                        }
-                    });
-                ui.end_row();
-
-                // 3D model selector
-                if let Some(model_3d_provider) = app.provider_registry.get(&app.model_3d_provider) {
-                    // If provider changed, update model to default
-                    if old_3d_provider != app.model_3d_provider
-                        && let Ok(default_3d) =
-                            model_3d_provider.get_default_model(ProviderCapability::ImageTo3D)
-                    {
-                        app.model_3d = default_3d.id;
-                    }
-
-                    let model_3d_models =
-                        model_3d_provider.list_models(ProviderCapability::ImageTo3D);
-                    let current_3d_model = model_3d_models.iter().find(|m| m.id == app.model_3d);
-
-                    ui.label("Model:");
-                    egui::ComboBox::from_id_salt("3d_model_selector")
-                        .selected_text(
-                            current_3d_model
-                                .map(|m| format_model_display_name(&m.name, &m.id))
-                                .unwrap_or_else(|| app.model_3d.clone()),
-                        )
+                    ui.label("Provider:");
+                    egui::ComboBox::from_id_salt("3d_provider_selector")
+                        .selected_text(current_3d_provider)
                         .show_ui(ui, |ui| {
-                            for model in &model_3d_models {
-                                let display_name =
-                                    format_model_display_name(&model.name, &model.id);
+                            for provider in &model_3d_provider_list {
+                                let provider_id = provider.id();
                                 if ui
                                     .add(egui::Button::selectable(
-                                        app.model_3d == model.id,
-                                        display_name,
+                                        app.model_3d_provider == provider_id,
+                                        provider.name(),
                                     ))
-                                    .on_hover_text(model.description.as_deref().unwrap_or(""))
+                                    .on_hover_text(provider.metadata().description.clone())
                                     .clicked()
                                 {
-                                    app.model_3d = model.id.clone();
+                                    app.model_3d_provider = provider_id.to_string();
                                 }
                             }
                         });
                     ui.end_row();
-                }
-            });
 
-        // 3D model settings (directly under 3D model selector)
-        render_3d_model_settings(ui, app, &old_3d_provider);
+                    // 3D model selector
+                    if let Some(model_3d_provider) =
+                        app.provider_registry.get(&app.model_3d_provider)
+                    {
+                        // If provider changed, update model to default
+                        if old_3d_provider != app.model_3d_provider
+                            && let Ok(default_3d) =
+                                model_3d_provider.get_default_model(ProviderCapability::ImageTo3D)
+                        {
+                            app.model_3d = default_3d.id;
+                        }
+
+                        let model_3d_models =
+                            model_3d_provider.list_models(ProviderCapability::ImageTo3D);
+                        let current_3d_model =
+                            model_3d_models.iter().find(|m| m.id == app.model_3d);
+
+                        ui.label("Model:");
+                        egui::ComboBox::from_id_salt("3d_model_selector")
+                            .selected_text(
+                                current_3d_model
+                                    .map(|m| format_model_display_name(&m.name, &m.id))
+                                    .unwrap_or_else(|| app.model_3d.clone()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for model in &model_3d_models {
+                                    let display_name =
+                                        format_model_display_name(&model.name, &model.id);
+                                    if ui
+                                        .add(egui::Button::selectable(
+                                            app.model_3d == model.id,
+                                            display_name,
+                                        ))
+                                        .on_hover_text(model.description.as_deref().unwrap_or(""))
+                                        .clicked()
+                                    {
+                                        app.model_3d = model.id.clone();
+                                    }
+                                }
+                            });
+                        ui.end_row();
+                    }
+                });
+
+            // 3D model settings (directly under 3D model selector)
+            render_3d_model_settings(ui, app, &old_3d_provider);
+        }); // end 3D Generation add_enabled_ui
 
         // Persist model selections when changed
         let selections_changed = app.app_state.selected_image_provider.as_deref()
@@ -672,9 +714,25 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Post-Processing").strong());
         ui.add_space(4.0);
 
+        // Image-only toggle — stop after text-to-image (no 3D model produced).
+        // Disables FBX implicitly since FBX needs a GLB.
+        // Hidden affordance: when the user supplied an existing image, there's
+        // no image stage at all, so "image only" would mean "do nothing" — gray
+        // it out rather than let the user pick a no-op.
+        ui.add_enabled_ui(!has_existing_image, |ui| {
+            ui.checkbox(&mut app.skip_3d, "Image only (skip 3D)")
+                .on_hover_text(if has_existing_image {
+                    "Not available when using an existing image — there's no generation stage to stop after."
+                } else {
+                    "Stop after image generation. No GLB or FBX will be produced."
+                });
+        });
+
         // FBX toggle with Blender availability check
         let prev_fbx = app.export_fbx;
-        ui.checkbox(&mut app.export_fbx, "Export FBX (requires Blender)");
+        ui.add_enabled_ui(!app.skip_3d, |ui| {
+            ui.checkbox(&mut app.export_fbx, "Export FBX (requires Blender)");
+        });
         if app.export_fbx != prev_fbx {
             app.settings.export_fbx_default = app.export_fbx;
             if let Err(e) = app.settings.save() {
@@ -760,6 +818,54 @@ fn truncate_path(path: &str, max_len: usize) -> String {
         let suffix: String = path.chars().skip(skip).collect();
         format!("...{}", suffix)
     }
+}
+
+/// Replace Unicode whitespace that our font doesn't render (e.g. the
+/// narrow no-break space macOS puts between time and AM/PM in screenshot
+/// filenames) with a regular space. Without this, users see tofu glyphs
+/// for filenames we had nothing to do with.
+fn normalize_whitespace_for_display(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect()
+}
+
+/// Build a short human-readable label for an existing-image path.
+///
+/// For bundle images (`<output>/<timestamp>/image.png`), prefer the bundle's
+/// `name`, then first line of its `prompt`, then the timestamp folder name —
+/// anything but the generic filename. For arbitrary filesystem images (e.g.
+/// a screenshot from Downloads), show the filename, not the folder.
+fn format_existing_image_label(path: &str) -> String {
+    use std::path::Path;
+    let p = Path::new(path);
+    if let Some(parent) = p.parent()
+        && let Ok(Some(metadata)) = asset_tap_core::bundle::BundleMetadata::load(parent)
+    {
+        if let Some(name) = metadata.name.as_deref().filter(|s| !s.is_empty()) {
+            return truncate_path(&normalize_whitespace_for_display(name), 30);
+        }
+        if let Some(prompt) = metadata
+            .config
+            .as_ref()
+            .and_then(|c| c.prompt.as_deref())
+            .filter(|s| !s.is_empty())
+        {
+            // First line of the prompt, truncated.
+            let first_line = prompt.lines().next().unwrap_or(prompt);
+            return truncate_path(&normalize_whitespace_for_display(first_line), 30);
+        }
+        // Bundle exists but has no name/prompt — use its timestamp folder.
+        if let Some(folder) = parent.file_name().and_then(|s| s.to_str()) {
+            return normalize_whitespace_for_display(folder);
+        }
+    }
+    // Not a bundle — show the filename so arbitrary picks from disk stay
+    // recognizable (e.g. "photo.png" instead of "Downloads").
+    p.file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| truncate_path(&normalize_whitespace_for_display(s), 30))
+        .unwrap_or_else(|| truncate_path(&normalize_whitespace_for_display(path), 30))
 }
 
 /// Format a model's display name with a distinguishing identifier.
@@ -1123,4 +1229,98 @@ fn render_parameter_widget(
     });
 
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn normalize_whitespace_replaces_narrow_nbsp() {
+        // U+202F narrow no-break space (macOS screenshot filenames between
+        // time and AM/PM) → regular space so the font renders it.
+        let narrow_nbsp = "9.05.20\u{202F}PM";
+        assert_eq!(normalize_whitespace_for_display(narrow_nbsp), "9.05.20 PM");
+    }
+
+    #[test]
+    fn normalize_whitespace_preserves_printable_chars() {
+        let normal = "hello world";
+        assert_eq!(normalize_whitespace_for_display(normal), "hello world");
+    }
+
+    /// Build a bundle dir with a bundle.json for the given name/prompt.
+    /// Uses Option for both so tests can exercise the full fallback chain
+    /// (name > prompt > folder name) without hand-rolling JSON each time.
+    fn write_bundle(dir: &std::path::Path, name: Option<&str>, prompt: Option<&str>) {
+        let md = asset_tap_core::bundle::BundleMetadata {
+            name: name.map(String::from),
+            config: prompt.map(|p| asset_tap_core::history::GenerationConfig {
+                prompt: Some(p.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        md.save(dir).unwrap();
+        fs::write(dir.join("image.png"), b"fake").unwrap();
+    }
+
+    #[test]
+    fn label_prefers_bundle_name() {
+        let tmp = TempDir::new().unwrap();
+        let bundle = tmp.path().join("2026-04-19_123456");
+        fs::create_dir(&bundle).unwrap();
+        write_bundle(&bundle, Some("My Cool Robot"), Some("a robot"));
+        let image = bundle.join("image.png");
+        let label = format_existing_image_label(image.to_str().unwrap());
+        assert_eq!(label, "My Cool Robot");
+    }
+
+    #[test]
+    fn label_falls_back_to_prompt_when_no_name() {
+        let tmp = TempDir::new().unwrap();
+        let bundle = tmp.path().join("2026-04-19_123456");
+        fs::create_dir(&bundle).unwrap();
+        write_bundle(&bundle, None, Some("first line\nsecond line"));
+        let image = bundle.join("image.png");
+        let label = format_existing_image_label(image.to_str().unwrap());
+        assert_eq!(label, "first line");
+    }
+
+    #[test]
+    fn label_falls_back_to_folder_when_bundle_has_no_name_or_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let bundle = tmp.path().join("2026-04-19_123456");
+        fs::create_dir(&bundle).unwrap();
+        write_bundle(&bundle, None, None);
+        let image = bundle.join("image.png");
+        let label = format_existing_image_label(image.to_str().unwrap());
+        assert_eq!(label, "2026-04-19_123456");
+    }
+
+    #[test]
+    fn label_uses_filename_for_non_bundle_paths() {
+        // No bundle.json next to the image → show the filename, not the
+        // parent directory. This keeps random picks from disk (e.g. a
+        // screenshot in ~/Downloads) recognizable.
+        let tmp = TempDir::new().unwrap();
+        let image = tmp.path().join("photo.png");
+        fs::write(&image, b"fake").unwrap();
+        let label = format_existing_image_label(image.to_str().unwrap());
+        assert_eq!(label, "photo.png");
+    }
+
+    #[test]
+    fn label_normalizes_whitespace_in_filename() {
+        // macOS screenshot filenames contain U+202F between time and AM/PM.
+        // We fold it to a regular space so the font doesn't show tofu.
+        let tmp = TempDir::new().unwrap();
+        let image = tmp.path().join("Screenshot at 9.05.20\u{202F}PM.png");
+        fs::write(&image, b"fake").unwrap();
+        let label = format_existing_image_label(image.to_str().unwrap());
+        assert!(!label.contains('\u{202F}'));
+        assert!(label.contains("9.05.20 PM"));
+    }
 }

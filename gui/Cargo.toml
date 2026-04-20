@@ -90,5 +90,8 @@ zip = { workspace = true }
 # Open files/URLs in default application
 open = { workspace = true }
 
+[dev-dependencies]
+tempfile = "3.8"
+
 [target.'cfg(windows)'.build-dependencies]
 tauri-winres = "0.2"
