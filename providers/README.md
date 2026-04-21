@@ -15,12 +15,12 @@ This directory contains YAML configuration files for custom AI provider integrat
 
 ```yaml
 provider:
-  id: "my-provider"           # Unique identifier
-  name: "My Provider"         # Display name
-  description: "Description"  # Provider description
-  env_vars:                   # Required environment variables
-    - "MY_API_KEY"
-  base_url: "https://..."     # Optional base URL
+  id: 'my-provider' # Unique identifier
+  name: 'My Provider' # Display name
+  description: 'Description' # Provider description
+  env_vars: # Required environment variables
+    - 'MY_API_KEY'
+  base_url: 'https://...' # Optional base URL
 ```
 
 ### Model Configuration
@@ -42,11 +42,11 @@ Each model requires:
 ```yaml
 request:
   headers:
-    Authorization: "Bearer ${API_KEY}"
-    Content-Type: "application/json"
+    Authorization: 'Bearer ${API_KEY}'
+    Content-Type: 'application/json'
   body:
-    prompt: "${prompt}"
-    model: "my-model-v1"
+    prompt: '${prompt}'
+    model: 'my-model-v1'
 ```
 
 #### Multipart Request (for file uploads)
@@ -54,11 +54,11 @@ request:
 ```yaml
 request:
   multipart:
-    file_field: "image"
+    file_field: 'image'
     fields:
-      model: "my-3d-model"
+      model: 'my-3d-model'
   headers:
-    Authorization: "Bearer ${API_KEY}"
+    Authorization: 'Bearer ${API_KEY}'
 ```
 
 ### Response Types
@@ -70,7 +70,7 @@ Downloads from a URL in the JSON response:
 ```yaml
 response:
   response_type: Json
-  field: "data.url"  # JSONPath to URL field
+  field: 'data.url' # JSONPath to URL field
 ```
 
 #### 2. Binary
@@ -89,7 +89,7 @@ Base64-encoded data in JSON:
 ```yaml
 response:
   response_type: Base64
-  field: "data.image"
+  field: 'data.image'
 ```
 
 #### 4. Polling
@@ -100,14 +100,14 @@ For async operations that require polling:
 response:
   response_type: Polling
   polling:
-    status_field: "job_id"              # Initial response field with job ID (or full status URL)
-    status_url_template: "/v1/jobs/${job_id}"  # Optional: build the poll URL from initial response fields
-    status_check_field: "status"        # Status field in poll response
-    success_value: "completed"          # Value indicating success
-    failure_value: "failed"             # Value indicating failure (optional)
-    result_field: "result.model_url"    # Field containing result URL
-    interval_ms: 2000                   # Poll interval in milliseconds
-    max_attempts: 60                    # Max polling attempts
+    status_field: 'job_id' # Initial response field with job ID (or full status URL)
+    status_url_template: '/v1/jobs/${job_id}' # Optional: build the poll URL from initial response fields
+    status_check_field: 'status' # Status field in poll response
+    success_value: 'completed' # Value indicating success
+    failure_value: 'failed' # Value indicating failure (optional)
+    result_field: 'result.model_url' # Field containing result URL
+    interval_ms: 2000 # Poll interval in milliseconds
+    max_attempts: 60 # Max polling attempts
 ```
 
 ## Variable Interpolation

@@ -57,6 +57,32 @@ jobs:
           tool: dprint,editorconfig-checker
       - run: make fmt-check
 
+  lint-workflows:
+    name: Lint Workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install actionlint
+        run: |
+          # Pin the download script to the v1.7.12 release commit so the script
+          # and the binary it fetches can't drift independently from each other.
+          mkdir -p "$HOME/.local/bin"
+          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: make lint-workflows
+
+  lint-shell:
+    name: Lint Shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: shellcheck
+      - run: make lint-shell
+
   clippy:
     name: Lint
     needs: [changes]
@@ -156,15 +182,17 @@ jobs:
         id: calver
       - name: Post version summary
         run: |
-          echo "## Release Preview" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.calver.outputs.should_release }}" = "true" ]; then
-            echo "Merging this PR will create release **v${{ steps.calver.outputs.new_version }}**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "${{ steps.calver.outputs.changelog }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "No release will be created (no new commits since last tag)." >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## Release Preview"
+            echo ""
+            if [ "${{ steps.calver.outputs.should_release }}" = "true" ]; then
+              echo "Merging this PR will create release **v${{ steps.calver.outputs.new_version }}**"
+              echo ""
+              echo "${{ steps.calver.outputs.changelog }}"
+            else
+              echo "No release will be created (no new commits since last tag)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ─── Layer 1: Build + package all platforms in parallel ─────────────
   build-macos:

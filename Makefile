@@ -2,6 +2,7 @@
 	cli gui dev mock mock-delay mock-gui mock-gui-delay refresh-models \
 	test test-core test-cli test-gui test-unit test-integration test-mock test-cli-comprehensive bench \
 	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps \
+	lint-workflows lint-shell \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
 	site-serve site-build site-check
@@ -16,6 +17,8 @@ CHECK_WATCH := $(shell cargo --list 2> /dev/null | grep -q watch && echo "yes")
 CHECK_PACKAGER := $(shell command -v cargo-packager 2> /dev/null)
 CHECK_ZOLA := $(shell command -v zola 2> /dev/null)
 CHECK_EC := $(shell command -v editorconfig-checker 2> /dev/null)
+CHECK_ACTIONLINT := $(shell command -v actionlint 2> /dev/null)
+CHECK_SHELLCHECK := $(shell command -v shellcheck 2> /dev/null)
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -136,6 +139,20 @@ check: ## Check code (fast compile check)
 clippy: ## Run linter (clippy)
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+lint-workflows: ## Lint GitHub Actions workflows with actionlint
+ifndef CHECK_ACTIONLINT
+	@echo "actionlint not found — install: brew install actionlint (or https://github.com/rhysd/actionlint)"
+	@exit 1
+endif
+	actionlint .github/workflows/*.yaml
+
+lint-shell: ## Lint shell scripts with shellcheck (warnings and errors only)
+ifndef CHECK_SHELLCHECK
+	@echo "shellcheck not found — install: brew install shellcheck"
+	@exit 1
+endif
+	shellcheck -S warning scripts/*.sh
+
 fmt: ## Format all code (Rust + other files)
 	cargo fmt --all
 ifndef CHECK_DPRINT
@@ -214,9 +231,9 @@ endif
 clippy-fix: ## Auto-fix clippy warnings where possible
 	cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged -- -D warnings
 
-verify: fmt clippy-fix check test ## Run all quality checks with auto-fixes
+verify: fmt clippy-fix lint-workflows lint-shell check test ## Run all quality checks with auto-fixes
 
-ci: fmt-check clippy check doc audit test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
+ci: fmt-check clippy lint-workflows lint-shell check doc audit test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
 
 # =============================================================================
 # Utilities

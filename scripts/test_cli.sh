@@ -83,7 +83,7 @@ cleanup_test_outputs() {
         local deleted=0
         while IFS= read -r entry; do
             [ -z "$entry" ] && continue
-            rm -rf "$d/$entry" && deleted=$((deleted + 1))
+            rm -rf "${d:?}/${entry:?}" && deleted=$((deleted + 1))
         done < <(comm -23 "$after_file" "$snap_file")
         rm -f "$after_file"
         if [ $deleted -gt 0 ]; then

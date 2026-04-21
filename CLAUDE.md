@@ -50,7 +50,7 @@ make test-cli-comprehensive  # Comprehensive CLI test suite (mock mode)
 make clippy                  # Linter
 make fmt                     # Format (Rust + dprint)
 make verify                  # Fix everything (fmt, clippy-fix, check, test)
-make ci                      # CI checks (fmt-check, clippy, check, doc, audit, test, CLI tests, site-build)
+make ci                      # CI checks (fmt-check, clippy, lint-workflows, lint-shell, check, doc, audit, test, CLI tests, site-build)
 ```
 
 **Critical:** Tests run single-threaded due to template system file conflicts. This is configured automatically in `.config/nextest.toml`.
@@ -80,28 +80,28 @@ make ci                      # CI checks (fmt-check, clippy, check, doc, audit, 
 
 ```yaml
 provider:
-  id: "provider-id"
-  name: "Display Name"
-  base_url: "https://api.example.com"
-  env_vars: ["API_KEY"]
-  upload:              # Optional: file upload config (nested under provider)
-    endpoint: "/upload"
+  id: 'provider-id'
+  name: 'Display Name'
+  base_url: 'https://api.example.com'
+  env_vars: ['API_KEY']
+  upload: # Optional: file upload config (nested under provider)
+    endpoint: '/upload'
     method: POST
     request:
-      type: initiate_then_put  # or "multipart"
+      type: initiate_then_put # or "multipart"
 
 text_to_image:
-  - id: "model-id"
-    endpoint: "/generate"
+  - id: 'model-id'
+    endpoint: '/generate'
     method: POST
     request:
       headers:
-        Authorization: "Bearer ${API_KEY}"
+        Authorization: 'Bearer ${API_KEY}'
       body:
-        prompt: "${prompt}"
+        prompt: '${prompt}'
     response:
-      response_type: Json  # or Binary, Base64, Polling
-      field: "image_url"   # JSONPath extraction
+      response_type: Json # or Binary, Base64, Polling
+      field: 'image_url' # JSONPath extraction
 ```
 
 **Per-model tunable parameters:**
@@ -110,22 +110,22 @@ Models can declare user-tunable parameters in YAML. These are exposed as sliders
 
 ```yaml
 text_to_image:
-  - id: "model-id"
+  - id: 'model-id'
     # ... request/response config ...
-    parameters:  # Optional: user-tunable fields
-      - name: "guidance_scale"   # Must match a key in request.body
-        label: "Guidance Scale"  # GUI label
-        description: "Higher = stricter prompt adherence"
-        type: float              # float, integer, boolean, string, select
+    parameters: # Optional: user-tunable fields
+      - name: 'guidance_scale' # Must match a key in request.body
+        label: 'Guidance Scale' # GUI label
+        description: 'Higher = stricter prompt adherence'
+        type: float # float, integer, boolean, string, select
         default: 3.5
         min: 1.0
         max: 20.0
         step: 0.5
-      - name: "topology"
-        label: "Topology"
+      - name: 'topology'
+        label: 'Topology'
         type: select
-        default: "triangle"
-        options: ["triangle", "quad"]
+        default: 'triangle'
+        options: ['triangle', 'quad']
 ```
 
 Parameter overrides are validated against declared names before injection (undeclared keys are ignored). Values persist per provider+model in `state.json` under `model_parameters`.
@@ -179,17 +179,17 @@ Value types are auto-detected (`true`/`false` → bool, integers, floats, or str
 **Template YAML:**
 
 ```yaml
-id: "template-id"
-name: "Template Name"
-description: "Description"
-category: "character"  # or "prop", "environment", "general"
-template: "Prompt text with ${variable}"
+id: 'template-id'
+name: 'Template Name'
+description: 'Description'
+category: 'character' # or "prop", "environment", "general"
+template: 'Prompt text with ${variable}'
 variables:
-  - name: "variable"
-    description: "Variable description"
+  - name: 'variable'
+    description: 'Variable description'
     required: true
 examples:
-  - "example value"
+  - 'example value'
 ```
 
 **Variable syntax:** `${variable}`

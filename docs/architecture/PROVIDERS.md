@@ -107,19 +107,19 @@ Providers specify discovery endpoints in their YAML:
 provider:
   discovery:
     enabled: true
-    cache_ttl_secs: 3600        # 1 hour cache
-    timeout_secs: 5             # Discovery timeout
+    cache_ttl_secs: 3600 # 1 hour cache
+    timeout_secs: 5 # Discovery timeout
 
     text_to_image:
-      endpoint: "https://api.provider.com/models"
+      endpoint: 'https://api.provider.com/models'
       params:
-        category: "text-to-image"
-      models_field: "models"
-      fetch_schemas: true       # Fetch OpenAPI schemas
+        category: 'text-to-image'
+      models_field: 'models'
+      fetch_schemas: true # Fetch OpenAPI schemas
       field_mapping:
-        id_field: "endpoint_id"
-        name_field: "display_name"
-        openapi_field: "openapi"
+        id_field: 'endpoint_id'
+        name_field: 'display_name'
+        openapi_field: 'openapi'
 ```
 
 ### OpenAPI Schema Generation
