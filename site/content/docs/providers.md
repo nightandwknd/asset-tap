@@ -88,28 +88,28 @@ Create a YAML file with your provider's API details:
 
 ```yaml
 provider:
-  id: "my-provider"
-  name: "My Provider"
-  description: "Custom AI provider"
-  env_vars: ["MY_API_KEY"]
-  base_url: "https://api.example.com"
-  api_key_url: "https://example.com/keys"
+  id: 'my-provider'
+  name: 'My Provider'
+  description: 'Custom AI provider'
+  env_vars: ['MY_API_KEY']
+  base_url: 'https://api.example.com'
+  api_key_url: 'https://example.com/keys'
 
 text_to_image:
-  - id: "my-model"
-    name: "My Model"
-    description: "Fast image generation"
-    endpoint: "/generate"
+  - id: 'my-model'
+    name: 'My Model'
+    description: 'Fast image generation'
+    endpoint: '/generate'
     method: POST
     request:
       headers:
-        Authorization: "Bearer ${MY_API_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Bearer ${MY_API_KEY}'
+        Content-Type: 'application/json'
       body:
-        prompt: "${prompt}"
+        prompt: '${prompt}'
     response:
       response_type: Json
-      field: "image_url"
+      field: 'image_url'
 ```
 
 ### Where to Put Your Config
@@ -135,7 +135,7 @@ List required environment variables in `env_vars`. The provider won't appear as 
 
 ```yaml
 provider:
-  env_vars: ["MY_API_KEY", "MY_SECRET"]
+  env_vars: ['MY_API_KEY', 'MY_SECRET']
 ```
 
 Use `${ENV_VAR}` syntax in request templates:
@@ -143,7 +143,7 @@ Use `${ENV_VAR}` syntax in request templates:
 ```yaml
 request:
   headers:
-    Authorization: "Bearer ${MY_API_KEY}"
+    Authorization: 'Bearer ${MY_API_KEY}'
 ```
 
 In the GUI, set API keys in Settings. For the CLI, use environment variables or a `.env` file.
@@ -155,7 +155,7 @@ In the GUI, set API keys in Settings. For the CLI, use environment variables or 
 ```yaml
 response:
   response_type: Json
-  field: "data.images[0].url"    # JSONPath expression
+  field: 'data.images[0].url' # JSONPath expression
 ```
 
 **Polling** -- For async APIs that queue jobs:
@@ -164,24 +164,24 @@ response:
 response:
   response_type: polling
   polling:
-    status_field: "status_url"        # Field in submit response containing the status check URL
-    status_check_field: "status"      # Field in status response to check
-    success_value: "COMPLETED"
-    failure_value: "FAILED"
-    response_url_field: "response_url"  # Field containing URL to fetch final result
-    response_envelope_field: "response" # Field in result that wraps the actual output
-    result_field: "images[0].url"       # JSONPath to extract from the output
+    status_field: 'status_url' # Field in submit response containing the status check URL
+    status_check_field: 'status' # Field in status response to check
+    success_value: 'COMPLETED'
+    failure_value: 'FAILED'
+    response_url_field: 'response_url' # Field containing URL to fetch final result
+    response_envelope_field: 'response' # Field in result that wraps the actual output
+    result_field: 'images[0].url' # JSONPath to extract from the output
     interval_ms: 1000
     max_attempts: 120
 
     # Optional: build the poll URL from a task id instead of reading a full URL
     # from the initial response. Used when the API returns only {"result": "<id>"}.
-    status_url_template: "/v1/jobs/${result}"
+    status_url_template: '/v1/jobs/${result}'
 
     # Optional: override the cancel HTTP method. Defaults to PUT.
     # Meshy uses DELETE for its cancel endpoint.
     cancel_method: DELETE
-    cancel_url_template: "${status_url}"
+    cancel_url_template: '${status_url}'
 ```
 
 `status_url_template` supports nested paths (`${data.id}`) and array indices (`${items[0]}`). Relative paths are resolved against `base_url`.
@@ -195,7 +195,7 @@ response:
 # or base64-encoded in JSON:
 response:
   response_type: Base64
-  field: "artifacts[0].base64"
+  field: 'artifacts[0].base64'
 ```
 
 ### Image-to-3D Models
@@ -204,23 +204,23 @@ Image-to-3D models use `${image_url}` instead of `${prompt}`. Asset Tap automati
 
 ```yaml
 image_to_3d:
-  - id: "my-3d-model"
-    name: "My 3D Model"
-    endpoint: "/3d/generate"
+  - id: 'my-3d-model'
+    name: 'My 3D Model'
+    endpoint: '/3d/generate'
     method: POST
     request:
       headers:
-        Authorization: "Key ${MY_API_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${MY_API_KEY}'
+        Content-Type: 'application/json'
       body:
-        image_url: "${image_url}"
+        image_url: '${image_url}'
     response:
       response_type: polling
       polling:
-        status_field: "id"
-        status_check_field: "status"
-        success_value: "succeeded"
-        result_field: "model_glb.url"
+        status_field: 'id'
+        status_check_field: 'status'
+        success_value: 'succeeded'
+        result_field: 'model_glb.url'
         interval_ms: 2000
         max_attempts: 300
 ```
@@ -231,22 +231,22 @@ Required when models use `${image_url}` **and** the provider exposes an upload e
 
 ```yaml
 provider:
-  id: "my-provider"
+  id: 'my-provider'
   # ... other provider fields ...
   upload:
-    endpoint: "/storage/upload/initiate"
+    endpoint: '/storage/upload/initiate'
     method: POST
     request:
-      type: initiate_then_put    # or "multipart"
+      type: initiate_then_put # or "multipart"
       headers:
-        Authorization: "Key ${MY_API_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${MY_API_KEY}'
+        Content-Type: 'application/json'
       initiate_body:
-        file_name: "image.png"
-        content_type: "image/png"
+        file_name: 'image.png'
+        content_type: 'image/png'
     response:
-      upload_url_field: "upload_url"
-      file_url_field: "file_url"
+      upload_url_field: 'upload_url'
+      file_url_field: 'file_url'
 ```
 
 ### Data-URI Fallback (No Upload Endpoint)
@@ -281,50 +281,50 @@ Complete reference for all provider YAML fields.
 ### Top-Level Structure
 
 ```yaml
-provider:           # Required: Provider metadata
+provider: # Required: Provider metadata
   id: string
   name: string
   description: string
   env_vars: [string]
-  base_url: string          # Optional
-  api_key_url: string       # Optional
-  website_url: string       # Optional
-  docs_url: string          # Optional
-  upload:                   # Optional: File upload configuration (nested under provider)
+  base_url: string # Optional
+  api_key_url: string # Optional
+  website_url: string # Optional
+  docs_url: string # Optional
+  upload: # Optional: File upload configuration (nested under provider)
 
-text_to_image:      # Optional: Text-to-image model list
+text_to_image: # Optional: Text-to-image model list
   - id: string
 
-image_to_3d:        # Optional: Image-to-3D model list
+image_to_3d: # Optional: Image-to-3D model list
   - id: string
 ```
 
 ### Model Fields
 
 ```yaml
-text_to_image:     # or image_to_3d
-  - id: string           # Unique model ID within provider
-    name: string         # Display name
-    description: string  # Model description
-    endpoint: string     # API endpoint (relative to base_url or absolute)
-    method: string       # HTTP method (default: POST)
+text_to_image: # or image_to_3d
+  - id: string # Unique model ID within provider
+    name: string # Display name
+    description: string # Model description
+    endpoint: string # API endpoint (relative to base_url or absolute)
+    method: string # HTTP method (default: POST)
     request:
-      headers: {}        # HTTP headers with ${VAR} interpolation
-      body: {}           # JSON body with ${prompt} or ${image_url}
+      headers: {} # HTTP headers with ${VAR} interpolation
+      body: {} # JSON body with ${prompt} or ${image_url}
     response:
-      response_type: string   # Json, Binary, Base64, or polling
-      field: string            # JSONPath for Json/Base64
-      polling:                 # Required for polling type
+      response_type: string # Json, Binary, Base64, or polling
+      field: string # JSONPath for Json/Base64
+      polling: # Required for polling type
         status_field: string
-        status_url_template: string  # Optional: build poll URL from initial response
+        status_url_template: string # Optional: build poll URL from initial response
         status_check_field: string
         success_value: string
         failure_value: string
         result_field: string
         interval_ms: integer
         max_attempts: integer
-        cancel_method: string    # Optional: HTTP method for cancel (default PUT)
-        cancel_url_template: string  # Optional: template using ${status_url}
+        cancel_method: string # Optional: HTTP method for cancel (default PUT)
+        cancel_url_template: string # Optional: template using ${status_url}
 ```
 
 ### Variable Interpolation
@@ -337,76 +337,76 @@ text_to_image:     # or image_to_3d
 
 ```yaml
 provider:
-  id: "fal.ai"
-  name: "fal.ai"
-  description: "Fast, serverless AI model API"
-  env_vars: ["FAL_KEY"]
-  base_url: "https://queue.fal.run"
-  api_key_url: "https://fal.ai/dashboard/keys"
+  id: 'fal.ai'
+  name: 'fal.ai'
+  description: 'Fast, serverless AI model API'
+  env_vars: ['FAL_KEY']
+  base_url: 'https://queue.fal.run'
+  api_key_url: 'https://fal.ai/dashboard/keys'
   upload:
-    endpoint: "https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3"
+    endpoint: 'https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3'
     method: POST
     request:
       type: initiate_then_put
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       initiate_body:
-        file_name: "image.png"
-        content_type: "image/png"
+        file_name: 'image.png'
+        content_type: 'image/png'
     response:
-      upload_url_field: "upload_url"
-      file_url_field: "file_url"
+      upload_url_field: 'upload_url'
+      file_url_field: 'file_url'
 
 text_to_image:
-  - id: "fal-ai/nano-banana-2"
-    name: "Nano Banana 2"
-    description: "Gemini 3.1 Flash Image -- reasoning-guided generation"
-    endpoint: "/fal-ai/nano-banana-2"
+  - id: 'fal-ai/nano-banana-2'
+    name: 'Nano Banana 2'
+    description: 'Gemini 3.1 Flash Image -- reasoning-guided generation'
+    endpoint: '/fal-ai/nano-banana-2'
     method: POST
     request:
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       body:
-        prompt: "${prompt}"
-        resolution: "1K"
+        prompt: '${prompt}'
+        resolution: '1K'
         num_images: 1
     response:
       response_type: polling
       polling:
-        status_field: "status_url"
-        status_check_field: "status"
-        success_value: "COMPLETED"
-        failure_value: "FAILED"
-        response_url_field: "response_url"
-        response_envelope_field: "response"
-        result_field: "images[0].url"
+        status_field: 'status_url'
+        status_check_field: 'status'
+        success_value: 'COMPLETED'
+        failure_value: 'FAILED'
+        response_url_field: 'response_url'
+        response_envelope_field: 'response'
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 
 image_to_3d:
-  - id: "fal-ai/trellis-2"
-    name: "Trellis 2"
-    description: "High quality 3D model generation"
-    endpoint: "/fal-ai/trellis-2"
+  - id: 'fal-ai/trellis-2'
+    name: 'Trellis 2'
+    description: 'High quality 3D model generation'
+    endpoint: '/fal-ai/trellis-2'
     method: POST
     request:
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       body:
-        image_url: "${image_url}"
+        image_url: '${image_url}'
     response:
       response_type: polling
       polling:
-        status_field: "status_url"
-        status_check_field: "status"
-        success_value: "COMPLETED"
-        failure_value: "FAILED"
-        response_url_field: "response_url"
-        response_envelope_field: "response"
-        result_field: "model_glb.url"
+        status_field: 'status_url'
+        status_check_field: 'status'
+        success_value: 'COMPLETED'
+        failure_value: 'FAILED'
+        response_url_field: 'response_url'
+        response_envelope_field: 'response'
+        result_field: 'model_glb.url'
         interval_ms: 2000
         max_attempts: 300
 ```

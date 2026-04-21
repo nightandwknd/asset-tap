@@ -16,6 +16,7 @@ Providers are defined through YAML configuration files that specify:
 
 ### Top Level
 
+<!-- dprint-ignore -->
 ```yaml
 provider:           # Required: Provider metadata
   # ... metadata fields
@@ -37,20 +38,20 @@ image_to_3d:       # Optional: Image-to-3D models
 
 ```yaml
 provider:
-  id: string                    # Unique identifier (e.g., "my-provider")
-  name: string                  # Display name (e.g., "My Provider")
-  description: string           # Provider description
-  env_vars: [string]           # Required environment variables (e.g., ["FAL_KEY"])
+  id: string # Unique identifier (e.g., "my-provider")
+  name: string # Display name (e.g., "My Provider")
+  description: string # Provider description
+  env_vars: [string] # Required environment variables (e.g., ["FAL_KEY"])
 ```
 
 **Optional fields:**
 
 ```yaml
-base_url: string             # Base URL for API endpoints (e.g., "https://api.example.com")
-api_key_url: string          # URL where users can obtain API keys
-website_url: string          # Provider's main website
-docs_url: string             # Link to provider's API documentation
-discovery: object            # Optional: Dynamic model discovery configuration (see Discovery section)
+base_url: string # Base URL for API endpoints (e.g., "https://api.example.com")
+api_key_url: string # URL where users can obtain API keys
+website_url: string # Provider's main website
+docs_url: string # Link to provider's API documentation
+discovery: object # Optional: Dynamic model discovery configuration (see Discovery section)
 ```
 
 **Guidelines:**
@@ -65,6 +66,7 @@ discovery: object            # Optional: Dynamic model discovery configuration (
 
 Models are defined in either `text_to_image` or `image_to_3d` arrays:
 
+<!-- dprint-ignore -->
 ```yaml
 text_to_image:
   - id: string                 # Unique model ID within provider
@@ -91,11 +93,11 @@ text_to_image:
 ```yaml
 request:
   headers:
-    Authorization: "Bearer ${API_KEY}"
-    Content-Type: "application/json"
+    Authorization: 'Bearer ${API_KEY}'
+    Content-Type: 'application/json'
   body:
-    prompt: "${prompt}"         # Use ${prompt} for text-to-image
-    model_id: "specific-model"
+    prompt: '${prompt}' # Use ${prompt} for text-to-image
+    model_id: 'specific-model'
     num_outputs: 1
 ```
 
@@ -106,12 +108,12 @@ For models that accept direct file uploads:
 ```yaml
 request:
   headers:
-    Authorization: "Key ${API_KEY}"
+    Authorization: 'Key ${API_KEY}'
   multipart:
-    file_field: "image"         # Name of the file field
-    fields:                      # Additional form fields
-      seed: "42"
-      quality: "high"
+    file_field: 'image' # Name of the file field
+    fields: # Additional form fields
+      seed: '42'
+      quality: 'high'
 ```
 
 ### URL-Based Input
@@ -121,11 +123,11 @@ For models that require a public URL:
 ```yaml
 request:
   headers:
-    Authorization: "Token ${API_KEY}"
-    Content-Type: "application/json"
+    Authorization: 'Token ${API_KEY}'
+    Content-Type: 'application/json'
   body:
-    image_url: "${image_url}"   # System uploads file and provides URL
-    prompt: "optional prompt"
+    image_url: '${image_url}' # System uploads file and provides URL
+    prompt: 'optional prompt'
 ```
 
 **Variable Interpolation:**
@@ -145,7 +147,7 @@ Extract a URL from JSON response and download the content:
 ```yaml
 response:
   response_type: Json
-  field: "images[0].url"        # JSONPath to the result URL
+  field: 'images[0].url' # JSONPath to the result URL
 ```
 
 **JSONPath examples:**
@@ -172,7 +174,7 @@ Decode base64-encoded data from JSON:
 ```yaml
 response:
   response_type: Base64
-  field: "artifacts[0].base64"  # JSONPath to base64 string
+  field: 'artifacts[0].base64' # JSONPath to base64 string
 ```
 
 #### Polling
@@ -183,18 +185,18 @@ For asynchronous APIs that require status polling:
 response:
   response_type: polling
   polling:
-    status_field: "status_url"            # Field from initial response used to construct poll URL
-    status_url_template: "/v1/jobs/${status_field}"  # (Optional) template-built poll URL — see below
-    status_check_field: "status"          # Field to check in polling response
-    success_value: "COMPLETED"            # Value indicating completion
-    failure_value: "FAILED"               # Value indicating failure
-    result_field: "images[0].url"         # JSONPath to final result URL
-    interval_ms: 1000                     # Poll every 1 second
-    max_attempts: 300                     # Maximum 300 attempts
-    response_url_field: "response_url"    # (Optional) Field with URL to fetch final result
-    response_envelope_field: "response"   # (Optional) Envelope field wrapping the output
-    poll_query_params: "?logs=1"          # (Optional) Query params appended to poll URL
-    cancel_url_template: "${status_url}/cancel"  # (Optional) URL template for cancelling
+    status_field: 'status_url' # Field from initial response used to construct poll URL
+    status_url_template: '/v1/jobs/${status_field}' # (Optional) template-built poll URL — see below
+    status_check_field: 'status' # Field to check in polling response
+    success_value: 'COMPLETED' # Value indicating completion
+    failure_value: 'FAILED' # Value indicating failure
+    result_field: 'images[0].url' # JSONPath to final result URL
+    interval_ms: 1000 # Poll every 1 second
+    max_attempts: 300 # Maximum 300 attempts
+    response_url_field: 'response_url' # (Optional) Field with URL to fetch final result
+    response_envelope_field: 'response' # (Optional) Envelope field wrapping the output
+    poll_query_params: '?logs=1' # (Optional) Query params appended to poll URL
+    cancel_url_template: '${status_url}/cancel' # (Optional) URL template for cancelling
 ```
 
 **Polling workflow:**
@@ -213,8 +215,8 @@ are supported. Relative paths are resolved against `provider.base_url`.
 ```yaml
 # Meshy example: initial response is {"result": "abc-123"}
 polling:
-  status_field: "result"
-  status_url_template: "/openapi/v1/image-to-3d/${result}"
+  status_field: 'result'
+  status_url_template: '/openapi/v1/image-to-3d/${result}'
   # → polls https://api.meshy.ai/openapi/v1/image-to-3d/abc-123
 ```
 
@@ -233,31 +235,32 @@ Dynamic discovery allows providers to automatically fetch available models from 
 
 ### Discovery Configuration
 
+<!-- dprint-ignore -->
 ```yaml
 provider:
   discovery:
-    enabled: boolean                # Enable/disable discovery
-    cache_ttl_secs: number          # Cache duration (default: 3600 = 1 hour)
-    require_auth: boolean           # Whether discovery endpoint needs auth (default: false)
-    timeout_secs: number            # Discovery request timeout (default: 5)
+    enabled: boolean              # Enable/disable discovery
+    cache_ttl_secs: number        # Cache duration (default: 3600 = 1 hour)
+    require_auth: boolean         # Whether discovery endpoint needs auth (default: false)
+    timeout_secs: number          # Discovery request timeout (default: 5)
 
-    text_to_image:                  # Discovery config for text-to-image capability
-      endpoint: string              # API endpoint returning model list
-      params:                       # Query parameters (optional)
+    text_to_image:                # Discovery config for text-to-image capability
+      endpoint: string            # API endpoint returning model list
+      params:                     # Query parameters (optional)
         key: "value"
-      models_field: string          # JSONPath to models array (e.g., "models")
-      fetch_schemas: boolean        # Fetch OpenAPI schemas for auto-generation
-      schema_expand_param: string   # Query param to enable schema expansion (optional)
-      field_mapping:                # How to extract model data from API response
-        id_field: string            # Model ID field (e.g., "endpoint_id")
-        name_field: string          # Model name field (e.g., "metadata.display_name")
-        description_field: string   # Model description field (optional)
-        endpoint_field: string      # Endpoint path field (optional)
-        status_field: string        # Status field for filtering (optional)
+      models_field: string        # JSONPath to models array (e.g., "models")
+      fetch_schemas: boolean      # Fetch OpenAPI schemas for auto-generation
+      schema_expand_param: string # Query param to enable schema expansion (optional)
+      field_mapping:              # How to extract model data from API response
+        id_field: string          # Model ID field (e.g., "endpoint_id")
+        name_field: string        # Model name field (e.g., "metadata.display_name")
+        description_field: string # Model description field (optional)
+        endpoint_field: string    # Endpoint path field (optional)
+        status_field: string      # Status field for filtering (optional)
         active_status_value: string # Value indicating active models (e.g., "active")
-        openapi_field: string       # Field containing OpenAPI schema (optional)
+        openapi_field: string     # Field containing OpenAPI schema (optional)
 
-    image_to_3d:                    # Same structure for image-to-3D capability
+    image_to_3d:                  # Same structure for image-to-3D capability
       # ... (same fields as text_to_image)
 ```
 
@@ -291,12 +294,12 @@ The `field_mapping` object supports JSONPath-like syntax for nested fields:
 
 ```yaml
 field_mapping:
-  id_field: "endpoint_id"
-  name_field: "metadata.display_name"
-  description_field: "metadata.description"
-  status_field: "metadata.status"
-  active_status_value: "active"
-  openapi_field: "openapi"
+  id_field: 'endpoint_id'
+  name_field: 'metadata.display_name'
+  description_field: 'metadata.description'
+  status_field: 'metadata.status'
+  active_status_value: 'active'
+  openapi_field: 'openapi'
 ```
 
 ### OpenAPI Schema Parsing
@@ -356,15 +359,15 @@ Required when models need public URLs for image inputs (detected by `${image_url
 provider:
   # ... other provider fields ...
   upload:
-    endpoint: "/files"
+    endpoint: '/files'
     method: POST
     request:
       type: multipart
-      file_field: "content"
+      file_field: 'content'
       headers:
-        Authorization: "Token ${API_KEY}"
+        Authorization: 'Token ${API_KEY}'
     response:
-      file_url_field: "urls.get"   # JSONPath to public URL
+      file_url_field: 'urls.get' # JSONPath to public URL
 ```
 
 ### Two-Step Initiate-Then-Put
@@ -375,19 +378,19 @@ For providers using pre-signed URLs:
 provider:
   # ... other provider fields ...
   upload:
-    endpoint: "/storage/upload/initiate"
+    endpoint: '/storage/upload/initiate'
     method: POST
     request:
       type: initiate_then_put
       headers:
-        Authorization: "Key ${API_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${API_KEY}'
+        Content-Type: 'application/json'
       initiate_body:
-        file_name: "image.png"
-        content_type: "image/png"
+        file_name: 'image.png'
+        content_type: 'image/png'
     response:
-      upload_url_field: "upload_url"      # Pre-signed PUT URL
-      file_url_field: "file_url"          # Final public URL
+      upload_url_field: 'upload_url' # Pre-signed PUT URL
+      file_url_field: 'file_url' # Final public URL
 ```
 
 **Workflow:**
@@ -417,37 +420,37 @@ mode to prevent request-size failures on providers with body limits.
 
 ```yaml
 provider:
-  id: "fal.ai"
-  name: "fal.ai"
-  description: "Fast, serverless AI model API"
-  env_vars: ["FAL_KEY"]
-  base_url: "https://queue.fal.run"
-  api_key_url: "https://fal.ai/dashboard/keys"
-  website_url: "https://fal.ai"
-  docs_url: "https://docs.fal.ai/model-apis"
+  id: 'fal.ai'
+  name: 'fal.ai'
+  description: 'Fast, serverless AI model API'
+  env_vars: ['FAL_KEY']
+  base_url: 'https://queue.fal.run'
+  api_key_url: 'https://fal.ai/dashboard/keys'
+  website_url: 'https://fal.ai'
+  docs_url: 'https://docs.fal.ai/model-apis'
 
 text_to_image:
-  - id: "fal-ai/nano-banana-2"
-    name: "Nano Banana 2"
-    description: "Gemini 3.1 Flash Image — reasoning-guided generation"
-    endpoint: "/fal-ai/nano-banana-2"
+  - id: 'fal-ai/nano-banana-2'
+    name: 'Nano Banana 2'
+    description: 'Gemini 3.1 Flash Image — reasoning-guided generation'
+    endpoint: '/fal-ai/nano-banana-2'
     method: POST
     request:
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       body:
-        prompt: "${prompt}"
-        resolution: "1K"
+        prompt: '${prompt}'
+        resolution: '1K'
         num_images: 1
     response:
       response_type: polling
       polling:
-        status_field: "status_url"
-        status_check_field: "status"
-        success_value: "COMPLETED"
-        failure_value: "FAILED"
-        result_field: "images[0].url"
+        status_field: 'status_url'
+        status_check_field: 'status'
+        success_value: 'COMPLETED'
+        failure_value: 'FAILED'
+        result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
 ```
@@ -456,28 +459,28 @@ text_to_image:
 
 ```yaml
 provider:
-  id: "fal.ai"
-  name: "fal.ai"
-  description: "Fast, serverless AI model API"
-  env_vars: ["FAL_KEY"]
-  base_url: "https://queue.fal.run"
-  api_key_url: "https://fal.ai/dashboard/keys"
+  id: 'fal.ai'
+  name: 'fal.ai'
+  description: 'Fast, serverless AI model API'
+  env_vars: ['FAL_KEY']
+  base_url: 'https://queue.fal.run'
+  api_key_url: 'https://fal.ai/dashboard/keys'
 
   # Upload configuration (initiate-then-put pattern)
   upload:
-    endpoint: "https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3"
+    endpoint: 'https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3'
     method: POST
     request:
       type: initiate_then_put
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       initiate_body:
-        file_name: "image.png"
-        content_type: "image/png"
+        file_name: 'image.png'
+        content_type: 'image/png'
     response:
-      upload_url_field: "upload_url"
-      file_url_field: "file_url"
+      upload_url_field: 'upload_url'
+      file_url_field: 'file_url'
 
   # Dynamic model discovery configuration
   discovery:
@@ -487,44 +490,44 @@ provider:
     timeout_secs: 5
 
     text_to_image:
-      endpoint: "https://api.fal.ai/v1/models"
+      endpoint: 'https://api.fal.ai/v1/models'
       params:
-        category: "text-to-image"
-        limit: "10"
-      models_field: "models"
+        category: 'text-to-image'
+        limit: '10'
+      models_field: 'models'
       fetch_schemas: true
-      schema_expand_param: "expand"
+      schema_expand_param: 'expand'
       field_mapping:
-        id_field: "endpoint_id"
-        name_field: "metadata.display_name"
-        description_field: "metadata.description"
-        endpoint_field: "endpoint_id"
-        status_field: "metadata.status"
-        active_status_value: "active"
-        openapi_field: "openapi"
+        id_field: 'endpoint_id'
+        name_field: 'metadata.display_name'
+        description_field: 'metadata.description'
+        endpoint_field: 'endpoint_id'
+        status_field: 'metadata.status'
+        active_status_value: 'active'
+        openapi_field: 'openapi'
 
 # Static fallback models (used until discovery runs)
 text_to_image:
-  - id: "fal-ai/nano-banana-2"
-    name: "Nano Banana 2"
-    description: "Gemini 3.1 Flash Image — reasoning-guided generation"
-    endpoint: "/fal-ai/nano-banana-2"
+  - id: 'fal-ai/nano-banana-2'
+    name: 'Nano Banana 2'
+    description: 'Gemini 3.1 Flash Image — reasoning-guided generation'
+    endpoint: '/fal-ai/nano-banana-2'
     method: POST
     request:
       headers:
-        Authorization: "Key ${FAL_KEY}"
-        Content-Type: "application/json"
+        Authorization: 'Key ${FAL_KEY}'
+        Content-Type: 'application/json'
       body:
-        prompt: "${prompt}"
-        resolution: "1K"
+        prompt: '${prompt}'
+        resolution: '1K'
     response:
       response_type: polling
       polling:
-        status_field: "status_url"
-        result_field: "images[0].url"
-        status_check_field: "status"
-        success_value: "COMPLETED"
-        failure_value: "FAILED"
+        status_field: 'status_url'
+        result_field: 'images[0].url'
+        status_check_field: 'status'
+        success_value: 'COMPLETED'
+        failure_value: 'FAILED'
         interval_ms: 1000
         max_attempts: 120
 ```

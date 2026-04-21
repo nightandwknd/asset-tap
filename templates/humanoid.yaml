@@ -1,14 +1,14 @@
-id: "humanoid"
-name: "Humanoid Character"
-description: "Optimized for Mixamo and auto-rigging systems. Generates characters in T-pose with anatomically correct proportions for animation."
-category: "character"
-template: "A full body character illustration: ${description}. Standing in T-pose with arms extended horizontally at shoulder height, palms facing down, fingers spread. Legs apart in a neutral stance, feet shoulder-width. Symmetrical, front-facing view. Realistic human proportions with a clear head, torso, arms, and legs. Single figure, no extra limbs or floating objects. Vibrant colors, detailed clothing and skin textures. Clean solid background, studio lighting. Digital character art, high detail."
+id: 'humanoid'
+name: 'Humanoid Character'
+description: 'Optimized for Mixamo and auto-rigging systems. Generates characters in T-pose with anatomically correct proportions for animation.'
+category: 'character'
+template: 'A full body character illustration: ${description}. Standing in T-pose with arms extended horizontally at shoulder height, palms facing down, fingers spread. Legs apart in a neutral stance, feet shoulder-width. Symmetrical, front-facing view. Realistic human proportions with a clear head, torso, arms, and legs. Single figure, no extra limbs or floating objects. Vibrant colors, detailed clothing and skin textures. Clean solid background, studio lighting. Digital character art, high detail.'
 variables:
-  - name: "description"
-    description: "Character description (style, clothing, features)"
+  - name: 'description'
+    description: 'Character description (style, clothing, features)'
     required: true
 examples:
-  - "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back"
-  - "a steampunk robot knight with brass armor and glowing eyes"
-  - "a muscular orc warrior with green skin and tribal tattoos"
-  - "a sleek android with white chassis and orange accents"
+  - 'a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back'
+  - 'a steampunk robot knight with brass armor and glowing eyes'
+  - 'a muscular orc warrior with green skin and tribal tattoos'
+  - 'a sleek android with white chassis and orange accents'

@@ -38,7 +38,7 @@ Provider configs may use absolute URLs for upload endpoints:
 
 ```yaml
 upload:
-  endpoint: "https://rest.alpha.fal.ai/storage/upload/initiate"
+  endpoint: 'https://rest.alpha.fal.ai/storage/upload/initiate'
 ```
 
 The `set_base_url()` method extracts the path from absolute upload URLs and converts them to relative paths, ensuring they route through the mock server:
