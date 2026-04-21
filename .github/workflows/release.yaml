@@ -87,6 +87,14 @@ jobs:
     name: Package macOS (universal)
     needs: [version, build-macos]
     runs-on: macos-latest
+    # The `release` environment gates APPLE_* secrets behind manual approval.
+    # Configure required reviewers + branch restrictions in the repo settings.
+    environment: release
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.94.1
@@ -113,10 +121,37 @@ jobs:
             arch/macos-aarch64-apple-darwin/asset-tap-gui \
             arch/macos-x86_64-apple-darwin/asset-tap-gui
           chmod +x target/release/asset-tap target/release/asset-tap-gui
-          codesign --sign - --force target/release/asset-tap target/release/asset-tap-gui
           file target/release/asset-tap
           file target/release/asset-tap-gui
           rm -rf arch
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Dedicated keychain so we don't touch the runner's default.
+          # Export KEYCHAIN_PATH so the cleanup step can delete it on failure.
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          # Prepend our keychain to the existing search list (don't replace it)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed -e 's/["[:space:]]//g')
+
+          rm -f "$CERT_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Package .app and DMG
         run: |
@@ -127,8 +162,40 @@ jobs:
         run: |
           mkdir -p cli-dist
           cp target/release/asset-tap cli-dist/
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            codesign --sign "$APPLE_SIGNING_IDENTITY" --force --timestamp \
+              --options runtime --entitlements gui/entitlements.plist \
+              cli-dist/asset-tap
+          fi
           (cd cli-dist && tar -czvf ../asset-tap-cli-macos.tar.gz *)
+          # Notarize the tarball so the bare CLI binary passes Gatekeeper.
+          # Tarballs can't be stapled; Gatekeeper queries Apple on first run.
+          if [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_ID" ]; then
+            SUBMIT_OUT=$(xcrun notarytool submit asset-tap-cli-macos.tar.gz \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait 2>&1) || {
+              echo "$SUBMIT_OUT"
+              SUBMISSION_ID=$(echo "$SUBMIT_OUT" | awk '/id:/ {print $2; exit}')
+              if [ -n "$SUBMISSION_ID" ]; then
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" || true
+              fi
+              exit 1
+            }
+            echo "$SUBMIT_OUT"
+          fi
           rm -rf cli-dist
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
 
       - name: Upload DMG
         uses: actions/upload-artifact@v7

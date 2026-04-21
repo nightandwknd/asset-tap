@@ -457,6 +457,8 @@ cargo packager --release
 
 **macOS CLI bundling:** The CLI binary is injected into `Asset Tap.app/Contents/MacOS/` after cargo-packager creates the `.app`, then the DMG is created with `hdiutil`. Users symlink to `/usr/local/bin/` for terminal access. A standalone CLI tarball is also published for users who don't want the GUI.
 
+**macOS signing & notarization:** Official releases are signed with an Apple Developer ID and notarized. `scripts/package-macos.sh` signs inner binaries with entitlements, signs the outer bundle, signs the DMG, then submits to `notarytool` and staples. Falls back to ad-hoc signing when `APPLE_SIGNING_IDENTITY` is unset (local dev). Entitlements: `gui/entitlements.plist`. CI secrets and full workflow: [docs/PACKAGING.md](docs/PACKAGING.md).
+
 **Why we use explicit build steps:**
 
 1. **cargo-packager behavior**: By default, it doesn't build your app (see [cargo-packager docs](https://docs.crabnebula.dev/packager/))

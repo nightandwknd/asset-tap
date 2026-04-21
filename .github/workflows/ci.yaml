@@ -221,7 +221,6 @@ jobs:
             arch/macos-aarch64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap-gui \
             arch/macos-x86_64-apple-darwin-pr-${{ github.event.pull_request.number }}/asset-tap-gui
           chmod +x target/release/asset-tap target/release/asset-tap-gui
-          codesign --sign - --force target/release/asset-tap target/release/asset-tap-gui
           file target/release/asset-tap
           file target/release/asset-tap-gui
           rm -rf arch
