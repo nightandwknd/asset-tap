@@ -2,6 +2,20 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.16 — 2026-04-21
+
+### Bug Fixes
+
+- add workflow timeouts and fix cli notarization format
+
+### Chores
+
+- bump the rust-dependencies group with 3 updates ([#24](https://github.com/nightandwknd/asset-tap/pull/24)) _(deps)_
+
+### Features
+
+- sign and notarize macos releases with developer id ([#23](https://github.com/nightandwknd/asset-tap/pull/23))
+
 ## v26.4.15 — 2026-04-20
 
 ### Features
