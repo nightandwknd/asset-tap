@@ -29,7 +29,11 @@ if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
     --entitlements "$ENTITLEMENTS" \
     "$APP_DIR/Contents/MacOS/asset-tap" \
     "$APP_DIR/Contents/MacOS/asset-tap-gui"
+  # Sign the bundle itself. --preserve-metadata=entitlements carries the
+  # entitlements we set on the main executable above; without this, the outer
+  # re-sign would strip them from asset-tap-gui.
   codesign --sign "$APPLE_SIGNING_IDENTITY" --force --timestamp --options runtime \
+    --preserve-metadata=entitlements \
     "$APP_DIR"
   codesign --verify --verbose=2 --strict "$APP_DIR"
 else

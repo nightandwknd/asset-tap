@@ -63,9 +63,13 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v6
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: actionlint
+      - name: Install actionlint
+        run: |
+          # Pin the download script to the v1.7.12 release commit so the script
+          # and the binary it fetches can't drift independently from each other.
+          mkdir -p "$HOME/.local/bin"
+          bash <(curl -sS https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12 "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: make lint-workflows
 
   lint-shell:
