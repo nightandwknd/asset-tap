@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head><meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Generate 3D models from text prompts." />
+    <meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust" />
+    <title>Installation -- Asset Tap</title>
+    <meta property="og:site_name" content="Asset Tap"/>
+    <meta property="og:title" content="Installation -- Asset Tap"/>
+    <meta property="og:type" content="website"/>
+    <meta property="og:url" content="https://assettap.dev/docs/installation/"/>
+    <meta property="og:description" content="Download and install Asset Tap on macOS, Windows, or Linux."/>
+    <meta name="twitter:card" content="summary_large_image"/>
+    <meta name="twitter:site" content="@nightandwknd"/>
+    <meta name="twitter:creator" content="@nightandwknd"/>
+    <meta name="twitter:title" content="Installation -- Asset Tap"/>
+    <meta name="twitter:description" content="Download and install Asset Tap on macOS, Windows, or Linux."/>
+    <meta property="og:image" content="https://assettap.dev/images/og-preview.png"/>
+    <meta name="twitter:image" content="https://assettap.dev/images/og-preview.png"/>
+    
+    <link rel="icon" href="https://assettap.dev/favicon.ico" sizes="48x48">
+    <link rel="icon" href="https://assettap.dev/favicon-32x32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="https://assettap.dev/favicon-16x16.png" type="image/png" sizes="16x16">
+    <link rel="icon" href="https://assettap.dev/icon-192.png" type="image/png" sizes="192x192">
+    <link rel="apple-touch-icon" href="https://assettap.dev/apple-touch-icon.png">
+    <link rel="manifest" href="https://assettap.dev/site.webmanifest">
+    <style>
+html{font-family:monospace;font-size:1rem;line-height:1.5;margin:auto;max-width:70ch;padding:1.5rem 1em 3em}
+img{max-width:100%}img:not([src$=".svg"]),article>div,blockquote,pre{border-radius:.3rem}img[src$="#pixelate"]{image-rendering:pixelated}
+h1,h2,h3,h4,h5,h6{font-size:inherit;margin:2rem 0 1em}
+h1::before{content:'# '}
+h2::before{content:'## '}
+h3::before{content:'### '}
+p{text-align:justify}p,ul,ol,.g,article>footer,article>header{margin:0 0 2em}
+pre,blockquote{padding:1.5rem;margin:0 0 1.5rem}pre{overflow-x:auto}pre code{background:0!important}blockquote>*:last-child{margin-bottom:0}
+article>img,article>p>img,article>div{display:block;margin-bottom:1.5rem;width:100%}
+.yt{aspect-ratio:16/9;width:100%;overflow:hidden}.yt iframe{width:100%;height:100%;border:0}
+.s{font-size:.85rem}
+.theme{display:inline-block;width:1.5rem;height:1.5rem}.theme img,.theme svg{width:100%;height:100%}
+html.light .theme img:first-child,html.light .theme svg:first-child,html.dark .theme img:last-child,html.dark .theme svg:last-child{display:none}
+header>div{margin-bottom:1.5rem}footer{margin-top:1.5rem}body>footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem}
+body>footer img,body>footer svg{width:1em;height:1em;vertical-align:middle}
+.tags{padding:.5rem 0 0 0}.tags li{display:inline}.tags li+li::before{content:' · '}
+nav{display:flex;gap:.5rem;margin:1.5rem 0}nav a{flex:1;display:flex;flex-direction:column;align-items:center;overflow:hidden;font-weight:bold}nav img,nav svg{width:2rem;height:2rem;margin-bottom:.25rem}nav a .s{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(7rem,1fr));gap:.5rem}.g a{aspect-ratio:1;display:flex;align-items:center;justify-content:center}.g img{object-fit:contain;max-height:100%;max-width:100%}
+.p{list-style:none;padding:0}.p ul{margin:0}.p>li{display:flex;gap:1rem;margin-bottom:1rem}.p time{display:flex;flex-direction:column;align-items:center;min-width:3rem;margin:.25rem 0}.p time span:first-child{font-size:1.5em;line-height:1}
+.lb{position:fixed;inset:0;background:#000d;display:flex;align-items:center;justify-content:center;z-index:999;cursor:pointer}.lb img{max-width:95vw;max-height:95vh}
+@media(max-width:30em){header .desc{display:none}}
+    </style>
+
+    <style>
+    
+    html.light{background:#e8f0f5;--tc:#e8f0f5;--accent:#1e6890;--accent-hover:#c07040;--amber:#c07040;color:#0a1628}
+    html.light a{color:#1e6890}
+    html.light a:visited{color:#0c4a6d}
+    html.light a.active,html.light a:active,html.light a:hover{color:#c07040}
+    html.light p,html.light ul,html.light ol,html.light .desc{color:#1a3a52}
+    html.light blockquote,html.light pre,html.light code,html.light article>img,html.light article>p>img,html.light .g img{background:#d4e4ee}
+    html.light code{color:#0a1628}
+    html.light hr{border-color:#1e689040}
+    html.dark{background:#0a1628;--tc:#0a1628;--accent:#52bbdb;--accent-hover:#d88956;--amber:#d88956;color:#c8dce8}
+    html.dark a{color:#52bbdb}
+    html.dark a:visited{color:#7da8c4}
+    html.dark a.active,html.dark a:active,html.dark a:hover{color:#d88956}
+    html.dark p,html.dark ul,html.dark ol,html.dark .desc{color:#94b8d0}
+    html.dark img[src$=".svg"],html.dark nav svg,html.dark .theme svg,html.dark footer svg{filter:invert(1)}
+    html.dark blockquote,html.dark pre,html.dark code,html.dark article>img,html.dark article>p>img,html.dark .g img{background:#0f2035}
+    html.dark code{color:#c8dce8}
+    html.dark hr{border-color:#1e689060}
+    h1::before,h2::before,h3::before{color:var(--amber)}
+    strong,b{color:var(--amber)}
+    nav a.active{border-bottom:2px solid var(--amber)}
+    a.active,a:active,a:hover{text-decoration-style:wavy}
+    .tags a{text-decoration-style:dotted}
+    hr{border:0;border-top:1px solid;clear:both;margin-bottom:1.5rem}
+    .giallo-l{display:inline-block;min-height:1lh;width:100%}
+    html.light .z-code{background:#d4e4ee}
+    html.dark .z-code{background:#0f2035}
+    .btn{display:inline-block;padding:.5rem 1.2rem;border:2px solid var(--accent);color:var(--accent);text-decoration:none;font-weight:bold;font-family:monospace;transition:background .15s,color .15s,border-color .15s}
+    .btn:visited{color:var(--accent)}
+    .btn.primary{background:var(--accent);color:#fff}
+    .btn.primary:visited{color:#fff}
+    /* Both button variants get the same hover treatment: orange background +
+       border, white text. The `html.light` / `html.dark` prefix is required to
+       match the specificity of the global `html.light a:hover` rule above —
+       without it the global rule would paint the label the accent-hover color
+       and the text would disappear into the matching background. */
+    html.light .btn:hover,html.light .btn:active,html.dark .btn:hover,html.dark .btn:active{background:var(--accent-hover);border-color:var(--accent-hover);color:#fff}
+    </style>
+    <link rel="stylesheet" href="https://assettap.dev/giallo-dark.css" id="giallo-dark" disabled>
+    <link rel="stylesheet" href="https://assettap.dev/giallo-light.css" id="giallo-light" disabled>
+    <meta name="theme-color" id="tc"><script>(function(){var m=matchMedia('(prefers-color-scheme:dark)'),t=localStorage.theme||(m.matches?'dark':'light'),h=document.documentElement,c=document.getElementById('tc');function s(){document.getElementById('giallo-dark').disabled=t!=='dark';document.getElementById('giallo-light').disabled=t!=='light'}h.className=t;s();function u(){c.content=getComputedStyle(h).getPropertyValue('--tc')}u();window.T=function(){t=t==='dark'?'light':'dark';localStorage.theme=t;h.className=t;s();u()}})()</script>
+    <script src="https://assettap.dev/js/fuse.min.js" defer></script>
+<script src="https://assettap.dev/search_index.en.js" defer></script>
+<script src="https://assettap.dev/js/search.js" defer></script>
+
+</head>
+<body>
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none"><symbol id="home" viewBox="0 0 32 32"><path d="M16.6123,2.2138a1.01,1.01,0,0,0-1.2427,0L1,13.4194l1.2427,1.5717L4,13.6209V26a2.0041,2.0041,0,0,0,2,2H26a2.0037,2.0037,0,0,0,2-2V13.63L29.7573,15,31,13.4282ZM18,26H14V18h4Zm2,0V18a2.0023,2.0023,0,0,0-2-2H14a2.002,2.002,0,0,0-2,2v8H6V12.0615l10-7.79,10,7.8005V26Z"/></symbol>
+<symbol id="document" viewBox="0 0 32 32" width="32" height="32"><path d="M25.7 9.3l-7-7A.91.91 0 0 0 18 2H8a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V10a.91.91 0 0 0-.3-.7zM18 4.4l5.6 5.6H18zM24 28H8V4h8v6a2 2 0 0 0 2 2h6z"/></symbol>
+<symbol id="download" viewBox="0 0 32 32" width="32" height="32"><path d="M26 24v4H6v-4H4v4a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-4z"/><path d="M26 14l-1.41-1.41L17 20.17V2h-2v18.17l-7.59-7.58L6 14l10 10z"/></symbol>
+<symbol id="search" viewBox="0 0 32 32"><path d="M29,27.5859l-7.5521-7.5521a11.0177,11.0177,0,1,0-1.4141,1.4141L27.5859,29ZM4,13a9,9,0,1,1,9,9A9.01,9.01,0,0,1,4,13Z"/></symbol>
+<symbol id="light" viewBox="0 0 32 32"><rect x="15" y="2" width="2" height="5"/><rect x="21.6675" y="6.8536" width="4.958" height="1.9998" transform="translate(1.5191 19.3744) rotate(-45)"/><rect x="25" y="15" width="5" height="2"/><rect x="23.1466" y="21.6675" width="1.9998" height="4.958" transform="translate(-10.0018 24.1465) rotate(-45)"/><rect x="15" y="25" width="2" height="5"/><rect x="5.3745" y="23.1466" width="4.958" height="1.9998" transform="translate(-14.7739 12.6256) rotate(-45)"/><rect x="2" y="15" width="5" height="2"/><rect x="6.8536" y="5.3745" width="1.9998" height="4.958" transform="translate(-3.253 7.8535) rotate(-45)"/><path d="M16,12a4,4,0,1,1-4,4,4.0045,4.0045,0,0,1,4-4m0-2a6,6,0,1,0,6,6,6,6,0,0,0-6-6Z"/></symbol>
+<symbol id="asleep" viewBox="0 0 32 32"><path d="M13.5025,5.4136A15.0755,15.0755,0,0,0,25.096,23.6082a11.1134,11.1134,0,0,1-7.9749,3.3893c-.1385,0-.2782.0051-.4178,0A11.0944,11.0944,0,0,1,13.5025,5.4136M14.98,3a1.0024,1.0024,0,0,0-.1746.0156A13.0959,13.0959,0,0,0,16.63,28.9973c.1641.006.3282,0,.4909,0a13.0724,13.0724,0,0,0,10.702-5.5556,1.0094,1.0094,0,0,0-.7833-1.5644A13.08,13.08,0,0,1,15.8892,4.38,1.0149,1.0149,0,0,0,14.98,3Z"/></symbol>
+<symbol id="github" viewBox="0 0 16 16" width="32" height="32"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+</svg>
+
+    <header>
+        <div class="s" style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+                <a href="https://assettap.dev/" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:.4rem"><img src="https://assettap.dev/images/icon.png" alt="" style="width:1.4rem;height:1.4rem;border-radius:.2rem"><strong>Asset Tap</strong></a>
+                <div class="desc" style="margin-top:.2rem">Generate 3D models from text prompts</div>
+            </div>
+            <a href="#" onclick="T();return false" class="theme" aria-label="Toggle theme" title="Toggle theme">
+<svg><use href="#light"/></svg>
+<svg><use href="#asleep"/></svg></a>
+        </div>
+        <hr>
+        <nav>
+            <a href="https://assettap.dev/" aria-label="Home">
+<svg><use href="#home"/></svg><span class="s">Home</span></a>
+            <a href="https://assettap.dev/docs/" aria-label="Docs" class="active">
+<svg><use href="#document"/></svg><span class="s">Docs</span></a>
+            <a href="https://assettap.dev/download/" aria-label="Download">
+<svg><use href="#download"/></svg><span class="s">Download</span></a>
+            <a href="https://github.com/nightandwknd/asset-tap" aria-label="GitHub" target="_blank" rel="noopener">
+<svg><use href="#github"/></svg><span class="s">GitHub</span></a>
+            </nav>
+    </header>
+    <hr>
+    <main>
+    <article>
+  <div style="position:relative;margin-bottom:1.5rem">
+    <input id="search-input" type="search" placeholder="Search docs..." style="width:100%;padding:.5rem 2rem .5rem .5rem;background:transparent;border:1px solid;color:inherit;font:inherit;box-sizing:border-box">
+    <button id="search-clear" style="display:none;position:absolute;right:.4rem;top:50%;transform:translateY(-50%);background:none;border:none;color:inherit;font:inherit;cursor:pointer;padding:.2rem .4rem;line-height:1" aria-label="Clear search">&times;</button>
+  </div>
+  <div class="search-results" style="display:none"><div class="search-results__items"></div></div>
+  <div id="docs-content">
+    <h1>Installation</h1>
+    <p class="s">Download and install Asset Tap on macOS, Windows, or Linux.</p>
+    <p>First, grab the right package for your platform from the <a rel="external" href="https://assettap.dev/download/">Downloads</a> page.</p>
+<h2 id="macos">macOS</h2>
+<p>All macOS downloads are universal binaries that run natively on both Intel and Apple Silicon Macs.</p>
+<p><strong>DMG Installer (Recommended)</strong></p>
+<p>The DMG includes both the GUI application and the CLI tool.</p>
+<ol>
+<li>Open the DMG file</li>
+<li>Drag <strong>AssetTap</strong> to your Applications folder</li>
+<li>Launch from Applications or Spotlight</li>
+</ol>
+<p><strong>CLI Setup (Optional)</strong></p>
+<p>The CLI is bundled inside the app. To use it from the terminal, create a symlink:</p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">sudo</span><span class="z-string"> ln</span><span class="z-constant"> -</span><span class="z-constant">sf</span><span class="z-punctuation z-definition z-string"> &quot;</span><span class="z-string">/Applications/Asset Tap.app/Contents/MacOS/asset-tap</span><span class="z-punctuation z-definition z-string">&quot;</span><span class="z-string"> /usr/local/bin/asset-tap</span></span></code></pre>
+<p>Verify it works:</p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">asset-tap</span><span class="z-constant"> -</span><span class="z-constant">-help</span></span></code></pre>
+<p><strong>CLI-Only Download (Alternative)</strong></p>
+<p>If you only need the CLI without the GUI:</p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">tar</span><span class="z-constant"> -</span><span class="z-constant">xzf</span><span class="z-string"> asset-tap-cli-macos.tar.gz</span></span>
+<span class="giallo-l"><span class="z-entity z-name">sudo</span><span class="z-string"> mv</span><span class="z-string"> asset-tap</span><span class="z-string"> /usr/local/bin/</span></span></code></pre><h2 id="windows">Windows</h2>
+<p><strong>NSIS Installer (Recommended)</strong></p>
+<ol>
+<li>Run the installer</li>
+<li>Launch Asset Tap from the Start Menu</li>
+</ol>
+<p><strong>CLI-Only Download (Alternative)</strong></p>
+<pre class="giallo z-code"><code data-lang="powershell"><span class="giallo-l"><span class="z-support">Expand-Archive</span><span> asset</span><span class="z-keyword">-</span><span>tap</span><span class="z-keyword">-</span><span>cli</span><span class="z-keyword">-</span><span>windows.zip </span><span class="z-keyword">-</span><span>DestinationPath .</span></span></code></pre><h2 id="linux">Linux</h2>
+<p><strong>Debian/Ubuntu (.deb)</strong></p>
+<p>The <code>.deb</code> package installs both the GUI and CLI.</p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">sudo</span><span class="z-string"> dpkg</span><span class="z-constant"> -</span><span class="z-constant">i</span><span class="z-string"> asset-tap-linux-amd64.deb</span></span></code></pre>
+<p>After installation, both <code>asset-tap-gui</code> and <code>asset-tap</code> are available system-wide.</p>
+<p><strong>AppImage (Universal)</strong></p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">chmod</span><span class="z-string"> +x</span><span class="z-string"> asset-tap-linux-x86_64.AppImage</span></span>
+<span class="giallo-l"><span class="z-entity z-name">./asset-tap-linux-x86_64.AppImage</span></span></code></pre>
+<p>Note: The AppImage contains only the GUI. For the CLI, download the standalone archive from the <a rel="external" href="https://assettap.dev/download/">Downloads</a> page and extract:</p>
+<pre class="giallo z-code"><code data-lang="shellscript"><span class="giallo-l"><span class="z-entity z-name">tar</span><span class="z-constant"> -</span><span class="z-constant">xzf</span><span class="z-string"> asset-tap-cli-linux.tar.gz</span></span>
+<span class="giallo-l"><span class="z-entity z-name">sudo</span><span class="z-string"> mv</span><span class="z-string"> asset-tap</span><span class="z-string"> /usr/local/bin/</span></span></code></pre><h2 id="blender-optional">Blender (Optional)</h2>
+<p><a rel="external" href="https://www.blender.org/download/">Blender</a> is required only for FBX export. On Linux, you can also install via <code>sudo apt install blender</code> or Snap/Flatpak.</p>
+<h2 id="requirements">Requirements</h2>
+<p>See <a rel="external" href="https://assettap.dev/download/">Downloads</a> for system requirements and building from source.</p>
+
+
+    <hr />
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <span><a href="https://assettap.dev/docs/getting-started/">&larr; Getting Started</a></span>
+      <span><a href="https://assettap.dev/docs/using-asset-tap/">Using Asset Tap &rarr;</a></span>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var input=document.getElementById('search-input'),clear=document.getElementById('search-clear'),content=document.getElementById('docs-content'),results=document.querySelector('.search-results');
+    function update(){var v=input.value.trim();content.style.display=v?'none':'';clear.style.display=v?'':'none'}
+    input.addEventListener('input',update);
+    clear.addEventListener('click',function(){input.value='';clear.style.display='none';content.style.display='';results.style.display='none';document.querySelector('.search-results__items').innerHTML='';input.focus()});
+  })();
+  </script>
+</article>
+</main>
+    <hr>
+    <footer class="s">
+        <span>© 2026 nightandwknd | Asset Tap</span>
+        
+    </footer>
+    
+    
+    
+    <script>document.querySelectorAll('main a[href^="https://"]').forEach(a=>{if(!a.href.startsWith('https://assettap.dev')){a.target='_blank';a.rel='noopener'}})</script>
+    
+    <script>document.querySelectorAll('article img[srcset]').forEach(i=>{if(i.closest('a'))return;i.style.cursor='pointer';i.onclick=()=>{let d=document.createElement('div'),s=i.srcset.split(',').pop().trim().split(' ')[0];d.className='lb';d.innerHTML='<img src="'+s+'">';document.body.style.overflow='hidden';d.onclick=()=>{d.remove();document.body.style.overflow=''};document.body.appendChild(d)}})</script>
+    </body>
+</html>
