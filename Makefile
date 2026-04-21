@@ -251,6 +251,16 @@ package-windows: install-packager build ## Package for Windows (NSIS installer +
 package-linux: install-packager build ## Package for Linux (.deb with CLI + AppImage + CLI archive)
 	./scripts/package-linux.sh
 
+verify-sign-macos: ## Verify macOS signing, stapling, and Gatekeeper acceptance
+	@echo "=== codesign --verify ==="
+	codesign --verify --verbose=2 --strict "target/release/Asset Tap.app"
+	@echo "=== codesign -dv ==="
+	codesign -dv --verbose=4 "target/release/Asset Tap.app" 2>&1 | head -20
+	@echo "=== stapler validate ==="
+	xcrun stapler validate target/release/AssetTap.dmg
+	@echo "=== spctl (Gatekeeper) ==="
+	spctl -a -vv -t install target/release/AssetTap.dmg
+
 # =============================================================================
 # Website
 # =============================================================================

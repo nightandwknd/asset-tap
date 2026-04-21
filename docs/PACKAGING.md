@@ -489,7 +489,7 @@ cargo install cargo-packager --locked
 
 ### macOS: "Developer cannot be verified"
 
-For unsigned apps, users need to:
+Official release builds from GitHub are signed with Apple Developer ID and notarized — users should not see this dialog. If you build locally without setting `APPLE_SIGNING_IDENTITY`, the app is ad-hoc signed and users must:
 
 1. Right-click the app
 2. Select "Open"
@@ -506,6 +506,80 @@ sudo apt install fuse libfuse2
 ### Windows: Installer blocked by SmartScreen
 
 Users may see a SmartScreen warning. Click "More info" then "Run anyway" to proceed.
+
+## macOS Code Signing & Notarization
+
+Official releases are signed with an Apple Developer ID certificate and notarized by Apple so users don't see Gatekeeper warnings.
+
+### How it works
+
+[scripts/package-macos.sh](../scripts/package-macos.sh) checks for `APPLE_SIGNING_IDENTITY`:
+
+- **Set:** signs with Developer ID + hardened runtime, signs the DMG, submits to `notarytool`, staples the ticket.
+- **Unset:** falls back to ad-hoc signing (fine for local dev; users get the Gatekeeper dialog).
+
+Entitlements live at [gui/entitlements.plist](../gui/entitlements.plist). The current set (`allow-jit`, `allow-unsigned-executable-memory`) covers the OpenGL/glow rendering path. If notarization fails with library-validation errors, add `com.apple.security.cs.disable-library-validation` — but try without it first, since tighter entitlements are better.
+
+### CI secrets (GitHub Actions)
+
+The release workflow reads these secrets from the `release` GitHub Environment:
+
+| Secret                         | Purpose                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `APPLE_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` containing Developer ID cert + private key        |
+| `APPLE_CERTIFICATE_PASSWORD`   | Password used when exporting the `.p12`                                 |
+| `APPLE_SIGNING_IDENTITY`       | Full identity, e.g. `Developer ID Application: Night and Wknd (TEAMID)` |
+| `APPLE_ID`                     | Apple ID email used for notarization                                    |
+| `APPLE_APP_PASSWORD`           | App-specific password from appleid.apple.com                            |
+| `APPLE_TEAM_ID`                | 10-character team ID                                                    |
+
+The workflow imports the `.p12` into a temporary keychain for the duration of the job, then signs + notarizes both the DMG and the standalone CLI tarball.
+
+### Protected environment setup
+
+Signing secrets live in a GitHub Environment (not repo secrets) so they're gated behind manual approval. This defends against supply-chain attacks where a malicious workflow edit could otherwise exfiltrate the signing identity.
+
+To set up (one-time):
+
+1. Repo → **Settings** → **Environments** → **New environment** → name it `release`
+2. Add all six `APPLE_*` secrets above as **environment secrets** (not repository secrets)
+3. **Deployment protection rules:**
+   - ✅ **Required reviewers** — add yourself (and anyone else who should approve releases)
+   - ✅ **Deployment branches** → "Selected branches" → add rule for `main` only
+4. Save
+
+When a release workflow run reaches the `package-macos` job, it will pause and notify reviewers. The job (and its secrets) only runs after approval.
+
+**Solo dev note:** Leave "Prevent self-review" **off** — otherwise you'll deadlock yourself on every release.
+
+### Signing locally
+
+You generally don't need to — ad-hoc signing works for local development. If you want to produce a signed build locally (e.g. to test the full pipeline):
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Night and Wknd (TEAMID)"
+export APPLE_ID="your@email.com"
+export APPLE_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_TEAM_ID="TEAMID"
+
+make package-macos-universal
+```
+
+The cert must already be in your login Keychain. `security find-identity -v -p codesigning` lists available identities.
+
+### Verifying a signed build
+
+```bash
+make verify-sign-macos
+```
+
+Or run the checks individually:
+
+```bash
+codesign -dv --verbose=4 "target/release/Asset Tap.app"  # Signature details
+xcrun stapler validate target/release/AssetTap.dmg       # Notarization ticket
+spctl -a -vv -t install target/release/AssetTap.dmg      # Simulate Gatekeeper
+```
 
 ## Advanced: Manual Packaging
 
