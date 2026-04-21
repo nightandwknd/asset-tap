@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.17 — 2026-04-21
+
+### Chores
+
+- lint/format hardening + preserve gui entitlements on bundle re-sign ([#25](https://github.com/nightandwknd/asset-tap/pull/25))
+
 ## v26.4.16 — 2026-04-21
 
 ### Bug Fixes
