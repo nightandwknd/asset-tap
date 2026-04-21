@@ -24,6 +24,7 @@ jobs:
     name: Preview
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - name: Install Zola
@@ -43,6 +44,7 @@ jobs:
     name: Publish
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - name: Build and push to gh-pages

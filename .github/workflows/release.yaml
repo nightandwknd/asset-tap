@@ -36,6 +36,7 @@ jobs:
   version:
     name: Prepare Release
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     if: github.event.head_commit.author.name != 'dependabot[bot]'
     outputs:
       new_version: ${{ steps.calver.outputs.new_version }}
@@ -54,6 +55,7 @@ jobs:
     needs: [version]
     if: needs.version.outputs.should_release == 'true'
     runs-on: macos-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
@@ -87,6 +89,9 @@ jobs:
     name: Package macOS (universal)
     needs: [version, build-macos]
     runs-on: macos-latest
+    # Long timeout accommodates Apple's notarization queue — first-time submissions
+    # can take 30-45 min; this gives headroom without hiding genuinely stuck jobs.
+    timeout-minutes: 90
     # The `release` environment gates APPLE_* secrets behind manual approval.
     # Configure required reviewers + branch restrictions in the repo settings.
     environment: release
@@ -146,7 +151,10 @@ jobs:
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          # Prepend our keychain to the existing search list (don't replace it)
+          # Prepend our keychain to the existing search list (don't replace it).
+          # Word-splitting on the subshell output is intentional — each keychain is
+          # a separate positional arg to `security list-keychains -s`.
+          # shellcheck disable=SC2046
           security list-keychains -d user -s "$KEYCHAIN_PATH" \
             $(security list-keychains -d user | sed -e 's/["[:space:]]//g')
 
@@ -167,11 +175,13 @@ jobs:
               --options runtime --entitlements gui/entitlements.plist \
               cli-dist/asset-tap
           fi
-          (cd cli-dist && tar -czvf ../asset-tap-cli-macos.tar.gz *)
-          # Notarize the tarball so the bare CLI binary passes Gatekeeper.
-          # Tarballs can't be stapled; Gatekeeper queries Apple on first run.
+          # Notarize via zip (notarytool only accepts .zip / .pkg / .dmg), then
+          # repackage as .tar.gz for distribution. Notarization attaches to the
+          # binary's signature, not the archive — Gatekeeper queries Apple on
+          # first run regardless of archive format.
           if [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_ID" ]; then
-            SUBMIT_OUT=$(xcrun notarytool submit asset-tap-cli-macos.tar.gz \
+            (cd cli-dist && ditto -c -k --keepParent asset-tap ../asset-tap-cli-macos.zip)
+            SUBMIT_OUT=$(xcrun notarytool submit asset-tap-cli-macos.zip \
               --apple-id "$APPLE_ID" \
               --password "$APPLE_APP_PASSWORD" \
               --team-id "$APPLE_TEAM_ID" \
@@ -187,7 +197,9 @@ jobs:
               exit 1
             }
             echo "$SUBMIT_OUT"
+            rm -f asset-tap-cli-macos.zip
           fi
+          (cd cli-dist && tar -czvf ../asset-tap-cli-macos.tar.gz ./*)
           rm -rf cli-dist
 
       - name: Clean up keychain
@@ -217,6 +229,7 @@ jobs:
     needs: [version]
     if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-and-package
@@ -238,6 +251,7 @@ jobs:
     needs: [version]
     if: needs.version.outputs.should_release == 'true'
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-and-package
@@ -252,6 +266,7 @@ jobs:
     name: Create Release
     needs: [version, package-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
