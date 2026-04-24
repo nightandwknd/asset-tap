@@ -317,7 +317,7 @@ impl BundleInfoPanel {
                     }
 
                     if ui
-                        .button(icons::FOLDER_OPEN.to_string())
+                        .button(icons::TRAY_ARROW_DOWN.to_string())
                         .on_hover_text("Import a bundle from a zip archive")
                         .clicked()
                         && let Some(path) = rfd::FileDialog::new()

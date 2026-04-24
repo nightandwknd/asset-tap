@@ -95,6 +95,70 @@ cleanup_test_outputs() {
 }
 trap cleanup_test_outputs EXIT
 
+# Helper: assert that a jq expression evaluates to `true` against a bundle.json.
+# Runs a mock generation into a temp dir, then applies the jq assertion.
+#
+# Args: <test_name> <cli_args> <jq_expr>
+# `cli_args` runs after `--mock -y --no-fbx -o <tmpdir>`; don't pass -o or --mock yourself.
+# `jq_expr` is evaluated against bundle.json; must yield `true` to pass.
+assert_bundle_json() {
+    local test_name="$1"
+    local cli_args="$2"
+    local jq_expr="$3"
+
+    TOTAL=$((TOTAL + 1))
+    echo -e "${BLUE}TEST $TOTAL: $test_name${NC}" | tee -a "$LOG_FILE"
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local cli_cmd="$CLI --mock -y --no-fbx -o '$tmpdir' $cli_args"
+    echo "Command: $cli_cmd" >> "$LOG_FILE"
+    echo "jq: $jq_expr" >> "$LOG_FILE"
+
+    set +e
+    bash -c "$cli_cmd" < /dev/null >> "$LOG_FILE" 2>&1
+    local exit_code=$?
+    set -e
+
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${RED}✗ FAIL (CLI exit $exit_code)${NC}" | tee -a "$LOG_FILE"
+        FAILED=$((FAILED + 1))
+        rm -rf "$tmpdir"
+        echo "" | tee -a "$LOG_FILE"
+        return
+    fi
+
+    local bundle
+    bundle=$(find "$tmpdir" -maxdepth 2 -name 'bundle.json' | head -1)
+    if [ -z "$bundle" ]; then
+        echo -e "${RED}✗ FAIL (no bundle.json produced)${NC}" | tee -a "$LOG_FILE"
+        FAILED=$((FAILED + 1))
+        rm -rf "$tmpdir"
+        echo "" | tee -a "$LOG_FILE"
+        return
+    fi
+
+    set +e
+    local result
+    result=$(jq -r "$jq_expr" "$bundle" 2>>"$LOG_FILE")
+    local jq_exit=$?
+    set -e
+
+    if [ $jq_exit -eq 0 ] && [ "$result" = "true" ]; then
+        echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}✗ FAIL (jq '$jq_expr' returned '$result')${NC}" | tee -a "$LOG_FILE"
+        {
+            echo "Bundle contents for debugging:"
+            jq '.config | {image_model, model_3d, image_model_params, model_3d_params}' "$bundle"
+        } >> "$LOG_FILE"
+        FAILED=$((FAILED + 1))
+    fi
+    rm -rf "$tmpdir"
+    echo "" | tee -a "$LOG_FILE"
+}
+
 # Helper function to run a test
 run_test() {
     local test_name="$1"
@@ -776,6 +840,99 @@ run_test "Param: type mismatch string for float param (should fail)" \
 
 run_test "Param: NaN rejected (should fail)" \
     "$CLI --mock -y --no-fbx --param guidance_scale=NaN 'test'" 1
+
+# --- Audited 2026-04-22: every provider model has its full parameter surface.
+# Smoke-test one param per provider+model from each "class" (bool, int, float,
+# select, string) to catch regressions where a declared param doesn't wire up.
+
+run_test "Param: nano-banana-2 aspect_ratio (select)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 --param aspect_ratio=16:9 'test'" 0
+
+run_test "Param: nano-banana-2 resolution (select)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 --param resolution=2K 'test'" 0
+
+run_test "Param: flux-2-pro safety_tolerance (select, 1-5 range)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2-pro --param safety_tolerance=1 'test'" 0
+
+run_test "Param: trellis-2 decimation_target (integer, widget: input)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param decimation_target=50000 'test'" 0
+
+run_test "Param: trellis-2 resolution (select, numeric)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param resolution=512 'test'" 0
+
+run_test "Param: hunyuan-3d face_count (integer, widget: input)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" 0
+
+run_test "Param: hunyuan-3d generate_type (select)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param generate_type=Geometry 'test'" 0
+
+run_test "Param: meshy v6 texture_prompt (string)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param texture_prompt=wooden 'test'" 0
+
+run_test "Param: empty value clears field (null)" \
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale= 'test'" 0
+
+echo "" | tee -a "$LOG_FILE"
+
+echo "=== 15. BUNDLE PARAM CAPTURE ===" | tee -a "$LOG_FILE"
+# bundle.json should record the EFFECTIVE param set (YAML defaults + user
+# overrides) for reproducibility. These tests answer "are we correctly
+# capturing all params passed to the endpoint?" — both the ones the user set
+# and the defaults they left alone.
+
+# --- Defaults captured when no --param given ---
+
+assert_bundle_json "Bundle: hunyuan-3d defaults captured (face_count=500000)" \
+    "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d 'test'" \
+    '.config.model_3d_params.face_count == 500000 and .config.model_3d_params.generate_type == "Normal" and .config.model_3d_params.enable_pbr == false'
+
+assert_bundle_json "Bundle: trellis-2 full default set captured (all 18 params)" \
+    "--3d-model fal-ai/trellis-2 'test'" \
+    '(.config.model_3d_params | length) == 18 and .config.model_3d_params.decimation_target == 500000 and .config.model_3d_params.resolution == 1024'
+
+assert_bundle_json "Bundle: nano-banana-2 defaults (all 7 text-to-image params)" \
+    "--image-model fal-ai/nano-banana-2 'test'" \
+    '(.config.image_model_params | length) == 7 and .config.image_model_params.resolution == "1K" and .config.image_model_params.aspect_ratio == "auto"'
+
+assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)" \
+    "--image-model fal-ai/flux-2-pro 'test'" \
+    '(.config.image_model_params | length) == 4 and .config.image_model_params.safety_tolerance == "2" and (.config.image_model_params | has("guidance_scale") | not)'
+
+assert_bundle_json "Bundle: meshy v6 via fal wrapper (9 params)" \
+    "--3d-model fal-ai/meshy/v6/image-to-3d 'test'" \
+    '(.config.model_3d_params | length) == 9 and .config.model_3d_params.should_remesh == true and .config.model_3d_params.topology == "triangle"'
+
+# --- Overrides captured and merged with defaults ---
+
+assert_bundle_json "Bundle: hunyuan face_count override captured" \
+    "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" \
+    '.config.model_3d_params.face_count == 60000 and .config.model_3d_params.generate_type == "Normal"'
+
+assert_bundle_json "Bundle: trellis-2 decimation_target override (widget: input)" \
+    "--3d-model fal-ai/trellis-2 --param decimation_target=80000 'test'" \
+    '.config.model_3d_params.decimation_target == 80000 and .config.model_3d_params.resolution == 1024'
+
+assert_bundle_json "Bundle: trellis-2 numeric-option select override (resolution=512)" \
+    "--3d-model fal-ai/trellis-2 --param resolution=512 'test'" \
+    '.config.model_3d_params.resolution == 512'
+
+assert_bundle_json "Bundle: multiple overrides on same model" \
+    "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=100000 --param generate_type=Geometry --param enable_pbr=true 'test'" \
+    '.config.model_3d_params.face_count == 100000 and .config.model_3d_params.generate_type == "Geometry" and .config.model_3d_params.enable_pbr == true'
+
+assert_bundle_json "Bundle: image + 3D overrides both captured" \
+    "--image-model fal-ai/flux-2 --3d-model fal-ai/trellis-2 --param guidance_scale=7.0 --param decimation_target=100000 'test'" \
+    '.config.image_model_params.guidance_scale == 7.0 and .config.model_3d_params.decimation_target == 100000'
+
+# --- Null override (empty --param value) falls back to YAML default ---
+
+assert_bundle_json "Bundle: cleared param (--param face_count=) falls back to YAML default" \
+    "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count= 'test'" \
+    '.config.model_3d_params.face_count == 500000'
+
+# --- Meshy v6 parity check: same overrides produce identical bundle shape ---
+# Skipped because Meshy provider is hidden in mock mode. Parity is enforced
+# by the meshy_v6_parameter_surface_matches_across_providers integration test.
 
 echo "" | tee -a "$LOG_FILE"
 

@@ -106,8 +106,13 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        aspect_ratio: 'auto'
         resolution: '1K'
         num_images: 1
+        output_format: 'png'
+        safety_tolerance: '4'
+        limit_generations: true
+        enable_web_search: false
     response:
       response_type: polling
       polling:
@@ -115,6 +120,64 @@ text_to_image:
         result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
+    parameters:
+      - name: 'aspect_ratio'
+        label: 'Aspect Ratio'
+        description: 'Output image aspect ratio.'
+        type: select
+        default: 'auto'
+        options: [
+          'auto',
+          '21:9',
+          '16:9',
+          '3:2',
+          '4:3',
+          '5:4',
+          '1:1',
+          '4:5',
+          '3:4',
+          '2:3',
+          '9:16',
+          '4:1',
+          '1:4',
+          '8:1',
+          '1:8',
+        ]
+      - name: 'resolution'
+        label: 'Resolution'
+        description: 'Output resolution.'
+        type: select
+        default: '1K'
+        options: ['0.5K', '1K', '2K', '4K']
+      - name: 'num_images'
+        label: 'Number of Images'
+        description: 'How many images to generate per request.'
+        type: integer
+        default: 1
+        min: 1
+        max: 4
+      - name: 'output_format'
+        label: 'Output Format'
+        description: 'File format for the generated image.'
+        type: select
+        default: 'png'
+        options: ['png', 'jpeg', 'webp']
+      - name: 'safety_tolerance'
+        label: 'Safety Tolerance'
+        description: '1 = most strict, 6 = most permissive.'
+        type: select
+        default: '4'
+        options: ['1', '2', '3', '4', '5', '6']
+      - name: 'limit_generations'
+        label: 'Limit Generations'
+        description: 'Cap output to one final image and ignore intermediate drafts.'
+        type: boolean
+        default: true
+      - name: 'enable_web_search'
+        label: 'Web Search Grounding'
+        description: 'Ground the image in real-world web results.'
+        type: boolean
+        default: false
 
   # --- Nano Banana ---
   # Google Imagen 3-based model. Great quality, fast, affordable.
@@ -130,6 +193,9 @@ text_to_image:
         prompt: '${prompt}'
         aspect_ratio: '1:1'
         num_images: 1
+        output_format: 'png'
+        safety_tolerance: '4'
+        limit_generations: false
     response:
       response_type: polling
       polling:
@@ -137,6 +203,48 @@ text_to_image:
         result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
+    parameters:
+      - name: 'aspect_ratio'
+        label: 'Aspect Ratio'
+        description: 'Output image aspect ratio.'
+        type: select
+        default: '1:1'
+        options: [
+          '21:9',
+          '16:9',
+          '3:2',
+          '4:3',
+          '5:4',
+          '1:1',
+          '4:5',
+          '3:4',
+          '2:3',
+          '9:16',
+        ]
+      - name: 'num_images'
+        label: 'Number of Images'
+        description: 'How many images to generate per request.'
+        type: integer
+        default: 1
+        min: 1
+        max: 4
+      - name: 'output_format'
+        label: 'Output Format'
+        description: 'File format for the generated image.'
+        type: select
+        default: 'png'
+        options: ['png', 'jpeg', 'webp']
+      - name: 'safety_tolerance'
+        label: 'Safety Tolerance'
+        description: '1 = most strict, 6 = most permissive.'
+        type: select
+        default: '4'
+        options: ['1', '2', '3', '4', '5', '6']
+      - name: 'limit_generations'
+        label: 'Limit Generations'
+        description: 'Cap output to one final image and ignore intermediate drafts.'
+        type: boolean
+        default: false
 
   # --- Nano Banana Pro ---
   # Higher quality version with aspect ratio control.
@@ -151,7 +259,12 @@ text_to_image:
       body:
         prompt: '${prompt}'
         aspect_ratio: '1:1'
+        resolution: '1K'
         num_images: 1
+        output_format: 'png'
+        safety_tolerance: '4'
+        limit_generations: false
+        enable_web_search: false
     response:
       response_type: polling
       polling:
@@ -159,6 +272,60 @@ text_to_image:
         result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
+    parameters:
+      - name: 'aspect_ratio'
+        label: 'Aspect Ratio'
+        description: 'Output image aspect ratio.'
+        type: select
+        default: '1:1'
+        options: [
+          'auto',
+          '21:9',
+          '16:9',
+          '3:2',
+          '4:3',
+          '5:4',
+          '1:1',
+          '4:5',
+          '3:4',
+          '2:3',
+          '9:16',
+        ]
+      - name: 'resolution'
+        label: 'Resolution'
+        description: 'Output resolution (pro does not support 0.5K).'
+        type: select
+        default: '1K'
+        options: ['1K', '2K', '4K']
+      - name: 'num_images'
+        label: 'Number of Images'
+        description: 'How many images to generate per request.'
+        type: integer
+        default: 1
+        min: 1
+        max: 4
+      - name: 'output_format'
+        label: 'Output Format'
+        description: 'File format for the generated image.'
+        type: select
+        default: 'png'
+        options: ['png', 'jpeg', 'webp']
+      - name: 'safety_tolerance'
+        label: 'Safety Tolerance'
+        description: '1 = most strict, 6 = most permissive.'
+        type: select
+        default: '4'
+        options: ['1', '2', '3', '4', '5', '6']
+      - name: 'limit_generations'
+        label: 'Limit Generations'
+        description: 'Cap output to one final image and ignore intermediate drafts.'
+        type: boolean
+        default: false
+      - name: 'enable_web_search'
+        label: 'Web Search Grounding'
+        description: 'Ground the image in real-world web results.'
+        type: boolean
+        default: false
 
   # --- FLUX.2 Dev ---
   # Open-source FLUX model with tunable parameters (guidance_scale, steps).
@@ -176,6 +343,9 @@ text_to_image:
         num_images: 1
         guidance_scale: 2.5
         num_inference_steps: 28
+        acceleration: 'regular'
+        enable_safety_checker: true
+        output_format: 'png'
     response:
       response_type: polling
       polling:
@@ -184,6 +354,19 @@ text_to_image:
         interval_ms: 1000
         max_attempts: 120
     parameters:
+      - name: 'image_size'
+        label: 'Image Size'
+        description: 'Preset image size. Custom {width, height} not supported in-app.'
+        type: select
+        default: 'landscape_4_3'
+        options: [
+          'square_hd',
+          'square',
+          'portrait_4_3',
+          'portrait_16_9',
+          'landscape_4_3',
+          'landscape_16_9',
+        ]
       - name: 'guidance_scale'
         label: 'Guidance Scale'
         description: 'Higher values follow prompt more strictly. Increase for precise geometry.'
@@ -199,9 +382,35 @@ text_to_image:
         default: 28
         min: 1
         max: 50
+      - name: 'num_images'
+        label: 'Number of Images'
+        description: 'How many images to generate per request.'
+        type: integer
+        default: 1
+        min: 1
+        max: 4
+      - name: 'acceleration'
+        label: 'Acceleration'
+        description: 'Inference acceleration level. Higher = faster but may reduce quality.'
+        type: select
+        default: 'regular'
+        options: ['none', 'regular', 'high']
+      - name: 'enable_safety_checker'
+        label: 'Safety Checker'
+        description: 'Run images through the safety checker.'
+        type: boolean
+        default: true
+      - name: 'output_format'
+        label: 'Output Format'
+        description: 'File format for the generated image.'
+        type: select
+        default: 'png'
+        options: ['png', 'jpeg', 'webp']
 
   # --- FLUX.2 Pro ---
   # Premium FLUX model — zero-config, best quality.
+  # NOTE: Pro deliberately omits guidance_scale/num_inference_steps/num_images;
+  # safety_tolerance range is 1–5 (not 1–6 like nano-banana).
   - id: 'fal-ai/flux-2-pro'
     name: 'FLUX.2 Pro'
     description: 'Premium FLUX.2 — best quality, zero-config'
@@ -213,6 +422,9 @@ text_to_image:
       body:
         prompt: '${prompt}'
         image_size: 'landscape_4_3'
+        safety_tolerance: '2'
+        enable_safety_checker: true
+        output_format: 'jpeg'
     response:
       response_type: polling
       polling:
@@ -220,6 +432,37 @@ text_to_image:
         result_field: 'images[0].url'
         interval_ms: 1000
         max_attempts: 120
+    parameters:
+      - name: 'image_size'
+        label: 'Image Size'
+        description: 'Preset image size. Custom {width, height} not supported in-app.'
+        type: select
+        default: 'landscape_4_3'
+        options: [
+          'square_hd',
+          'square',
+          'portrait_4_3',
+          'portrait_16_9',
+          'landscape_4_3',
+          'landscape_16_9',
+        ]
+      - name: 'safety_tolerance'
+        label: 'Safety Tolerance'
+        description: '1 = strictest, 5 = most permissive (pro caps at 5, not 6).'
+        type: select
+        default: '2'
+        options: ['1', '2', '3', '4', '5']
+      - name: 'enable_safety_checker'
+        label: 'Safety Checker'
+        description: 'Run images through the safety checker.'
+        type: boolean
+        default: true
+      - name: 'output_format'
+        label: 'Output Format'
+        description: 'File format for the generated image (pro does not support webp).'
+        type: select
+        default: 'jpeg'
+        options: ['png', 'jpeg']
 
 # =============================================================================
 # Curated Image-to-3D Models (verified 2026-04-15)
@@ -238,10 +481,24 @@ image_to_3d:
         <<: *fal-request-headers
       body:
         image_url: '${image_url}'
+        resolution: 1024
         ss_guidance_strength: 7.5
-        shape_slat_guidance_strength: 7.5
+        ss_guidance_rescale: 0.7
         ss_sampling_steps: 12
+        ss_rescale_t: 5
+        shape_slat_guidance_strength: 7.5
+        shape_slat_guidance_rescale: 0.5
         shape_slat_sampling_steps: 12
+        shape_slat_rescale_t: 3
+        tex_slat_guidance_strength: 1
+        tex_slat_guidance_rescale: 0
+        tex_slat_sampling_steps: 12
+        tex_slat_rescale_t: 3
+        decimation_target: 500000
+        texture_size: 2048
+        remesh: true
+        remesh_band: 1
+        remesh_project: 0
     response:
       response_type: polling
       polling:
@@ -250,40 +507,147 @@ image_to_3d:
         interval_ms: 2000
         max_attempts: 300
     parameters:
+      - name: 'resolution'
+        label: 'Voxel Resolution'
+        description: 'Output voxel resolution — higher is slower but more detailed.'
+        type: select
+        default: 1024
+        options: [512, 1024, 1536]
       - name: 'ss_guidance_strength'
-        label: 'Guidance Strength'
-        description: 'Controls geometric adherence. Higher = stricter shapes (try 8-9 for hard-surface).'
+        label: 'Structure Guidance'
+        description: 'How closely the initial 3D structure follows the image.'
         type: float
         default: 7.5
-        min: 1.0
-        max: 15.0
-        step: 0.5
-      - name: 'shape_slat_guidance_strength'
-        label: 'Detail Guidance'
-        description: 'Fine geometric detail control. Increase cautiously for complex shapes.'
+        min: 0.0
+        max: 10.0
+        step: 0.1
+      - name: 'ss_guidance_rescale'
+        label: 'Structure Rescale'
+        description: 'Dampens artifacts from high guidance in the structure stage.'
         type: float
-        default: 7.5
-        min: 1.0
-        max: 15.0
-        step: 0.5
+        default: 0.7
+        min: 0.0
+        max: 1.0
+        step: 0.05
       - name: 'ss_sampling_steps'
-        label: 'Sampling Steps'
-        description: 'More steps = finer geometry, slower. Try 16-20 for complex objects.'
+        label: 'Structure Steps'
+        description: 'Denoising steps for initial structure.'
         type: integer
         default: 12
-        min: 4
-        max: 30
+        min: 1
+        max: 50
+      - name: 'ss_rescale_t'
+        label: 'Structure Noise Schedule'
+        description: 'Noise-schedule sharpness for structure generation.'
+        type: float
+        default: 5
+        min: 1.0
+        max: 6.0
+        step: 0.1
+      - name: 'shape_slat_guidance_strength'
+        label: 'Shape Guidance'
+        description: 'How closely detailed geometry follows the image.'
+        type: float
+        default: 7.5
+        min: 0.0
+        max: 10.0
+        step: 0.1
+      - name: 'shape_slat_guidance_rescale'
+        label: 'Shape Rescale'
+        description: 'Dampens artifacts in the shape stage.'
+        type: float
+        default: 0.5
+        min: 0.0
+        max: 1.0
+        step: 0.05
       - name: 'shape_slat_sampling_steps'
-        label: 'Detail Steps'
-        description: 'Additional detail refinement steps.'
+        label: 'Shape Steps'
+        description: 'Denoising steps for shape refinement.'
         type: integer
         default: 12
-        min: 4
-        max: 30
+        min: 1
+        max: 50
+      - name: 'shape_slat_rescale_t'
+        label: 'Shape Noise Schedule'
+        description: 'Noise-schedule sharpness for shape refinement.'
+        type: float
+        default: 3
+        min: 1.0
+        max: 6.0
+        step: 0.1
+      - name: 'tex_slat_guidance_strength'
+        label: 'Texture Guidance'
+        description: 'How closely texture follows the image colors.'
+        type: float
+        default: 1
+        min: 0.0
+        max: 10.0
+        step: 0.1
+      - name: 'tex_slat_guidance_rescale'
+        label: 'Texture Rescale'
+        description: 'Dampens artifacts in the texture stage.'
+        type: float
+        default: 0
+        min: 0.0
+        max: 1.0
+        step: 0.05
+      - name: 'tex_slat_sampling_steps'
+        label: 'Texture Steps'
+        description: 'Denoising steps for texture generation.'
+        type: integer
+        default: 12
+        min: 1
+        max: 50
+      - name: 'tex_slat_rescale_t'
+        label: 'Texture Noise Schedule'
+        description: 'Noise-schedule sharpness for texture generation.'
+        type: float
+        default: 3
+        min: 1.0
+        max: 6.0
+        step: 0.1
+      - name: 'decimation_target'
+        label: 'Target Vertex Count'
+        description: 'Target vertex count for the final mesh. 20k–50k for web/mobile; provider default is 500,000.'
+        type: integer
+        widget: input
+        default: 500000
+        min: 5000
+        max: 2000000
+      - name: 'texture_size'
+        label: 'Texture Size'
+        description: 'Resolution of baked texture.'
+        type: select
+        default: 2048
+        options: [1024, 2048, 4096]
+      - name: 'remesh'
+        label: 'Remesh'
+        description: 'Rebuild mesh topology for cleaner triangles.'
+        type: boolean
+        default: true
+      - name: 'remesh_band'
+        label: 'Remesh Band'
+        description: 'How far remeshing can move vertices from the original surface.'
+        type: float
+        default: 1
+        min: 0.0
+        max: 4.0
+        step: 0.1
+      - name: 'remesh_project'
+        label: 'Remesh Projection'
+        description: 'Projection of remeshed vertices back onto the original (0 = smoother, 1 = preserves detail).'
+        type: float
+        default: 0
+        min: 0.0
+        max: 1.0
+        step: 0.05
 
   # --- Hunyuan3D v3.1 Pro ---
   # Production-grade Hunyuan model with highest quality.
   # NOTE: Uses input_image_url (not image_url).
+  # Multi-view image URLs (back/left/right/top/bottom/diagonals) exist on the
+  # API but aren't exposed here — our parameter system is one-value-per-knob
+  # and multi-view references are better surfaced as a distinct UI flow.
   - id: 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
     name: 'Hunyuan3D Pro'
     description: 'Tencent Hunyuan3D v3.1 Pro — highest quality 3D generation'
@@ -294,7 +658,9 @@ image_to_3d:
         <<: *fal-request-headers
       body:
         input_image_url: '${image_url}'
+        generate_type: 'Normal'
         enable_pbr: false
+        face_count: 500000
     response:
       response_type: polling
       polling:
@@ -303,15 +669,35 @@ image_to_3d:
         interval_ms: 2000
         max_attempts: 300
     parameters:
+      - name: 'generate_type'
+        label: 'Generation Type'
+        description: 'Normal produces a textured model; Geometry outputs an untextured white mesh.'
+        type: select
+        default: 'Normal'
+        options: ['Normal', 'Geometry']
       - name: 'enable_pbr'
         label: 'PBR Materials'
-        description: 'Enable physically-based rendering materials (normal + metallic-roughness maps). The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        description: 'Generate PBR maps (metallic, roughness, normal). Ignored when Generation Type = Geometry. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
+      - name: 'face_count'
+        label: 'Target Face Count'
+        description: 'Target polygon face count. Provider default is 500,000 — drop to 40k–80k for game-ready meshes.'
+        type: integer
+        widget: input
+        default: 500000
+        min: 40000
+        max: 1500000
 
-  # --- Meshy v6 ---
+  # --- Meshy v6 (fal wrapper) ---
   # Production-ready 3D models with PBR textures.
   # Highest quality tier — $0.80/gen, ~5-10 min processing.
+  # NOTE: Keep this parameter surface aligned with the meshy provider's
+  # meshy/v6/image-to-3d so users get the same knobs regardless of which
+  # provider they route through. Rigging/animation, safety-checker, and
+  # Meshy-native-only knobs (hd_texture, decimation_mode, moderation,
+  # auto_size, model_type, etc.) are deliberately omitted — out of scope
+  # for our "text → image → 3D model" pipeline.
   - id: 'fal-ai/meshy/v6/image-to-3d'
     name: 'Meshy v6'
     description: 'Meshy 6 — production-ready 3D models with PBR textures'
@@ -324,7 +710,13 @@ image_to_3d:
         image_url: '${image_url}'
         topology: 'triangle'
         target_polycount: 30000
+        symmetry_mode: 'auto'
+        should_remesh: true
+        should_texture: true
         enable_pbr: false
+        pose_mode: ''
+        texture_prompt: ''
+        texture_image_url: ''
     response:
       response_type: polling
       polling:
@@ -335,19 +727,52 @@ image_to_3d:
     parameters:
       - name: 'topology'
         label: 'Topology'
-        description: 'Mesh topology type. Quad is cleaner for hard-surface, triangle is default.'
+        description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default. Only applies when Remesh is on.'
         type: select
         default: 'triangle'
         options: ['triangle', 'quad']
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Target polygon count. Higher = more detail.'
+        description: 'Target polygon count. Higher = more detail. Hard target only when Remesh is on — otherwise approximate.'
         type: integer
+        widget: input
         default: 30000
         min: 100
         max: 300000
+      - name: 'should_remesh'
+        label: 'Remesh'
+        description: 'Run the remesh phase for cleaner topology. Meshy 6 produces clean topology without it, but disabling may result in non-manifold geometry.'
+        type: boolean
+        default: true
+      - name: 'should_texture'
+        label: 'Generate Textures'
+        description: 'Generate texture maps. Disable for untextured geometry only.'
+        type: boolean
+        default: true
       - name: 'enable_pbr'
         label: 'PBR Materials'
-        description: 'Enable physically-based rendering materials (normal + metallic-roughness maps). The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        description: 'Generate PBR maps (metallic, roughness, normal). Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Optional text prompt guiding texturing (max 600 chars). Mutually exclusive with Texture Image URL. Costs 10 extra credits per task.'
+        type: string
+        default: ''
+      - name: 'texture_image_url'
+        label: 'Texture Image URL'
+        description: 'Optional 2D image URL guiding texturing. Mutually exclusive with Texture Prompt.'
+        type: string
+        default: ''
+      - name: 'symmetry_mode'
+        label: 'Symmetry'
+        description: 'Controls symmetry during generation.'
+        type: select
+        default: 'auto'
+        options: ['off', 'auto', 'on']
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']

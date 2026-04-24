@@ -59,6 +59,25 @@ fn main() -> eframe::Result<()> {
             // Configure fonts to include Phosphor icons
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
+            // Fallback font covering Block Elements (U+2580–U+259F) and Box
+            // Drawing (U+2500–U+257F) so tqdm-style progress bars from
+            // upstream AI tools render correctly in progress logs.
+            const FALLBACK_FONT_NAME: &str = "dejavu_sans_mono";
+            fonts.font_data.insert(
+                FALLBACK_FONT_NAME.into(),
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                    "../assets/fonts/DejaVuSansMono.ttf"
+                ))),
+            );
+            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                fonts
+                    .families
+                    .entry(family)
+                    .or_default()
+                    .push(FALLBACK_FONT_NAME.into());
+            }
+
             cc.egui_ctx.set_fonts(fonts);
 
             // Install image loaders for egui

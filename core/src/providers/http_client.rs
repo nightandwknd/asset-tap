@@ -171,6 +171,49 @@ pub fn resolve_url(base_url: Option<&str>, path: &str) -> String {
     }
 }
 
+/// Merge user parameter overrides into a request body and strip null values.
+///
+/// Rules:
+/// - Only keys declared in `parameter_defs` can be overridden (prevents
+///   injection of arbitrary fields like auth headers or prompts).
+/// - A null override removes the key instead of inserting null, so providers
+///   fall back to their server-side default.
+/// - Template-null values (e.g. `seed: null` in YAML) are always stripped
+///   before the request is sent, for the same reason.
+///
+/// Mutates `body` in place. Non-object bodies pass through untouched.
+pub(crate) fn apply_param_overrides(
+    body: &mut serde_json::Value,
+    params: Option<&HashMap<String, serde_json::Value>>,
+    parameter_defs: &[super::config::ParameterDef],
+    model_id: &str,
+) {
+    if let (Some(params), Some(obj)) = (params, body.as_object_mut()) {
+        let allowed: std::collections::HashSet<&str> =
+            parameter_defs.iter().map(|p| p.name.as_str()).collect();
+        for (key, value) in params {
+            if !allowed.contains(key.as_str()) {
+                tracing::warn!(
+                    "Ignoring undeclared parameter '{}' for model '{}'",
+                    key,
+                    model_id
+                );
+                continue;
+            }
+            if value.is_null() {
+                obj.remove(key);
+            } else {
+                obj.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
+    // Strip any remaining nulls (template defaults like `seed: null`).
+    if let Some(obj) = body.as_object_mut() {
+        obj.retain(|_, v| !v.is_null());
+    }
+}
+
 /// Generic HTTP client that executes provider configurations.
 #[derive(Clone)]
 pub struct HttpProviderClient {
@@ -346,26 +389,7 @@ impl HttpProviderClient {
         // Add body if present
         if let Some(body_template) = &model.request.body {
             let mut body = self.interpolate_json(body_template, variables)?;
-
-            // Merge user parameter overrides into the body.
-            // Only allow keys that are declared in the model's `parameters` list
-            // to prevent injection of arbitrary fields (e.g., overriding prompt or auth).
-            if let (Some(params), Some(obj)) = (params, body.as_object_mut()) {
-                let allowed: std::collections::HashSet<&str> =
-                    model.parameters.iter().map(|p| p.name.as_str()).collect();
-                for (key, value) in params {
-                    if allowed.contains(key.as_str()) {
-                        obj.insert(key.clone(), value.clone());
-                    } else {
-                        tracing::warn!(
-                            "Ignoring undeclared parameter '{}' for model '{}'",
-                            key,
-                            model.id
-                        );
-                    }
-                }
-            }
-
+            apply_param_overrides(&mut body, params, &model.parameters, &model.id);
             request = request.json(&body);
         }
 
@@ -1421,5 +1445,67 @@ mod tests {
             client.extract_json_field(&json, Some("images[0]")).unwrap(),
             "url1"
         );
+    }
+
+    // ---- apply_param_overrides -------------------------------------------
+
+    fn param_def(name: &str) -> super::super::config::ParameterDef {
+        super::super::config::ParameterDef {
+            name: name.into(),
+            label: name.into(),
+            description: None,
+            param_type: super::super::config::ParameterType::Integer,
+            default: serde_json::json!(0),
+            min: None,
+            max: None,
+            step: None,
+            options: None,
+            widget: None,
+        }
+    }
+
+    #[test]
+    fn override_inserts_declared_key() {
+        let mut body = serde_json::json!({ "seed": 42 });
+        let mut params = HashMap::new();
+        params.insert("seed".into(), serde_json::json!(100));
+        apply_param_overrides(&mut body, Some(&params), &[param_def("seed")], "m");
+        assert_eq!(body, serde_json::json!({ "seed": 100 }));
+    }
+
+    #[test]
+    fn null_override_removes_declared_key() {
+        // The user-facing contract: clearing a field in the GUI (null override)
+        // drops the key from the body so the provider picks its own default.
+        let mut body = serde_json::json!({ "seed": 42 });
+        let mut params = HashMap::new();
+        params.insert("seed".into(), serde_json::Value::Null);
+        apply_param_overrides(&mut body, Some(&params), &[param_def("seed")], "m");
+        assert_eq!(body, serde_json::json!({}));
+    }
+
+    #[test]
+    fn undeclared_override_is_ignored() {
+        // Prevents injection of arbitrary fields (prompt, auth, etc.).
+        let mut body = serde_json::json!({ "seed": 42 });
+        let mut params = HashMap::new();
+        params.insert("prompt".into(), serde_json::json!("injected"));
+        apply_param_overrides(&mut body, Some(&params), &[param_def("seed")], "m");
+        assert_eq!(body, serde_json::json!({ "seed": 42 }));
+    }
+
+    #[test]
+    fn template_null_is_stripped() {
+        // YAML `seed: null` means "leave unset" — never send a literal null.
+        let mut body = serde_json::json!({ "prompt": "x", "seed": null });
+        apply_param_overrides(&mut body, None, &[], "m");
+        assert_eq!(body, serde_json::json!({ "prompt": "x" }));
+    }
+
+    #[test]
+    fn non_object_body_passes_through() {
+        let mut body = serde_json::json!("just a string");
+        apply_param_overrides(&mut body, None, &[], "m");
+        assert_eq!(body, serde_json::json!("just a string"));
     }
 }

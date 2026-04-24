@@ -432,6 +432,9 @@ fn parse_param_values(raw: &[String]) -> anyhow::Result<HashMap<String, serde_js
             anyhow::bail!("Empty parameter name in --param '{}'", entry);
         }
         let json_val = match val {
+            // Empty value means "unset" — e.g. `--param seed=` clears the
+            // override and lets the provider apply its server-side default.
+            "" => serde_json::Value::Null,
             "true" => serde_json::Value::Bool(true),
             "false" => serde_json::Value::Bool(false),
             _ => {
@@ -464,8 +467,13 @@ fn parse_param_values(raw: &[String]) -> anyhow::Result<HashMap<String, serde_js
 fn coerce_param_value(
     key: &str,
     value: &serde_json::Value,
-    expected: &ParameterType,
+    def: &asset_tap_core::providers::ParameterDef,
 ) -> anyhow::Result<serde_json::Value> {
+    // A null value means "clear/unset" — pass through regardless of declared type.
+    if value.is_null() {
+        return Ok(serde_json::Value::Null);
+    }
+    let expected = &def.param_type;
     match expected {
         ParameterType::Float => match value {
             serde_json::Value::Number(n) => {
@@ -489,10 +497,52 @@ fn coerce_param_value(
             serde_json::Value::Bool(_) => Ok(value.clone()),
             _ => anyhow::bail!("Parameter '{}' expects true/false, got '{}'", key, value),
         },
-        ParameterType::String | ParameterType::Select => match value {
+        ParameterType::String => match value {
             serde_json::Value::String(_) => Ok(value.clone()),
             _ => anyhow::bail!("Parameter '{}' expects a string, got '{}'", key, value),
         },
+        // Select accepts any JSON scalar — options can be strings or numbers
+        // (e.g. trellis-2's `resolution: [512, 1024, 1536]`). Validate against
+        // the declared options list and auto-coerce string values to match the
+        // option's type (so `--param resolution=512` works for numeric options).
+        ParameterType::Select => {
+            let Some(options) = def.options.as_ref() else {
+                anyhow::bail!("Parameter '{}' is a select but has no options defined", key);
+            };
+
+            // Try direct match first (fast path for strings and exact types).
+            if options.iter().any(|o| o == value) {
+                return Ok(value.clone());
+            }
+
+            // Fall back to string-based comparison: `--param resolution=512`
+            // parses as integer, but options are also numeric so normalize
+            // both sides to strings and compare.
+            let incoming = json_scalar_to_string(value);
+            for opt in options {
+                if json_scalar_to_string(opt) == incoming {
+                    // Return in the option's native type (numeric options stay numeric).
+                    return Ok(opt.clone());
+                }
+            }
+
+            let opts_display: Vec<String> = options.iter().map(json_scalar_to_string).collect();
+            anyhow::bail!(
+                "Parameter '{}' value '{}' is not one of the allowed options: [{}]",
+                key,
+                incoming,
+                opts_display.join(", ")
+            );
+        }
+    }
+}
+
+fn json_scalar_to_string(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => v.to_string(),
     }
 }
 
@@ -546,20 +596,43 @@ fn route_params(
 
         match (in_image, in_3d) {
             (Some(def), None) => {
-                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                let coerced = coerce_param_value(key, value, def)?;
                 image_params.insert(key.clone(), coerced);
             }
             (None, Some(def)) => {
-                let coerced = coerce_param_value(key, value, &def.param_type)?;
+                let coerced = coerce_param_value(key, value, def)?;
                 model_3d_params.insert(key.clone(), coerced);
             }
-            (Some(_), Some(def)) => {
-                eprintln!(
-                    "  ⚠️  Parameter '{}' is declared by both image and 3D models; routing to 3D model",
-                    key
-                );
-                let coerced = coerce_param_value(key, value, &def.param_type)?;
-                model_3d_params.insert(key.clone(), coerced);
+            (Some(image_def), Some(model_3d_def)) => {
+                // Both models declare this param (e.g. 'resolution' exists on
+                // nano-banana-2 as a string select AND on trellis-2 as a
+                // numeric select). Coerce against each and route to whichever
+                // the value actually fits. If both fit, warn and route to 3D.
+                let image_fit = coerce_param_value(key, value, image_def);
+                let model_3d_fit = coerce_param_value(key, value, model_3d_def);
+                match (image_fit, model_3d_fit) {
+                    (Ok(v), Err(_)) => {
+                        image_params.insert(key.clone(), v);
+                    }
+                    (Err(_), Ok(v)) => {
+                        model_3d_params.insert(key.clone(), v);
+                    }
+                    (Ok(_), Ok(v)) => {
+                        eprintln!(
+                            "  ⚠️  Parameter '{}' is valid for both image and 3D models; routing to 3D model",
+                            key
+                        );
+                        model_3d_params.insert(key.clone(), v);
+                    }
+                    (Err(e_image), Err(e_3d)) => {
+                        anyhow::bail!(
+                            "Parameter '{}' is declared by both image and 3D models but doesn't fit either:\n  image: {}\n  3D: {}",
+                            key,
+                            e_image,
+                            e_3d
+                        );
+                    }
+                }
             }
             (None, None) => {
                 let mut valid: Vec<&str> = image_param_defs
@@ -1437,4 +1510,105 @@ fn print_summary(output: &asset_tap_core::PipelineOutput) {
     }
 
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_param_value_parses_as_null() {
+        // `--param seed=` should drop the field so the provider's default kicks in.
+        let parsed = parse_param_values(&["seed=".to_string()]).unwrap();
+        assert_eq!(parsed.get("seed"), Some(&serde_json::Value::Null));
+    }
+
+    #[test]
+    fn bool_param_parses() {
+        let parsed = parse_param_values(&["flag=true".to_string()]).unwrap();
+        assert_eq!(parsed.get("flag"), Some(&serde_json::Value::Bool(true)));
+    }
+
+    #[test]
+    fn numeric_param_parses_as_int_when_possible() {
+        let parsed = parse_param_values(&["count=42".to_string()]).unwrap();
+        assert_eq!(parsed.get("count"), Some(&serde_json::json!(42)));
+    }
+
+    fn mk_def(
+        ty: ParameterType,
+        options: Option<Vec<serde_json::Value>>,
+    ) -> asset_tap_core::providers::ParameterDef {
+        asset_tap_core::providers::ParameterDef {
+            name: "x".into(),
+            label: "x".into(),
+            description: None,
+            param_type: ty,
+            default: serde_json::json!(null),
+            min: None,
+            max: None,
+            step: None,
+            options,
+            widget: None,
+        }
+    }
+
+    #[test]
+    fn null_coerces_through_any_declared_type() {
+        // Null is the "clear" signal and must pass through regardless of type.
+        for ty in [
+            ParameterType::Integer,
+            ParameterType::Float,
+            ParameterType::Boolean,
+            ParameterType::String,
+            ParameterType::Select,
+        ] {
+            let opts = if matches!(ty, ParameterType::Select) {
+                Some(vec![serde_json::json!("a")])
+            } else {
+                None
+            };
+            let def = mk_def(ty.clone(), opts);
+            let out = coerce_param_value("x", &serde_json::Value::Null, &def).unwrap();
+            assert_eq!(out, serde_json::Value::Null, "type {:?} rejected null", ty);
+        }
+    }
+
+    #[test]
+    fn select_accepts_numeric_option_via_string_form() {
+        // --param resolution=512 parses as integer; the option list has [512, 1024, 1536]
+        // as numbers, so exact-match works. This covers the common case.
+        let def = mk_def(
+            ParameterType::Select,
+            Some(vec![
+                serde_json::json!(512),
+                serde_json::json!(1024),
+                serde_json::json!(1536),
+            ]),
+        );
+        let result = coerce_param_value("resolution", &serde_json::json!(512), &def).unwrap();
+        assert_eq!(result, serde_json::json!(512));
+    }
+
+    #[test]
+    fn select_coerces_string_input_to_numeric_option() {
+        // If a user explicitly passes --param foo=512 and options are strings
+        // ["512", "1024"], we should coerce to the string form.
+        let def = mk_def(
+            ParameterType::Select,
+            Some(vec![serde_json::json!("512"), serde_json::json!("1024")]),
+        );
+        // `--param foo=512` would parse as integer 512; should match the "512" string option.
+        let result = coerce_param_value("foo", &serde_json::json!(512), &def).unwrap();
+        assert_eq!(result, serde_json::json!("512"));
+    }
+
+    #[test]
+    fn select_rejects_value_not_in_options() {
+        let def = mk_def(
+            ParameterType::Select,
+            Some(vec![serde_json::json!("a"), serde_json::json!("b")]),
+        );
+        assert!(coerce_param_value("x", &serde_json::json!("c"), &def).is_err());
+    }
 }
