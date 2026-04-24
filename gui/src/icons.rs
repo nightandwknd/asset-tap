@@ -60,6 +60,7 @@ pub use egui_phosphor::regular::{
     STOP,
     TERMINAL,
     TRASH,
+    TRAY_ARROW_DOWN,
     WARNING,
     X,
 

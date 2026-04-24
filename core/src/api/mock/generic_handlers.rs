@@ -123,8 +123,11 @@ async fn setup_status_polling(
                     ResponseTemplate::new(200)
                         .set_body_json(MockFixtures::generic_status_queued(poll_cycles - count))
                 } else {
-                    ResponseTemplate::new(200)
-                        .set_body_json(MockFixtures::generic_status_processing())
+                    // Attach tqdm-style log lines (accumulating) so the progress
+                    // panel exercises block-element glyph rendering offline.
+                    ResponseTemplate::new(200).set_body_json(
+                        MockFixtures::generic_status_processing_with_tqdm_logs(count - 1),
+                    )
                 }
             } else {
                 // Completed - return status with response_url

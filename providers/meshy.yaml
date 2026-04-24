@@ -43,7 +43,7 @@ x-meshy-i23d-polling: &meshy-i23d-polling
 x-meshy-t2i-params: &meshy-t2i-params
   - name: 'aspect_ratio'
     label: 'Aspect Ratio'
-    description: 'Output image aspect ratio.'
+    description: 'Output image aspect ratio. Ignored when Multi-View is enabled.'
     type: select
     default: '1:1'
     options: ['1:1', '16:9', '9:16', '4:3', '3:4']
@@ -52,45 +52,34 @@ x-meshy-t2i-params: &meshy-t2i-params
     description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects.'
     type: boolean
     default: false
-
-x-meshy-i23d-params: &meshy-i23d-params
-  - name: 'topology'
-    label: 'Topology'
-    description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default.'
+  - name: 'pose_mode'
+    label: 'Pose'
+    description: 'Force a standard character pose. Leave blank for automatic.'
     type: select
-    default: 'triangle'
-    options: ['triangle', 'quad']
-  - name: 'target_polycount'
-    label: 'Target Polycount'
-    description: 'Target polygon count. Higher = more detail.'
-    type: integer
-    default: 30000
-    min: 100
-    max: 300000
-  - name: 'enable_pbr'
-    label: 'PBR Materials'
-    description: 'Generate metallic/roughness/normal maps. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
-    type: boolean
-    default: false
-  - name: 'should_remesh'
-    label: 'Remesh'
-    description: 'Enable the remesh phase for cleaner topology. Recommended on for meshy-5 and earlier; meshy-6 produces clean topology without it.'
-    type: boolean
-    default: false
-  - name: 'should_texture'
-    label: 'Generate Textures'
-    description: 'Generate texture maps. Disable for untextured geometry only.'
-    type: boolean
-    default: true
+    default: ''
+    options: ['', 'a-pose', 't-pose']
 
-# Shared image-to-3D request body. ai_model is overridden per-model.
+# NOTE: meshy-6 and meshy-5 share the same 9-param image-to-3D surface,
+# but YAML sequences can't be extended via merge keys, so the two lists
+# below (under `parameters:` in each model block) are intentionally
+# duplicated. Keep them in sync. Only delta:
+#   should_remesh default: false on meshy-6 (native clean topology),
+#                           true on meshy-5 (needs the remesh pass).
+# The param surface is also kept aligned with fal's fal-ai/meshy/v6/image-to-3d
+# so users see the same knobs regardless of which provider serves the model.
+
+# Shared image-to-3D request body. Per-version overrides (e.g. should_remesh)
+# go on each model block below.
 x-meshy-i23d-body: &meshy-i23d-body
   image_url: '${image_url}'
   topology: 'triangle'
   target_polycount: 30000
   enable_pbr: false
-  should_remesh: false
   should_texture: true
+  symmetry_mode: 'auto'
+  pose_mode: ''
+  texture_prompt: ''
+  texture_image_url: ''
   target_formats: ['glb']
 
 provider:
@@ -128,6 +117,8 @@ text_to_image:
         ai_model: 'nano-banana'
         prompt: '${prompt}'
         aspect_ratio: '1:1'
+        generate_multi_view: false
+        pose_mode: ''
     response:
       response_type: polling
       polling:
@@ -148,6 +139,8 @@ text_to_image:
         ai_model: 'nano-banana-pro'
         prompt: '${prompt}'
         aspect_ratio: '1:1'
+        generate_multi_view: false
+        pose_mode: ''
     response:
       response_type: polling
       polling:
@@ -175,11 +168,64 @@ image_to_3d:
       body:
         <<: *meshy-i23d-body
         ai_model: 'meshy-6'
+        # v6 defaults should_remesh=false (clean topology is native).
+        should_remesh: false
     response:
       response_type: polling
       polling:
         <<: *meshy-i23d-polling
-    parameters: *meshy-i23d-params
+    parameters:
+      - name: 'topology'
+        label: 'Topology'
+        description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default. Only applies when Remesh is on.'
+        type: select
+        default: 'triangle'
+        options: ['triangle', 'quad']
+      - name: 'target_polycount'
+        label: 'Target Polycount'
+        description: 'Target polygon count. Higher = more detail. Hard target only when Remesh is on — otherwise approximate.'
+        type: integer
+        widget: input
+        default: 30000
+        min: 100
+        max: 300000
+      - name: 'should_remesh'
+        label: 'Remesh'
+        description: 'Run the remesh phase for cleaner topology. Meshy 6 produces clean topology without it, but disabling may result in non-manifold geometry.'
+        type: boolean
+        default: false
+      - name: 'should_texture'
+        label: 'Generate Textures'
+        description: 'Generate texture maps. Disable for untextured geometry only.'
+        type: boolean
+        default: true
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Generate metallic/roughness/normal maps. Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        type: boolean
+        default: false
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Optional text prompt guiding texturing (max 600 chars). Mutually exclusive with Texture Image URL. Costs 10 extra credits per task.'
+        type: string
+        default: ''
+      - name: 'texture_image_url'
+        label: 'Texture Image URL'
+        description: 'Optional 2D image URL guiding texturing. Mutually exclusive with Texture Prompt.'
+        type: string
+        default: ''
+      - name: 'symmetry_mode'
+        label: 'Symmetry'
+        description: 'Controls symmetry during generation.'
+        type: select
+        default: 'auto'
+        options: ['off', 'auto', 'on']
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']
 
   # --- Meshy v5 ---
   # Previous-generation model — roughly 4× cheaper on mesh generation
@@ -196,8 +242,62 @@ image_to_3d:
       body:
         <<: *meshy-i23d-body
         ai_model: 'meshy-5'
+        # v5 defaults should_remesh=true (needs the remesh pass for clean topology).
+        should_remesh: true
     response:
       response_type: polling
       polling:
         <<: *meshy-i23d-polling
-    parameters: *meshy-i23d-params
+    # NOTE: kept in sync with meshy-6 above. Only delta is should_remesh's default.
+    parameters:
+      - name: 'topology'
+        label: 'Topology'
+        description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default. Only applies when Remesh is on.'
+        type: select
+        default: 'triangle'
+        options: ['triangle', 'quad']
+      - name: 'target_polycount'
+        label: 'Target Polycount'
+        description: 'Target polygon count. Higher = more detail. Hard target only when Remesh is on — otherwise approximate.'
+        type: integer
+        widget: input
+        default: 30000
+        min: 100
+        max: 300000
+      - name: 'should_remesh'
+        label: 'Remesh'
+        description: 'Run the remesh phase for cleaner topology. Recommended for Meshy 5.'
+        type: boolean
+        default: true
+      - name: 'should_texture'
+        label: 'Generate Textures'
+        description: 'Generate texture maps. Disable for untextured geometry only.'
+        type: boolean
+        default: true
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Generate metallic/roughness/normal maps. Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        type: boolean
+        default: false
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Optional text prompt guiding texturing (max 600 chars). Mutually exclusive with Texture Image URL. Costs 10 extra credits per task.'
+        type: string
+        default: ''
+      - name: 'texture_image_url'
+        label: 'Texture Image URL'
+        description: 'Optional 2D image URL guiding texturing. Mutually exclusive with Texture Prompt.'
+        type: string
+        default: ''
+      - name: 'symmetry_mode'
+        label: 'Symmetry'
+        description: 'Controls symmetry during generation.'
+        type: select
+        default: 'auto'
+        options: ['off', 'auto', 'on']
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']

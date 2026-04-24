@@ -55,7 +55,7 @@ pub mod openapi;
 pub mod registry;
 pub mod traits;
 
-pub use config::{ParameterDef, ParameterType, ProviderConfig};
+pub use config::{ParameterDef, ParameterType, ParameterWidget, ProviderConfig};
 pub use dynamic_provider::DynamicProvider;
 pub use registry::ProviderRegistry;
 pub use traits::{
