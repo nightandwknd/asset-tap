@@ -142,6 +142,49 @@ pub struct ParameterDef {
     /// Allowed values (for select/dropdown type).
     #[serde(default)]
     pub options: Option<Vec<serde_json::Value>>,
+
+    /// Preferred GUI widget. Optional; falls back to the natural widget for
+    /// the parameter type (slider for float/integer, checkbox for boolean,
+    /// text field for string, dropdown for select).
+    ///
+    /// Use `Input` on integer/float parameters that span a wide range (e.g.
+    /// 40k–1.5M face counts) where a slider is impractical, or on fields
+    /// that accept "unset" (seed). When left empty and submitted, `Input`
+    /// widgets omit the key from the request body instead of sending a zero.
+    #[serde(default)]
+    pub widget: Option<ParameterWidget>,
+}
+
+/// Preferred widget for a parameter, overriding the type's default widget.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ParameterWidget {
+    /// Slider (default for float/integer).
+    Slider,
+    /// Free-form typed input. Empty value = omit from request body.
+    Input,
+}
+
+impl ParameterDef {
+    /// Clamp a numeric value to this parameter's declared min/max.
+    ///
+    /// Shared between GUI (typed input clamp on submit) and CLI (value
+    /// validation on `--param`). Returns the input unchanged when either
+    /// bound is unset, so callers can use it regardless of widget type.
+    pub fn clamp_f64(&self, v: f64) -> f64 {
+        let mut out = v;
+        if let Some(lo) = self.min
+            && out < lo
+        {
+            out = lo;
+        }
+        if let Some(hi) = self.max
+            && out > hi
+        {
+            out = hi;
+        }
+        out
+    }
 }
 
 /// Type of a tunable parameter (determines GUI widget).
@@ -859,5 +902,45 @@ mod tests {
 
         let config: ProviderConfig = serde_yaml_ng::from_str(yaml).unwrap();
         assert!(config.text_to_image[0].parameters.is_empty());
+    }
+
+    fn numeric_param(min: Option<f64>, max: Option<f64>) -> ParameterDef {
+        ParameterDef {
+            name: "x".into(),
+            label: "x".into(),
+            description: None,
+            param_type: ParameterType::Float,
+            default: serde_json::json!(0),
+            min,
+            max,
+            step: None,
+            options: None,
+            widget: None,
+        }
+    }
+
+    #[test]
+    fn clamp_within_range_returns_input() {
+        let p = numeric_param(Some(0.0), Some(10.0));
+        assert_eq!(p.clamp_f64(5.0), 5.0);
+    }
+
+    #[test]
+    fn clamp_below_min_snaps_up() {
+        let p = numeric_param(Some(1.0), Some(10.0));
+        assert_eq!(p.clamp_f64(-5.0), 1.0);
+    }
+
+    #[test]
+    fn clamp_above_max_snaps_down() {
+        let p = numeric_param(Some(1.0), Some(10.0));
+        assert_eq!(p.clamp_f64(999.0), 10.0);
+    }
+
+    #[test]
+    fn clamp_no_bounds_passes_through() {
+        let p = numeric_param(None, None);
+        assert_eq!(p.clamp_f64(-1e12), -1e12);
+        assert_eq!(p.clamp_f64(1e12), 1e12);
     }
 }

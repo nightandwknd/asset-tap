@@ -126,9 +126,20 @@ text_to_image:
         type: select
         default: 'triangle'
         options: ['triangle', 'quad']
+      - name: 'face_count' # Wide-range int — slider would be useless
+        label: 'Target Face Count'
+        type: integer
+        widget: input # Opt into a typed text field instead of a slider
+        default: 500000
+        min: 40000
+        max: 1500000
 ```
 
 Parameter overrides are validated against declared names before injection (undeclared keys are ignored). Values persist per provider+model in `state.json` under `model_parameters`.
+
+**Widget selection (`widget:`):** Optional per-parameter hint. Defaults to the natural widget for each type (slider for float/integer, checkbox for boolean, text field for string, dropdown for select). Set `widget: input` on float/integer parameters that span wide ranges (e.g. 40k–1.5M face counts) where a slider can't hit precise values. `input` widgets with an empty value serialize to JSON null, which strips the key from the request body — useful for fields that accept "unset" (e.g. seeds where omitting = random).
+
+**Null = "unset":** Anywhere a parameter value is null — template default (`seed: null` in YAML), user clearing a text input, or CLI `--param seed=` — the key is dropped from the request body so the provider applies its server-side default. Never send a literal null.
 
 **CLI access:** Use `--param KEY=VALUE` (repeatable) to override parameters from the command line:
 
@@ -141,9 +152,14 @@ asset-tap -y "a robot" --param guidance_scale=7.0 --param num_inference_steps=10
 
 # 3D model params
 asset-tap -y "a robot" --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad --param enable_pbr=false
+
+# Clear a param (revert to provider default)
+asset-tap -y "a robot" --param seed=
 ```
 
-Value types are auto-detected (`true`/`false` → bool, integers, floats, or strings) and coerced to match the declared parameter type (e.g., `--param guidance_scale=7` coerces integer to float). Parameters are auto-routed to the correct model (image vs 3D) based on which model declares them. Invalid parameter names error with a list of valid options.
+Value types are auto-detected (`true`/`false` → bool, integers, floats, or strings) and coerced to match the declared parameter type (e.g., `--param guidance_scale=7` coerces integer to float). An empty value (`--param key=`) becomes JSON null and drops the key from the request. Parameters are auto-routed to the correct model (image vs 3D) based on which model declares them. Invalid parameter names error with a list of valid options.
+
+**Cross-provider parity:** When the same underlying model is served by multiple providers (e.g. Meshy v6 via `fal-ai/meshy/v6/image-to-3d` AND `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of routing. A drift-catcher test in [core/tests/integration_tests.rs](core/tests/integration_tests.rs) asserts this for Meshy v6/v5.
 
 **Response types:**
 

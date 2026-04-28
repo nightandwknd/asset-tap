@@ -86,6 +86,15 @@ impl MockApiServer {
     pub fn url(&self) -> String {
         self.server.uri()
     }
+
+    /// All requests the mock server has received, in order.
+    ///
+    /// Used by contract tests to assert request bodies match declared YAML.
+    /// Returns `None` if the server was constructed with request recording
+    /// disabled (default is enabled).
+    pub async fn received_requests(&self) -> Option<Vec<wiremock::Request>> {
+        self.server.received_requests().await
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 {
   "Exclude": [
-    "site/themes/.*"
+    "site/themes/.*",
+    "gui/assets/fonts/.*"
   ],
   "Disable": {
     "IndentSize": true

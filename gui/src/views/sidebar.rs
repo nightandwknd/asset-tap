@@ -1099,6 +1099,119 @@ fn render_parameter_panel(
     changed
 }
 
+#[derive(Copy, Clone)]
+enum NumericKind {
+    Integer,
+    Float,
+}
+
+/// Human-readable form of a JSON scalar (strings, numbers, booleans) for
+/// rendering as combo-box option labels.
+fn json_scalar_display(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => v.to_string(),
+    }
+}
+
+/// Render a typed numeric text input for wide-range fields where a slider is
+/// impractical (e.g. 40k–1.5M polycounts) or where "unset" is a valid state
+/// (e.g. seeds — empty field sends null so the provider picks a random seed).
+fn render_numeric_input(
+    ui: &mut egui::Ui,
+    param: &asset_tap_core::providers::ParameterDef,
+    values: &mut std::collections::HashMap<String, serde_json::Value>,
+    kind: NumericKind,
+) -> bool {
+    let mut changed = false;
+    let stored = values.get(&param.name);
+
+    // Resolve the string shown in the field. A stored null = user cleared it.
+    let mut text = match stored {
+        Some(v) if v.is_null() => String::new(),
+        Some(v) => match kind {
+            NumericKind::Integer => v
+                .as_i64()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| v.as_f64().map(|f| f.to_string()).unwrap_or_default()),
+            NumericKind::Float => v.as_f64().map(|f| f.to_string()).unwrap_or_default(),
+        },
+        None => match kind {
+            NumericKind::Integer => param
+                .default
+                .as_i64()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+            NumericKind::Float => param
+                .default
+                .as_f64()
+                .map(|f| f.to_string())
+                .unwrap_or_default(),
+        },
+    };
+
+    let before = text.clone();
+    ui.label(&param.label);
+
+    const NUMERIC_INPUT_WIDTH: f32 = 90.0;
+    let response = ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .desired_width(NUMERIC_INPUT_WIDTH)
+            .hint_text(match kind {
+                NumericKind::Integer => "integer",
+                NumericKind::Float => "number",
+            }),
+    );
+    if let Some(ref desc) = param.description {
+        response.on_hover_text(desc);
+    }
+
+    // Display range hint next to the input so users know valid bounds
+    if let (Some(min), Some(max)) = (param.min, param.max) {
+        ui.label(
+            egui::RichText::new(match kind {
+                NumericKind::Integer => format!("({}–{})", min as i64, max as i64),
+                NumericKind::Float => format!("({}–{})", min, max),
+            })
+            .size(10.0)
+            .weak(),
+        );
+    }
+
+    if text == before {
+        return changed;
+    }
+
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        values.insert(param.name.clone(), serde_json::Value::Null);
+        changed = true;
+        return changed;
+    }
+
+    match kind {
+        NumericKind::Integer => {
+            if let Ok(n) = trimmed.parse::<i64>() {
+                let clamped = param.clamp_f64(n as f64) as i64;
+                values.insert(param.name.clone(), serde_json::Value::from(clamped));
+                changed = true;
+            }
+            // On parse failure, keep prior value — don't write garbage
+        }
+        NumericKind::Float => {
+            if let Ok(n) = trimmed.parse::<f64>() {
+                let clamped = param.clamp_f64(n);
+                values.insert(param.name.clone(), serde_json::Value::from(clamped));
+                changed = true;
+            }
+        }
+    }
+
+    changed
+}
+
 /// Render a single parameter widget based on its type.
 ///
 /// Returns true if the value was changed.
@@ -1111,7 +1224,16 @@ fn render_parameter_widget(
 
     let mut changed = false;
 
+    use asset_tap_core::providers::ParameterWidget;
+    let use_input = param.widget == Some(ParameterWidget::Input);
+
     ui.horizontal(|ui| match param.param_type {
+        ParameterType::Float if use_input => {
+            changed |= render_numeric_input(ui, param, values, NumericKind::Float);
+        }
+        ParameterType::Integer if use_input => {
+            changed |= render_numeric_input(ui, param, values, NumericKind::Integer);
+        }
         ParameterType::Float => {
             let default = param.default.as_f64().unwrap_or(0.0);
             let min = param.min.unwrap_or(0.0);
@@ -1199,21 +1321,24 @@ fn render_parameter_widget(
             }
         }
         ParameterType::Select => {
-            let default = param.default.as_str().unwrap_or("").to_string();
-            let current = values
+            // Options can be strings OR numbers (e.g. trellis-2's
+            // `resolution: [512, 1024, 1536]`). Render as strings for display
+            // but preserve the original JSON type on write so the runtime
+            // sends the correct type to the API.
+            let current_value = values
                 .get(&param.name)
-                .and_then(|v| v.as_str())
-                .unwrap_or(&default)
-                .to_string();
-            let mut selected = current.clone();
+                .cloned()
+                .unwrap_or(param.default.clone());
+            let current_str = json_scalar_display(&current_value);
+            let mut selected_str = current_str.clone();
 
             ui.label(&param.label);
-            let combo = egui::ComboBox::from_id_salt(&param.name).selected_text(&selected);
+            let combo = egui::ComboBox::from_id_salt(&param.name).selected_text(&selected_str);
             let response = combo.show_ui(ui, |ui| {
                 if let Some(ref options) = param.options {
                     for opt in options {
-                        let opt_str = opt.as_str().unwrap_or("").to_string();
-                        ui.selectable_value(&mut selected, opt_str.clone(), &opt_str);
+                        let opt_str = json_scalar_display(opt);
+                        ui.selectable_value(&mut selected_str, opt_str.clone(), &opt_str);
                     }
                 }
             });
@@ -1221,8 +1346,18 @@ fn render_parameter_widget(
                 response.response.on_hover_text(desc);
             }
 
-            if selected != current {
-                values.insert(param.name.clone(), serde_json::Value::from(selected));
+            if selected_str != current_str {
+                // Map back to the option's original JSON type.
+                let new_value = param
+                    .options
+                    .as_ref()
+                    .and_then(|opts| {
+                        opts.iter()
+                            .find(|o| json_scalar_display(o) == selected_str)
+                            .cloned()
+                    })
+                    .unwrap_or(serde_json::Value::String(selected_str.clone()));
+                values.insert(param.name.clone(), new_value);
                 changed = true;
             }
         }

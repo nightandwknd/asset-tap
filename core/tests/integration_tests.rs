@@ -276,3 +276,186 @@ fn test_embedded_config_sync_flow() {
     assert!(backup.exists());
     assert_eq!(fs::read_to_string(&backup).unwrap(), embedded_v1);
 }
+
+// =============================================================================
+// Cross-provider parameter parity
+// =============================================================================
+
+/// Meshy v6 is served by two providers (fal's wrapper and Meshy's native API).
+/// Users expect identical knobs regardless of which one they route through, and
+/// these lists are intentionally duplicated in YAML because YAML sequences can't
+/// be merged. This test is the drift-catcher: if someone adds a param to one
+/// copy without the other, CI fails.
+///
+/// meshy-5 is included because it shares the same surface minus version-specific
+/// deltas (none currently — just defaults differ).
+#[test]
+fn meshy_v6_parameter_surface_matches_across_providers() {
+    use asset_tap_core::providers::config::ProviderConfig;
+    use std::collections::BTreeSet;
+
+    fn load(yaml_path: &str) -> ProviderConfig {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../{}", yaml_path));
+        ProviderConfig::from_yaml_file(&full)
+            .unwrap_or_else(|e| panic!("loading {}: {}", full.display(), e))
+    }
+
+    fn param_names(config: &ProviderConfig, model_id: &str) -> BTreeSet<String> {
+        config
+            .image_to_3d
+            .iter()
+            .find(|m| m.id == model_id)
+            .unwrap_or_else(|| panic!("model {} not found", model_id))
+            .parameters
+            .iter()
+            .map(|p| p.name.clone())
+            .collect()
+    }
+
+    let fal = load("providers/fal-ai.yaml");
+    let meshy = load("providers/meshy.yaml");
+
+    let fal_v6 = param_names(&fal, "fal-ai/meshy/v6/image-to-3d");
+    let native_v6 = param_names(&meshy, "meshy/v6/image-to-3d");
+    let native_v5 = param_names(&meshy, "meshy/v5/image-to-3d");
+
+    assert_eq!(
+        fal_v6,
+        native_v6,
+        "fal's Meshy v6 wrapper and Meshy's native v6 must expose the same \
+         parameter names so users see identical knobs. Mismatch: only-in-fal={:?}, \
+         only-in-native={:?}",
+        fal_v6.difference(&native_v6).collect::<Vec<_>>(),
+        native_v6.difference(&fal_v6).collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        native_v6,
+        native_v5,
+        "Meshy v6 and v5 share the same parameter surface (only defaults differ). \
+         Mismatch: only-in-v6={:?}, only-in-v5={:?}",
+        native_v6.difference(&native_v5).collect::<Vec<_>>(),
+        native_v5.difference(&native_v6).collect::<Vec<_>>()
+    );
+}
+
+/// Every param declared in a model's `parameters:` list must also appear as a
+/// key in the model's `request.body`, otherwise the runtime has nowhere to
+/// inject the override and it silently becomes a no-op.
+///
+/// Catches typos like declaring `target_polycout` in the parameter list while
+/// the body has `target_polycount`. We've hit this class of bug before — easy
+/// to miss in review, impossible to miss in CI.
+#[test]
+fn every_declared_parameter_exists_in_request_body() {
+    use asset_tap_core::providers::config::{ModelConfig, ProviderConfig};
+
+    fn load(yaml_path: &str) -> ProviderConfig {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../{}", yaml_path));
+        ProviderConfig::from_yaml_file(&full)
+            .unwrap_or_else(|e| panic!("loading {}: {}", full.display(), e))
+    }
+
+    fn check_model(provider_id: &str, model: &ModelConfig, missing: &mut Vec<String>) {
+        let Some(body) = model.request.body.as_ref().and_then(|v| v.as_object()) else {
+            // Models without a JSON body (multipart-only) have no keys to check.
+            return;
+        };
+        for param in &model.parameters {
+            if !body.contains_key(&param.name) {
+                missing.push(format!(
+                    "{} / {}: parameter '{}' is declared but not present in request.body",
+                    provider_id, model.id, param.name
+                ));
+            }
+        }
+    }
+
+    let mut missing = Vec::new();
+    for path in ["providers/fal-ai.yaml", "providers/meshy.yaml"] {
+        let config = load(path);
+        let provider_id = config.provider.id.clone();
+        for model in config.text_to_image.iter().chain(config.image_to_3d.iter()) {
+            check_model(&provider_id, model, &mut missing);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Parameter declarations out of sync with request bodies:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// Every declared parameter's `default:` value must match the corresponding
+/// `request.body` template value. They drift when someone updates one but
+/// not the other — the body controls what gets sent to the API, the parameter
+/// declaration controls what gets recorded in `bundle.json` (via
+/// `merge_param_overrides`). When they disagree, the bundle no longer
+/// reproduces what was actually sent.
+///
+/// Skips body values that are interpolated strings (`${...}`) since those
+/// have no static default to compare against.
+#[test]
+fn parameter_defaults_match_request_body_templates() {
+    use asset_tap_core::providers::config::{ModelConfig, ProviderConfig};
+
+    fn load(yaml_path: &str) -> ProviderConfig {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../{}", yaml_path));
+        ProviderConfig::from_yaml_file(&full)
+            .unwrap_or_else(|e| panic!("loading {}: {}", full.display(), e))
+    }
+
+    /// Two JSON values are "default-equivalent" if they encode the same
+    /// scalar after numeric normalization — `1` and `1.0` should match.
+    fn equivalent(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+        match (a, b) {
+            (serde_json::Value::Number(x), serde_json::Value::Number(y)) => {
+                match (x.as_f64(), y.as_f64()) {
+                    (Some(xf), Some(yf)) => xf == yf,
+                    _ => x == y,
+                }
+            }
+            _ => a == b,
+        }
+    }
+
+    fn check_model(provider_id: &str, model: &ModelConfig, drift: &mut Vec<String>) {
+        let Some(body) = model.request.body.as_ref().and_then(|v| v.as_object()) else {
+            return;
+        };
+        for param in &model.parameters {
+            let Some(body_val) = body.get(&param.name) else {
+                continue; // missing-key bug is caught by the sibling test
+            };
+            // Interpolated templates ('${prompt}', etc.) have no static default.
+            if matches!(body_val, serde_json::Value::String(s) if s.contains("${")) {
+                continue;
+            }
+            if !equivalent(body_val, &param.default) {
+                drift.push(format!(
+                    "{} / {}: parameter '{}' default {} differs from request.body template {}",
+                    provider_id, model.id, param.name, param.default, body_val
+                ));
+            }
+        }
+    }
+
+    let mut drift = Vec::new();
+    for path in ["providers/fal-ai.yaml", "providers/meshy.yaml"] {
+        let config = load(path);
+        let provider_id = config.provider.id.clone();
+        for model in config.text_to_image.iter().chain(config.image_to_3d.iter()) {
+            check_model(&provider_id, model, &mut drift);
+        }
+    }
+
+    assert!(
+        drift.is_empty(),
+        "Parameter defaults drifted from request body templates (the body controls what's sent; the declaration controls what's recorded in bundle.json):\n  {}",
+        drift.join("\n  ")
+    );
+}

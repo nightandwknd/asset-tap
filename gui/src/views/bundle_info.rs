@@ -21,6 +21,23 @@ const SUCCESS_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 200, 100);
 /// Color for the favorite star when active.
 const FAVORITE_COLOR: egui::Color32 = egui::Color32::from_rgb(255, 200, 50);
 
+/// Placeholder shown for params left at their server-side default — null and
+/// empty-string values both flow here, since both effectively mean "unset"
+/// in our pipeline (null is stripped before sending; empty-string select
+/// options mean "no constraint" / "auto").
+const UNSET_LABEL: &str = "(default)";
+
+/// Format a param value for display in the bundle info panel.
+/// Returns `(text, is_unset)` so the caller can style unset values distinctly.
+fn format_param_display(value: &serde_json::Value) -> (String, bool) {
+    match value {
+        serde_json::Value::Null => (UNSET_LABEL.to_string(), true),
+        serde_json::Value::String(s) if s.is_empty() => (UNSET_LABEL.to_string(), true),
+        serde_json::Value::String(s) => (s.clone(), false),
+        other => (other.to_string(), false),
+    }
+}
+
 /// Render a labeled, read-only, scrollable multi-line text field for prompts.
 /// Keeps long prompts from blowing out panel layout.
 fn scrollable_prompt_field(
@@ -56,15 +73,15 @@ fn render_parameter_list(
     let mut keys: Vec<&String> = params.keys().collect();
     keys.sort();
     for key in keys {
-        let value = &params[key];
-        let value_str = match value {
-            serde_json::Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
+        let (value_str, is_unset) = format_param_display(&params[key]);
         ui.horizontal(|ui| {
             ui.add_space(8.0);
             ui.label(egui::RichText::new(format!("{}:", key)).size(12.0).weak());
-            ui.label(egui::RichText::new(value_str).size(12.0).monospace());
+            let mut text = egui::RichText::new(value_str).size(12.0).monospace();
+            if is_unset {
+                text = text.weak().italics();
+            }
+            ui.label(text);
         });
     }
 }
@@ -317,7 +334,7 @@ impl BundleInfoPanel {
                     }
 
                     if ui
-                        .button(icons::FOLDER_OPEN.to_string())
+                        .button(icons::TRAY_ARROW_DOWN.to_string())
                         .on_hover_text("Import a bundle from a zip archive")
                         .clicked()
                         && let Some(path) = rfd::FileDialog::new()
@@ -850,4 +867,54 @@ fn format_number(n: u32) -> String {
         result.insert(0, c);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn format_param_display_null_is_unset() {
+        let (text, is_unset) = format_param_display(&Value::Null);
+        assert_eq!(text, "(default)");
+        assert!(is_unset);
+    }
+
+    #[test]
+    fn format_param_display_empty_string_is_unset() {
+        let (text, is_unset) = format_param_display(&json!(""));
+        assert_eq!(text, "(default)");
+        assert!(is_unset);
+    }
+
+    #[test]
+    fn format_param_display_real_string_is_set() {
+        let (text, is_unset) = format_param_display(&json!("t-pose"));
+        assert_eq!(text, "t-pose");
+        assert!(!is_unset);
+    }
+
+    #[test]
+    fn format_param_display_zero_number_is_set() {
+        // 0 is a real value, not "unset" — make sure we don't accidentally
+        // treat falsy values as defaults.
+        let (text, is_unset) = format_param_display(&json!(0));
+        assert_eq!(text, "0");
+        assert!(!is_unset);
+    }
+
+    #[test]
+    fn format_param_display_false_is_set() {
+        let (text, is_unset) = format_param_display(&json!(false));
+        assert_eq!(text, "false");
+        assert!(!is_unset);
+    }
+
+    #[test]
+    fn format_param_display_float_uses_compact_form() {
+        let (text, is_unset) = format_param_display(&json!(7.5));
+        assert_eq!(text, "7.5");
+        assert!(!is_unset);
+    }
 }

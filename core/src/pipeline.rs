@@ -938,16 +938,22 @@ fn effective_params(
 }
 
 /// Merge user-provided overrides on top of a model's declared parameter defaults.
+///
+/// Null overrides fall back to the YAML default so bundle.json always records
+/// a concrete value even when the user cleared a `widget: input` field. The
+/// request body that actually went out stripped the key (provider applied its
+/// server-side default), but for bundle reproducibility we'd rather log the
+/// default we knew about at generation time than leave the param as null.
 fn merge_param_overrides(
     param_defs: &[crate::providers::config::ParameterDef],
     overrides: &HashMap<String, serde_json::Value>,
 ) -> HashMap<String, serde_json::Value> {
     let mut effective = HashMap::with_capacity(param_defs.len());
     for param in param_defs {
-        let value = overrides
-            .get(&param.name)
-            .cloned()
-            .unwrap_or_else(|| param.default.clone());
+        let value = match overrides.get(&param.name) {
+            Some(v) if !v.is_null() => v.clone(),
+            _ => param.default.clone(),
+        };
         effective.insert(param.name.clone(), value);
     }
     effective
@@ -995,6 +1001,7 @@ mod tests {
                 max: Some(20.0),
                 step: Some(0.5),
                 options: None,
+                widget: None,
             },
             ParameterDef {
                 name: "topology".into(),
@@ -1009,6 +1016,7 @@ mod tests {
                     serde_json::json!("triangle"),
                     serde_json::json!("quad"),
                 ]),
+                widget: None,
             },
         ];
 
@@ -1050,6 +1058,35 @@ mod tests {
         // serde skips via `skip_serializing_if = "HashMap::is_empty"`.
         let effective = merge_param_overrides(&[], &HashMap::new());
         assert!(effective.is_empty());
+    }
+
+    #[test]
+    fn null_override_falls_back_to_yaml_default_in_bundle_record() {
+        use crate::providers::config::{ParameterDef, ParameterType};
+
+        let param_defs = vec![ParameterDef {
+            name: "face_count".into(),
+            label: "Face Count".into(),
+            description: None,
+            param_type: ParameterType::Integer,
+            default: serde_json::json!(500000),
+            min: Some(40000.0),
+            max: Some(1500000.0),
+            step: None,
+            options: None,
+            widget: None,
+        }];
+
+        // User cleared the input (null override). The request body stripped
+        // the key so the provider used its server-side default — but for
+        // bundle reproducibility we record our YAML default, not null.
+        let mut overrides = HashMap::new();
+        overrides.insert("face_count".into(), serde_json::Value::Null);
+        let effective = merge_param_overrides(&param_defs, &overrides);
+        assert_eq!(
+            effective.get("face_count"),
+            Some(&serde_json::json!(500000))
+        );
     }
 
     #[test]

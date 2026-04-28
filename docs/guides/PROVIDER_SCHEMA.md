@@ -86,6 +86,75 @@ text_to_image:
 - `endpoint`: Relative to `base_url` (e.g., "/predictions") or absolute URL
 - Set `is_default: true` on the model that should be the default; if none specified, the first model in the array is used as fallback
 
+## Tunable Parameters
+
+Each model can declare a `parameters:` list that exposes user-tunable fields in the GUI sidebar and via CLI `--param KEY=VALUE` overrides. Names must match keys in the model's `request.body`; the runtime validates names before injection and ignores undeclared keys.
+
+```yaml
+image_to_3d:
+  - id: 'fal-ai/hunyuan-3d/v3.1/pro/image-to-3d'
+    # ... request/response config ...
+    request:
+      body:
+        face_count: 500000 # Template default — sent unless overridden
+        enable_pbr: false
+    parameters: # Optional; list every knob you want exposed
+      - name: 'face_count' # Must match a key in request.body
+        label: 'Target Face Count' # GUI label
+        description: 'Target polygon face count.' # Tooltip
+        type: integer # float, integer, boolean, string, select
+        widget: input # Optional — see below
+        default: 500000 # Used when the user hasn't overridden
+        min: 40000 # For float/integer
+        max: 1500000
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        type: boolean
+        default: false
+```
+
+### Field Reference
+
+| Field                  | Required         | Applies to     | Purpose                                           |
+| ---------------------- | ---------------- | -------------- | ------------------------------------------------- |
+| `name`                 | yes              | all            | Must match a request-body key                     |
+| `label`                | yes              | all            | GUI display name                                  |
+| `description`          | no               | all            | Tooltip text                                      |
+| `type`                 | yes              | all            | `float`, `integer`, `boolean`, `string`, `select` |
+| `default`              | yes              | all            | Used when no user override exists                 |
+| `min` / `max` / `step` | no               | float, integer | Slider bounds + increment                         |
+| `options`              | yes for `select` | select         | Enum values (strings or numbers)                  |
+| `widget`               | no               | float, integer | `slider` (default) or `input`                     |
+
+### Widget Selection (`widget:`)
+
+Optional hint that overrides the default widget for a given type:
+
+- **`slider`** (default for `float`/`integer`): draggable slider using `min`/`max`/`step`.
+- **`input`**: typed text field with range hint. Use this when:
+  - The value range is too wide for a slider to hit precisely (e.g. 40k–1.5M face counts).
+  - The field accepts "unset" — clearing the input serializes to JSON null, which drops the key from the request so the provider applies its server-side default.
+
+`min`/`max` still apply to `widget: input` — values submitted outside the range are clamped.
+
+### Null Semantics
+
+A null value anywhere in the override path means **"unset"**, not "literal null":
+
+- Template default `seed: null` in YAML → key stripped before sending.
+- User clears an `input` widget → override stored as null → key stripped.
+- CLI `--param seed=` → parsed as null → key stripped.
+
+The provider applies its own server-side default in every case. Never send a literal `null` JSON value.
+
+### Cross-Provider Parity
+
+When the same underlying model is served by multiple providers (e.g. Meshy v6 via both `fal-ai/meshy/v6/image-to-3d` and `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of which provider is selected. YAML sequences can't be merged with `<<:` anchors, so this is a hand-sync contract. A drift-catcher test in [core/tests/integration_tests.rs](../../core/tests/integration_tests.rs) fails CI if the surfaces diverge.
+
+### Persistence
+
+Parameter values persist per provider+model in `state.json` under `model_parameters`, keyed as `"{provider_id}/{model_id}"`.
+
 ## Request Templates
 
 ### Basic JSON Request

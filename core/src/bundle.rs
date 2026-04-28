@@ -59,8 +59,10 @@ pub mod files {
 
 /// Extract model statistics (vertex/triangle count, file size) from a GLB file.
 ///
-/// Parses the GLB via `gltf::import_slice` and counts vertices/triangles from
-/// mesh accessor metadata. Returns `None` if the file cannot be read or parsed.
+/// Parses the GLB without validation so stats are available even when a file
+/// declares extensions the `gltf` crate doesn't support (e.g. trellis-2 uses
+/// `EXT_texture_webp`, which `import_slice` rejects outright). We only read
+/// accessor counts, so skipping texture/extension validation is safe here.
 pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
     let metadata = std::fs::metadata(glb_path).ok()?;
     let file_size = metadata.len();
@@ -71,7 +73,9 @@ pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
         .to_uppercase();
 
     let glb_data = std::fs::read(glb_path).ok()?;
-    let (document, _, _) = gltf::import_slice(&glb_data).ok()?;
+    let document = gltf::Gltf::from_slice_without_validation(&glb_data)
+        .ok()?
+        .document;
 
     let mut vertex_count: usize = 0;
     let mut triangle_count: usize = 0;

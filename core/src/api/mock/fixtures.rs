@@ -82,6 +82,34 @@ impl MockFixtures {
         })
     }
 
+    /// Generic status: job is processing, with a tqdm-style log array.
+    ///
+    /// Mirrors the `logs` array shape fal.ai returns on `?logs=1` polling. Each
+    /// call produces a `Progress::Log` entry on the GUI/CLI side, letting us
+    /// exercise block-element glyph rendering (U+2588 and friends) offline.
+    /// `poll_index` is zero-based; logs accumulate across polls the same way
+    /// real providers return them.
+    pub fn generic_status_processing_with_tqdm_logs(poll_index: u32) -> Value {
+        const TQDM_LOG_LINES: &[&str] = &[
+            "Sampling texture SLat:   8%|\u{258F}         | 1/12 [00:00<00:01,  8.25it/s]",
+            "Sampling texture SLat:  25%|\u{2588}\u{2588}\u{258C}       | 3/12 [00:00<00:01,  8.25it/s]",
+            "Sampling texture SLat:  50%|\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}     | 6/12 [00:00<00:00,  8.23it/s]",
+            "Sampling texture SLat:  75%|\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{258C}  | 9/12 [00:01<00:00,  8.25it/s]",
+            "Sampling texture SLat: 100%|\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}| 12/12 [00:01<00:00,  8.19it/s]",
+        ];
+
+        let lines_to_emit = ((poll_index as usize) + 1).min(TQDM_LOG_LINES.len());
+        let logs: Vec<Value> = TQDM_LOG_LINES[..lines_to_emit]
+            .iter()
+            .map(|msg| json!({ "message": msg, "level": "INFO", "source": "mock" }))
+            .collect();
+
+        json!({
+            "status": "IN_PROGRESS",
+            "logs": logs,
+        })
+    }
+
     /// Generic status: job failed.
     pub fn generic_status_failed(error: &str) -> Value {
         json!({
