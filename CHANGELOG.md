@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.4.18 — 2026-04-28
+
+### Chores
+
+- doc site updates
+
+### Features
+
+- provider parameter and widget audit ([#26](https://github.com/nightandwknd/asset-tap/pull/26))
+
 ## v26.4.17 — 2026-04-21
 
 ### Chores
