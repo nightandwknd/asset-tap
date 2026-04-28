@@ -388,3 +388,74 @@ fn every_declared_parameter_exists_in_request_body() {
         missing.join("\n  ")
     );
 }
+
+/// Every declared parameter's `default:` value must match the corresponding
+/// `request.body` template value. They drift when someone updates one but
+/// not the other — the body controls what gets sent to the API, the parameter
+/// declaration controls what gets recorded in `bundle.json` (via
+/// `merge_param_overrides`). When they disagree, the bundle no longer
+/// reproduces what was actually sent.
+///
+/// Skips body values that are interpolated strings (`${...}`) since those
+/// have no static default to compare against.
+#[test]
+fn parameter_defaults_match_request_body_templates() {
+    use asset_tap_core::providers::config::{ModelConfig, ProviderConfig};
+
+    fn load(yaml_path: &str) -> ProviderConfig {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../{}", yaml_path));
+        ProviderConfig::from_yaml_file(&full)
+            .unwrap_or_else(|e| panic!("loading {}: {}", full.display(), e))
+    }
+
+    /// Two JSON values are "default-equivalent" if they encode the same
+    /// scalar after numeric normalization — `1` and `1.0` should match.
+    fn equivalent(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+        match (a, b) {
+            (serde_json::Value::Number(x), serde_json::Value::Number(y)) => {
+                match (x.as_f64(), y.as_f64()) {
+                    (Some(xf), Some(yf)) => xf == yf,
+                    _ => x == y,
+                }
+            }
+            _ => a == b,
+        }
+    }
+
+    fn check_model(provider_id: &str, model: &ModelConfig, drift: &mut Vec<String>) {
+        let Some(body) = model.request.body.as_ref().and_then(|v| v.as_object()) else {
+            return;
+        };
+        for param in &model.parameters {
+            let Some(body_val) = body.get(&param.name) else {
+                continue; // missing-key bug is caught by the sibling test
+            };
+            // Interpolated templates ('${prompt}', etc.) have no static default.
+            if matches!(body_val, serde_json::Value::String(s) if s.contains("${")) {
+                continue;
+            }
+            if !equivalent(body_val, &param.default) {
+                drift.push(format!(
+                    "{} / {}: parameter '{}' default {} differs from request.body template {}",
+                    provider_id, model.id, param.name, param.default, body_val
+                ));
+            }
+        }
+    }
+
+    let mut drift = Vec::new();
+    for path in ["providers/fal-ai.yaml", "providers/meshy.yaml"] {
+        let config = load(path);
+        let provider_id = config.provider.id.clone();
+        for model in config.text_to_image.iter().chain(config.image_to_3d.iter()) {
+            check_model(&provider_id, model, &mut drift);
+        }
+    }
+
+    assert!(
+        drift.is_empty(),
+        "Parameter defaults drifted from request body templates (the body controls what's sent; the declaration controls what's recorded in bundle.json):\n  {}",
+        drift.join("\n  ")
+    );
+}

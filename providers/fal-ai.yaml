@@ -481,6 +481,7 @@ image_to_3d:
         <<: *fal-request-headers
       body:
         image_url: '${image_url}'
+        seed: null
         resolution: 1024
         ss_guidance_strength: 7.5
         ss_guidance_rescale: 0.7
@@ -507,6 +508,14 @@ image_to_3d:
         interval_ms: 2000
         max_attempts: 300
     parameters:
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Lock the random seed for reproducible output. Leave blank for random.'
+        type: integer
+        widget: input
+        default: null
+        min: 0
+        max: 4294967295
       - name: 'resolution'
         label: 'Voxel Resolution'
         description: 'Output voxel resolution — higher is slower but more detailed.'
@@ -711,12 +720,11 @@ image_to_3d:
         topology: 'triangle'
         target_polycount: 30000
         symmetry_mode: 'auto'
-        should_remesh: true
+        # Match Meshy's documented v6 default; flip on to make Target Polycount apply.
+        should_remesh: false
         should_texture: true
         enable_pbr: false
         pose_mode: ''
-        texture_prompt: ''
-        texture_image_url: ''
     response:
       response_type: polling
       polling:
@@ -733,7 +741,7 @@ image_to_3d:
         options: ['triangle', 'quad']
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Target polygon count. Higher = more detail. Hard target only when Remesh is on — otherwise approximate.'
+        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on.'
         type: integer
         widget: input
         default: 30000
@@ -741,9 +749,9 @@ image_to_3d:
         max: 300000
       - name: 'should_remesh'
         label: 'Remesh'
-        description: 'Run the remesh phase for cleaner topology. Meshy 6 produces clean topology without it, but disabling may result in non-manifold geometry.'
+        description: 'Decimate to Target Polycount and clean up topology for DCC tools. Off by default — turn on if you want Target Polycount to apply.'
         type: boolean
-        default: true
+        default: false
       - name: 'should_texture'
         label: 'Generate Textures'
         description: 'Generate texture maps. Disable for untextured geometry only.'
@@ -754,16 +762,6 @@ image_to_3d:
         description: 'Generate PBR maps (metallic, roughness, normal). Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
-      - name: 'texture_prompt'
-        label: 'Texture Prompt'
-        description: 'Optional text prompt guiding texturing (max 600 chars). Mutually exclusive with Texture Image URL. Costs 10 extra credits per task.'
-        type: string
-        default: ''
-      - name: 'texture_image_url'
-        label: 'Texture Image URL'
-        description: 'Optional 2D image URL guiding texturing. Mutually exclusive with Texture Prompt.'
-        type: string
-        default: ''
       - name: 'symmetry_mode'
         label: 'Symmetry'
         description: 'Controls symmetry during generation.'

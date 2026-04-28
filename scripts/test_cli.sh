@@ -860,14 +860,17 @@ run_test "Param: trellis-2 decimation_target (integer, widget: input)" \
 run_test "Param: trellis-2 resolution (select, numeric)" \
     "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param resolution=512 'test'" 0
 
+run_test "Param: trellis-2 seed (integer, widget: input, null default)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param seed=42 'test'" 0
+
 run_test "Param: hunyuan-3d face_count (integer, widget: input)" \
     "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" 0
 
 run_test "Param: hunyuan-3d generate_type (select)" \
     "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param generate_type=Geometry 'test'" 0
 
-run_test "Param: meshy v6 texture_prompt (string)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param texture_prompt=wooden 'test'" 0
+run_test "Param: meshy v6 pose_mode (select)" \
+    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param pose_mode=t-pose 'test'" 0
 
 run_test "Param: empty value clears field (null)" \
     "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale= 'test'" 0
@@ -886,9 +889,9 @@ assert_bundle_json "Bundle: hunyuan-3d defaults captured (face_count=500000)" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d 'test'" \
     '.config.model_3d_params.face_count == 500000 and .config.model_3d_params.generate_type == "Normal" and .config.model_3d_params.enable_pbr == false'
 
-assert_bundle_json "Bundle: trellis-2 full default set captured (all 18 params)" \
+assert_bundle_json "Bundle: trellis-2 full default set captured (19 params, seed stripped)" \
     "--3d-model fal-ai/trellis-2 'test'" \
-    '(.config.model_3d_params | length) == 18 and .config.model_3d_params.decimation_target == 500000 and .config.model_3d_params.resolution == 1024'
+    '(.config.model_3d_params | length) == 19 and .config.model_3d_params.decimation_target == 500000 and .config.model_3d_params.resolution == 1024 and .config.model_3d_params.seed == null'
 
 assert_bundle_json "Bundle: nano-banana-2 defaults (all 7 text-to-image params)" \
     "--image-model fal-ai/nano-banana-2 'test'" \
@@ -898,9 +901,9 @@ assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)"
     "--image-model fal-ai/flux-2-pro 'test'" \
     '(.config.image_model_params | length) == 4 and .config.image_model_params.safety_tolerance == "2" and (.config.image_model_params | has("guidance_scale") | not)'
 
-assert_bundle_json "Bundle: meshy v6 via fal wrapper (9 params)" \
+assert_bundle_json "Bundle: meshy v6 via fal wrapper (7 params, should_remesh=false)" \
     "--3d-model fal-ai/meshy/v6/image-to-3d 'test'" \
-    '(.config.model_3d_params | length) == 9 and .config.model_3d_params.should_remesh == true and .config.model_3d_params.topology == "triangle"'
+    '(.config.model_3d_params | length) == 7 and .config.model_3d_params.should_remesh == false and .config.model_3d_params.topology == "triangle"'
 
 # --- Overrides captured and merged with defaults ---
 
@@ -915,6 +918,14 @@ assert_bundle_json "Bundle: trellis-2 decimation_target override (widget: input)
 assert_bundle_json "Bundle: trellis-2 numeric-option select override (resolution=512)" \
     "--3d-model fal-ai/trellis-2 --param resolution=512 'test'" \
     '.config.model_3d_params.resolution == 512'
+
+assert_bundle_json "Bundle: trellis-2 seed override is recorded in bundle" \
+    "--3d-model fal-ai/trellis-2 --param seed=42 'test'" \
+    '.config.model_3d_params.seed == 42'
+
+assert_bundle_json "Bundle: trellis-2 cleared seed (--param seed=) stays null" \
+    "--3d-model fal-ai/trellis-2 --param seed= 'test'" \
+    '.config.model_3d_params.seed == null'
 
 assert_bundle_json "Bundle: multiple overrides on same model" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=100000 --param generate_type=Geometry --param enable_pbr=true 'test'" \
