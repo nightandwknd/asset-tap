@@ -87,8 +87,8 @@ pub mod types;
 /// `std::env::var(...)` at runtime, so any test that calls
 /// `std::env::set_var`/`remove_var` races every other test that constructs a
 /// provider or loads settings. Rather than forcing the *entire* suite to run
-/// single-threaded, such tests take [`env_lock`] so only they serialize while
-/// the pure majority runs in parallel.
+/// single-threaded, such tests take [`env_lock()`](test_support::env_lock) so
+/// only they serialize while the pure majority runs in parallel.
 ///
 /// This lives in the public API (doc-hidden) rather than behind `#[cfg(test)]`
 /// so that integration tests in `core/tests/` — which compile against the
