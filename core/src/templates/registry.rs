@@ -69,6 +69,22 @@ impl TemplateRegistry {
         registry
     }
 
+    /// Create a registry that loads *only* from an explicit directory, skipping
+    /// the embedded-template write and the global user-dir lookup.
+    ///
+    /// This is the parallel-safe path for tests: each test passes its own
+    /// tempdir, so there's no contention on the shared `.dev/templates/`
+    /// directory (which is why the suite otherwise runs single-threaded).
+    #[cfg(test)]
+    pub(crate) fn from_dir(dir: &std::path::Path) -> Self {
+        let mut registry = Self {
+            templates: IndexMap::new(),
+            load_errors: Vec::new(),
+        };
+        registry.discover_templates_from_dir(&dir.to_path_buf());
+        registry
+    }
+
     /// Discover and load templates from a directory.
     fn discover_templates_from_dir(&mut self, dir: &PathBuf) {
         if !dir.exists() {
@@ -312,6 +328,7 @@ mod tests {
 
     #[test]
     fn test_registry_creation() {
+        let _dir = crate::test_support::templates_dir_lock();
         let registry = TemplateRegistry::new();
         // Should have at least the humanoid template
         assert!(registry.count() > 0);
@@ -319,6 +336,7 @@ mod tests {
 
     #[test]
     fn test_get_template() {
+        let _dir = crate::test_support::templates_dir_lock();
         let registry = TemplateRegistry::new();
         assert!(registry.get("humanoid").is_some());
         assert!(registry.get("nonexistent").is_none());
@@ -326,6 +344,7 @@ mod tests {
 
     #[test]
     fn test_list_templates() {
+        let _dir = crate::test_support::templates_dir_lock();
         let registry = TemplateRegistry::new();
         let templates = registry.list();
         assert!(!templates.is_empty());
@@ -333,6 +352,7 @@ mod tests {
 
     #[test]
     fn test_apply_template() {
+        let _dir = crate::test_support::templates_dir_lock();
         let registry = TemplateRegistry::new();
         let mut vars = HashMap::new();
         vars.insert("description".to_string(), "a cowboy ninja".to_string());
@@ -344,6 +364,7 @@ mod tests {
 
     #[test]
     fn test_apply_nonexistent_template() {
+        let _dir = crate::test_support::templates_dir_lock();
         let registry = TemplateRegistry::new();
         let vars = HashMap::new();
 
@@ -353,14 +374,16 @@ mod tests {
 
     #[test]
     fn test_error_handling_corrupt_yaml() {
-        // Create a corrupt YAML file
-        let templates_dir = get_user_templates_dir();
-        fs::create_dir_all(&templates_dir).ok();
-        let corrupt_path = templates_dir.join("test_corrupt.yaml");
-        fs::write(&corrupt_path, "id: test\nname: broken\ninvalid: [unclosed").ok();
+        // Per-test tempdir via `from_dir` — no contention on the shared
+        // templates directory, so this test is parallel-safe.
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(
+            tmp.path().join("test_corrupt.yaml"),
+            "id: test\nname: broken\ninvalid: [unclosed",
+        )
+        .unwrap();
 
-        // Load registry
-        let registry = TemplateRegistry::new();
+        let registry = TemplateRegistry::from_dir(tmp.path());
 
         // Should have captured the error
         let has_yaml_parse_error = registry
@@ -368,25 +391,19 @@ mod tests {
             .iter()
             .any(|e| e.kind == TemplateErrorKind::YamlParse);
         assert!(has_yaml_parse_error);
-
-        // Clean up
-        fs::remove_file(&corrupt_path).ok();
     }
 
     #[test]
     fn test_error_handling_validation_failure() {
-        // Create a YAML file that parses but fails validation
-        let templates_dir = get_user_templates_dir();
-        fs::create_dir_all(&templates_dir).ok();
-        let invalid_path = templates_dir.join("test_invalid.yaml");
+        // Per-test tempdir via `from_dir` — parallel-safe.
+        let tmp = tempfile::tempdir().unwrap();
         fs::write(
-            &invalid_path,
+            tmp.path().join("test_invalid.yaml"),
             "id: \"\"\nname: Invalid\ndescription: Empty ID\ntemplate: Test",
         )
-        .ok();
+        .unwrap();
 
-        // Load registry
-        let registry = TemplateRegistry::new();
+        let registry = TemplateRegistry::from_dir(tmp.path());
 
         // Should have captured the validation error
         let has_validation_error = registry
@@ -394,8 +411,5 @@ mod tests {
             .iter()
             .any(|e| e.kind == TemplateErrorKind::Validation);
         assert!(has_validation_error);
-
-        // Clean up
-        fs::remove_file(&invalid_path).ok();
     }
 }

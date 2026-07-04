@@ -15,6 +15,36 @@ pub fn open_with_system(
     }
 }
 
+/// Fallback locator for a failed run's saved image when the pipeline didn't
+/// report its own generation directory (see `run_pipeline`'s `gen_dir_out`).
+///
+/// Scans `output_dir` for timestamp-format subdirectories (`YYYY-MM-DD_HHMMSS`)
+/// only, and returns `image.png` from the newest one (by parsed timestamp, not
+/// lexicographic order). Non-timestamp directories are ignored.
+///
+/// Limitation: this is a best-effort heuristic. If two runs land in the same
+/// output directory concurrently it could still pick the sibling run's image.
+/// The `gen_dir_out` path is authoritative; this only runs if it's unavailable.
+fn latest_run_image(output_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let entries = std::fs::read_dir(output_dir).ok()?;
+    let mut candidates: Vec<(chrono::NaiveDateTime, std::path::PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name();
+            let name = name.to_str()?;
+            let ts = chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H%M%S").ok()?;
+            Some((ts, e.path()))
+        })
+        .collect();
+    // Newest timestamp first.
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates
+        .into_iter()
+        .map(|(_, dir)| dir.join(bundle_files::IMAGE))
+        .find(|p| p.exists())
+}
+
 /// Reconcile a persisted (provider, model) selection against the live registry.
 ///
 /// - Both valid → returned unchanged.
@@ -185,39 +215,12 @@ impl Toast {
 /// stderr instead of pushing toasts) — keep the two in rough sync if you
 /// add new `LoadStatus` variants.
 fn build_startup_toasts(status: &LoadStatus) -> Vec<Toast> {
-    match status {
-        LoadStatus::Ok => Vec::new(),
-        LoadStatus::InitialCreateFailed {
-            settings_path,
-            error,
-        } => vec![Toast::error(format!(
-            "Couldn't create your settings file at {}: {}. Anything \
-             you change this session won't persist until the underlying \
-             problem (likely permissions or disk space) is resolved.",
-            settings_path.display(),
-            error
-        ))],
-        LoadStatus::RecoveredFromCorrupt { quarantined_to } => vec![Toast::error(format!(
-            "Your settings file was corrupt and couldn't be read. \
-             The original has been preserved at {} so you can recover \
-             it by hand. A fresh settings.json with defaults will be \
-             saved when you change anything.",
-            quarantined_to.display()
-        ))],
-        LoadStatus::CorruptAndInPlace { settings_path } => vec![Toast::error(format!(
-            "Your settings file at {} is corrupt and couldn't be moved \
-             aside automatically. Running with defaults. The next time \
-             anything you change is saved, the corrupt file will be \
-             moved to settings.json.bak — copy it somewhere safe first \
-             if you want to recover any old values from it.",
-            settings_path.display()
-        ))],
-        LoadStatus::UnreadableFile { settings_path } => vec![Toast::error(format!(
-            "Couldn't read your settings file at {}. Running with \
-             defaults for this session.",
-            settings_path.display()
-        ))],
-    }
+    // Route through the shared LoadStatus::user_message() so the GUI toast and
+    // the CLI's stderr warning can't drift apart.
+    status
+        .user_message()
+        .map(|msg| vec![Toast::error(msg)])
+        .unwrap_or_default()
 }
 
 /// Main application state.
@@ -264,6 +267,11 @@ pub struct App {
     /// Existing image path/URL (skips image generation).
     pub existing_image: Option<String>,
 
+    /// Cached display label for `existing_image`, keyed by its path. Computing
+    /// the label reads bundle metadata from disk, so it's memoized here rather
+    /// than recomputed every frame while the sidebar is drawn.
+    pub existing_image_label: Option<(String, String)>,
+
     // =========================================================================
     // Pipeline State
     // =========================================================================
@@ -296,6 +304,11 @@ pub struct App {
 
     /// Full-resolution texture for image approval modal (loaded on demand).
     pub approval_texture: Option<(PathBuf, egui::TextureHandle)>,
+
+    /// Path whose approval-image decode failed, so we don't retry it (and
+    /// spin the UI at max FPS) every frame. Cleared when the approval texture
+    /// is reset for a new image.
+    pub approval_texture_failed: Option<PathBuf>,
 
     /// Glow context for 3D rendering (exposed for model viewer).
     pub gl_context: Option<Arc<glow::Context>>,
@@ -686,6 +699,7 @@ impl App {
             export_fbx: settings.export_fbx_default,
             skip_3d: false,
             existing_image: None,
+            existing_image_label: None,
 
             // State
             state: Arc::new(Mutex::new(PipelineState::default())),
@@ -699,6 +713,7 @@ impl App {
             library_browser: LibraryBrowser::new(),
             texture_cache: TextureCache::new(),
             approval_texture: None,
+            approval_texture_failed: None,
             bundle_info_panel: views::bundle_info::BundleInfoPanel::new(),
             confirmation_dialog: views::confirmation_dialog::ConfirmationDialog::new(),
 
@@ -1013,6 +1028,14 @@ impl App {
             config = config.with_image_approval();
         }
 
+        // Shared cell the pipeline fills with its own generation directory as
+        // soon as it's created. Used by failure-recovery below to locate this
+        // run's saved image reliably, instead of guessing by sorting the
+        // output directory (which can pick the wrong bundle).
+        let gen_dir_cell: std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        config.gen_dir_out = Some(gen_dir_cell.clone());
+
         // Start tracking in history
         let generation_id = {
             let mut history = self.history.lock().unwrap();
@@ -1077,6 +1100,7 @@ impl App {
         let gen_id = generation_id;
         let output_dir = self.settings.output_dir.clone();
         let registry = self.provider_registry.clone();
+        let gen_dir_cell = gen_dir_cell.clone();
 
         // Spawn the pipeline
         self.runtime.spawn(async move {
@@ -1201,36 +1225,36 @@ impl App {
                         completed.contains(&Stage::ImageGeneration);
 
                     if image_stage_completed {
-                        // Look for the saved image in the generation directory
-                        // The generation directory is timestamped, find the most recent one
-                        if let Ok(entries) = std::fs::read_dir(&output_dir) {
-                            let mut dirs: Vec<_> = entries
-                                .filter_map(|e| e.ok())
-                                .filter(|e| e.path().is_dir())
-                                .collect();
-                            // Sort by name descending (newest first based on timestamp)
-                            dirs.sort_by_key(|d| std::cmp::Reverse(d.file_name()));
+                        // Locate this run's saved image. Prefer the exact
+                        // generation directory the pipeline reported via the
+                        // shared cell (reliable). Fall back to a robust scan of
+                        // the output directory that only considers
+                        // timestamp-format dir names and picks the newest by
+                        // parsed timestamp — never a plain lexicographic guess.
+                        let image_path = gen_dir_cell
+                            .lock()
+                            .unwrap()
+                            .clone()
+                            .map(|dir| dir.join(bundle_files::IMAGE))
+                            .filter(|p| p.exists())
+                            .or_else(|| latest_run_image(&output_dir));
 
-                            if let Some(latest_dir) = dirs.first() {
-                                let image_path = latest_dir.path().join(bundle_files::IMAGE);
-                                if image_path.exists() {
-                                    // Check if this was a user rejection (cancelled by user)
-                                    let is_user_rejection = error_message.contains("cancelled by user");
-                                    s.recovery_info = Some(RecoveryInfo {
-                                        image_path,
-                                        recovery_message: if is_user_rejection {
-                                            "Image was saved. You can still proceed with 3D generation using this image.".to_string()
-                                        } else {
-                                            "Image was saved. You can retry 3D generation with this image.".to_string()
-                                        },
-                                        button_label: if is_user_rejection {
-                                            "Proceed with this image".to_string()
-                                        } else {
-                                            "Retry with saved image".to_string()
-                                        },
-                                    });
-                                }
-                            }
+                        if let Some(image_path) = image_path {
+                            // Check if this was a user rejection (cancelled by user)
+                            let is_user_rejection = error_message.contains("cancelled by user");
+                            s.recovery_info = Some(RecoveryInfo {
+                                image_path,
+                                recovery_message: if is_user_rejection {
+                                    "Image was saved. You can still proceed with 3D generation using this image.".to_string()
+                                } else {
+                                    "Image was saved. You can retry 3D generation with this image.".to_string()
+                                },
+                                button_label: if is_user_rejection {
+                                    "Proceed with this image".to_string()
+                                } else {
+                                    "Retry with saved image".to_string()
+                                },
+                            });
                         }
                     }
 
@@ -1345,6 +1369,7 @@ impl App {
     /// Handle approval of generated image - send approval to pipeline.
     pub fn approve_generated_image(&mut self) {
         self.approval_texture = None;
+        self.approval_texture_failed = None;
         let mut state = self.state.lock().unwrap();
         state.awaiting_approval = None;
 
@@ -1363,6 +1388,7 @@ impl App {
     /// Handle rejection of generated image - send rejection to pipeline.
     pub fn reject_generated_image(&mut self) {
         self.approval_texture = None;
+        self.approval_texture_failed = None;
         {
             let mut state = self.state.lock().unwrap();
             state.awaiting_approval = None;
@@ -1388,6 +1414,7 @@ impl App {
         }
         // Clear full-resolution approval texture
         self.approval_texture = None;
+        self.approval_texture_failed = None;
 
         // Clear the approval data (modal will show loading state)
         state.awaiting_approval = None;
@@ -1825,10 +1852,14 @@ impl App {
         // Process actions
         if confirmed {
             self.app_state.prompt_history.clear();
-            if let Err(e) = self.app_state.save() {
-                tracing::error!("Failed to save state after clearing history: {}", e);
+            match self.app_state.save() {
+                Ok(_) => self.toasts.push(Toast::success("Prompt history cleared")),
+                Err(e) => {
+                    tracing::error!("Failed to save state after clearing history: {}", e);
+                    self.toasts
+                        .push(Toast::error("Failed to clear prompt history"));
+                }
             }
-            self.toasts.push(Toast::success("Prompt history cleared"));
             self.show_clear_history_confirmation = false;
         } else if cancelled {
             self.show_clear_history_confirmation = false;
@@ -2150,6 +2181,7 @@ impl eframe::App for App {
                 // Only save when user clicks "Get Started", not when opening settings
                 if let Err(e) = self.settings.save() {
                     tracing::error!("Failed to save settings: {}", e);
+                    self.toasts.push(Toast::error("Failed to save settings"));
                 }
 
                 // Start walkthrough for first-time users
@@ -2243,9 +2275,10 @@ impl eframe::App for App {
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 dismissed = true;
             }
-            if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                confirmed = true;
-            }
+            // Policy: no global Enter-to-confirm on expensive/destructive
+            // actions. This kicks off a large (34 MB) download, so require an
+            // explicit button click — matching the delete-bundle dialog, which
+            // deliberately omits Enter for the same reason.
 
             if confirmed {
                 self.show_demo_download_confirm = false;
@@ -2535,6 +2568,8 @@ impl eframe::App for App {
                 .set_output_dir(self.settings.output_dir.clone());
             // Refresh provider registry to pick up new API keys
             self.provider_registry = asset_tap_core::providers::ProviderRegistry::new();
+            // Re-check Blender availability (a custom path may have changed).
+            self.blender_available = asset_tap_core::convert::find_blender().is_some();
             // Show success toast
             self.add_toast(Toast::success("Settings saved successfully"));
         }
@@ -2623,9 +2658,12 @@ impl eframe::App for App {
         // Render walkthrough overlay (must be last to draw on top of everything)
         self.walkthrough.render(ctx);
 
-        // Request repaint while pipeline is running or toasts are visible
+        // Request repaint while pipeline is running or toasts are visible.
+        // Throttle to ~10 FPS — plenty for spinners/toasts — instead of
+        // repainting at the display's max rate for the whole (minutes-long)
+        // pipeline, which needlessly burns CPU/GPU.
         if self.state.lock().unwrap().running || !self.toasts.is_empty() {
-            ctx.request_repaint();
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
 

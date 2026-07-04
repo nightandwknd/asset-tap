@@ -162,3 +162,134 @@ pub fn generate_timestamp() -> String {
     use chrono::Local;
     Local::now().format("%Y-%m-%d_%H%M%S").to_string()
 }
+
+// =============================================================================
+// Atomic file writes
+// =============================================================================
+
+/// Options controlling [`atomic_write`]. The default (no backup, no permission
+/// clamp) suits caches and app state; settings opt into both.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AtomicWriteOptions {
+    /// Copy the existing file to `<path>.bak` before replacing it.
+    pub backup: bool,
+    /// On Unix, set the final file's mode to `0o600` (owner-only). Use for
+    /// files that may contain secrets (e.g. API keys).
+    pub owner_only: bool,
+}
+
+/// Durably and atomically write `contents` to `path`.
+///
+/// This is the shared implementation behind every persisted JSON file in the
+/// app. It writes to a sibling temp file, `fsync`s it, optionally clamps
+/// permissions and backs up the previous file, then `rename`s into place — so a
+/// crash mid-write can never leave a truncated or empty file where a valid one
+/// used to be. The rename is atomic because the temp file lives in the same
+/// directory (hence the same filesystem) as the destination.
+///
+/// Prefer this over a bare `std::fs::write` for anything whose corruption would
+/// lose user data (settings, app state, history, bundle metadata, caches).
+pub fn atomic_write(path: &Path, contents: &[u8], opts: AtomicWriteOptions) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Unique temp sibling so concurrent writers to different files don't clash;
+    // `.tmp` extension keeps it recognizable if a crash leaves one behind.
+    let tmp_path = path.with_extension(match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => format!("{ext}.tmp"),
+        None => "tmp".to_string(),
+    });
+
+    {
+        use std::io::Write as _;
+        let mut tmp = std::fs::File::create(&tmp_path)?;
+        tmp.write_all(contents)?;
+        // fsync before rename: without it, a crash between write() and rename()
+        // can promote an empty tmp file to the real file.
+        tmp.sync_all()?;
+    }
+
+    #[cfg(unix)]
+    if opts.owner_only {
+        use std::os::unix::fs::PermissionsExt;
+        // Clamp permissions on the tmp file *before* the rename so the final
+        // file is never world-readable, even momentarily.
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
+    if opts.backup && path.exists() {
+        let bak_path = path.with_extension(match path.extension().and_then(|e| e.to_str()) {
+            Some(ext) => format!("{ext}.bak"),
+            None => "bak".to_string(),
+        });
+        if let Err(e) = std::fs::copy(path, &bak_path) {
+            // Non-fatal: saving the new data matters more than the backup.
+            tracing::warn!("Failed to back up {:?} to {:?}: {}", path, bak_path, e);
+        }
+    }
+
+    std::fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+/// Serialize `value` as pretty JSON and [`atomic_write`] it to `path`.
+pub fn atomic_write_json<T: serde::Serialize>(
+    path: &Path,
+    value: &T,
+    opts: AtomicWriteOptions,
+) -> std::io::Result<()> {
+    let contents = serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?;
+    atomic_write(path, &contents, opts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_atomic_write_roundtrip_and_no_tmp_left() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.json");
+        atomic_write(&path, b"hello", AtomicWriteOptions::default()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello");
+        // No stray tmp sibling remains after a successful write.
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn test_atomic_write_backs_up_previous() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.json");
+        let opts = AtomicWriteOptions {
+            backup: true,
+            owner_only: false,
+        };
+        atomic_write(&path, b"v1", opts).unwrap();
+        atomic_write(&path, b"v2", opts).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"v2");
+        assert_eq!(
+            std::fs::read(path.with_extension("json.bak")).unwrap(),
+            b"v1"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_write_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("secret.json");
+        atomic_write(
+            &path,
+            b"key",
+            AtomicWriteOptions {
+                backup: false,
+                owner_only: true,
+            },
+        )
+        .unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}

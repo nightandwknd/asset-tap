@@ -108,7 +108,7 @@ text_to_image:
       body:
         prompt: '${prompt}'
     response:
-      response_type: Json
+      response_type: json
       field: 'image_url'
 ```
 
@@ -154,7 +154,7 @@ In the GUI, set API keys in Settings. For the CLI, use environment variables or 
 
 ```yaml
 response:
-  response_type: Json
+  response_type: json
   field: 'data.images[0].url' # JSONPath expression
 ```
 
@@ -190,11 +190,11 @@ response:
 
 ```yaml
 response:
-  response_type: Binary
+  response_type: binary
 
 # or base64-encoded in JSON:
 response:
-  response_type: Base64
+  response_type: base64
   field: 'artifacts[0].base64'
 ```
 

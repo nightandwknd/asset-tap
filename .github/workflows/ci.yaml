@@ -130,6 +130,25 @@ jobs:
           check_name: Test Results
           include_passed: true
 
+  # Platform-sensitive code (config-dir resolution, unix file permissions,
+  # path handling) ships on macOS/Windows but was only ever tested on Linux.
+  # Run the core suite on macOS to cover it. Core-only keeps this fast and
+  # avoids the GUI's native display/GL deps in headless CI.
+  test-macos:
+    name: Test (macOS)
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run -p asset-tap-core --all-features
+
   docs:
     name: Documentation
     needs: [changes]

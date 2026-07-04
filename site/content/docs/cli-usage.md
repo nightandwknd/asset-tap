@@ -244,21 +244,23 @@ Mock mode redirects all API requests to a local server that returns synthetic da
 
 ## Complete Flag Reference
 
-| Flag                 | Short | Description                                                   |
-| -------------------- | ----- | ------------------------------------------------------------- |
-| `--yes`              | `-y`  | Auto-confirm the image approval step                          |
-| `--provider`         | `-p`  | Provider to use (e.g., `fal.ai`)                              |
-| `--image-model`      |       | Image generation model                                        |
-| `--3d-model`         |       | 3D generation model                                           |
-| `--image`            |       | Skip image generation, use existing image (local path or URL) |
-| `--template`         | `-t`  | Use a prompt template                                         |
-| `--output`           | `-o`  | Output directory for generated assets                         |
-| `--list`             |       | List available models and templates                           |
-| `--list-providers`   |       | List available providers and their models                     |
-| `--inspect-template` |       | Inspect a template's syntax and preview                       |
-| `--no-fbx`           |       | Skip FBX conversion (GLB only)                                |
-| `--convert-fbx`      |       | Convert a specific GLB file or bundle directory to FBX        |
-| `--convert-only`     |       | Batch convert all existing GLB files to FBX (no API calls)    |
-| `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                     |
-| `--approve`          |       | Require image approval before 3D generation                   |
-| `--export-bundle`    |       | Export a bundle directory as a zip archive                    |
+| Flag                 | Short | Description                                                           |
+| -------------------- | ----- | --------------------------------------------------------------------- |
+| `--yes`              | `-y`  | Auto-confirm the image approval step                                  |
+| `--provider`         | `-p`  | Provider to use (e.g., `fal.ai`)                                      |
+| `--image-model`      |       | Image generation model                                                |
+| `--3d-model`         |       | 3D generation model                                                   |
+| `--image`            |       | Skip image generation, use existing image (local path or URL)         |
+| `--image-only`       |       | Stop after image generation — no 3D model                             |
+| `--template`         | `-t`  | Use a prompt template                                                 |
+| `--output`           | `-o`  | Output directory for generated assets                                 |
+| `--name`             | `-n`  | Name the generated bundle (or an existing one with `--export-bundle`) |
+| `--list`             |       | List available models and templates                                   |
+| `--list-providers`   |       | List available providers and their models                             |
+| `--inspect-template` |       | Inspect a template's syntax and preview                               |
+| `--no-fbx`           |       | Skip FBX conversion (GLB only)                                        |
+| `--convert-fbx`      |       | Convert a specific GLB file or bundle directory to FBX                |
+| `--convert-only`     |       | Batch convert all existing GLB files to FBX (no API calls)            |
+| `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                             |
+| `--approve`          |       | Require image approval before 3D generation                           |
+| `--export-bundle`    |       | Export a bundle directory as a zip archive                            |

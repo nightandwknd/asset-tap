@@ -212,7 +212,7 @@ impl AboutModal {
 
                     // License info
                     ui.label(
-                        egui::RichText::new("Licensed under AGPL-3.0")
+                        egui::RichText::new("Licensed under MIT or Apache-2.0")
                             .small()
                             .secondary(),
                     );
@@ -222,12 +222,9 @@ impl AboutModal {
                     // Copyright with dynamic year
                     let current_year = chrono::Local::now().year();
                     ui.label(
-                        egui::RichText::new(format!(
-                            "© {} nightandwknd. All rights reserved.",
-                            current_year
-                        ))
-                        .small()
-                        .secondary(),
+                        egui::RichText::new(format!("© {} Night and Wknd", current_year))
+                            .small()
+                            .secondary(),
                     );
 
                     ui.add_space(16.0);

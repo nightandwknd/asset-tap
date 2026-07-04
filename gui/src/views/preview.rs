@@ -17,10 +17,14 @@ fn date_relative_path(path: &Path) -> String {
     for (i, component) in components.iter().enumerate() {
         if let std::path::Component::Normal(name) = component {
             let name_str = name.to_string_lossy();
-            // Match YYYY-MM-DD_HHMMSS pattern (17 chars)
+            // Match YYYY-MM-DD_HHMMSS pattern (17 chars). Use `.get()` rather
+            // than a byte-index slice so a non-ASCII name that happens to be 17
+            // bytes can't panic on a char boundary.
             if name_str.len() == 17
                 && name_str.chars().nth(10) == Some('_')
-                && name_str[11..].chars().all(|c| c.is_ascii_digit())
+                && name_str
+                    .get(11..)
+                    .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
             {
                 // Build path from this component onwards
                 let remaining: std::path::PathBuf = components[i..].iter().collect();
@@ -732,12 +736,17 @@ fn render_model_action_buttons(
         }
 
         if let Some(ref fbx) = fbx_path {
-            let blender_available = app.blender_available;
+            let has_custom_blender = app
+                .settings
+                .blender_path
+                .as_ref()
+                .is_some_and(|p| !p.is_empty());
+            let can_open = app.blender_available || has_custom_blender;
 
             let button = egui::Button::new(format!("{} Open FBX", icons::FILE));
-            let mut response = ui.add_enabled(blender_available, button);
+            let mut response = ui.add_enabled(can_open, button);
 
-            if blender_available {
+            if can_open {
                 response = response.on_hover_text("Open with Blender");
             } else {
                 response = response.on_disabled_hover_text(
@@ -831,23 +840,11 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
         ui.heading(format!("{} Textures", icons::PALETTE));
         ui.add_space(8.0);
 
-        // Collect texture paths (typically just 2: Image_0.png and Image_1.png)
-        let mut texture_paths: Vec<_> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                let is_texture = path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| {
-                        matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg")
-                    });
-                if is_texture { Some(path) } else { None }
-            })
-            .collect();
-        texture_paths.sort();
+        // Texture paths (typically just 2: Image_0.png and Image_1.png) are
+        // scanned once per directory change by the cache, not re-read every
+        // frame. Clone the small list so the cache can be borrowed mutably
+        // below when fetching thumbnails.
+        let texture_paths: Vec<_> = app.texture_cache.texture_paths().to_vec();
 
         // Calculate size for 2 images side by side
         // Use more of the available space (only 20px padding total)

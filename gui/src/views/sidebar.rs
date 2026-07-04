@@ -168,8 +168,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         } else {
                             for entry in app.app_state.prompt_history.iter() {
                                 // Truncate long prompts for display
-                                let display_prompt = if entry.prompt.len() > 50 {
-                                    format!("{}...", &entry.prompt[..47])
+                                let display_prompt = if entry.prompt.chars().count() > 50 {
+                                    let truncated: String = entry.prompt.chars().take(47).collect();
+                                    format!("{truncated}...")
                                 } else {
                                     entry.prompt.clone()
                                 };
@@ -243,8 +244,19 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
         let mut should_clear_image = false;
         let mut should_show_in_folder: Option<PathBuf> = None;
-        if let Some(ref path) = app.existing_image {
-            let label = format_existing_image_label(path);
+        if let Some(path) = app.existing_image.clone() {
+            // Memoize the label — computing it reads bundle metadata from disk,
+            // which we don't want to repeat every frame. Recompute only when the
+            // path changes.
+            let label = match &app.existing_image_label {
+                Some((cached_path, cached_label)) if *cached_path == path => cached_label.clone(),
+                _ => {
+                    let computed = format_existing_image_label(&path);
+                    app.existing_image_label = Some((path.clone(), computed.clone()));
+                    computed
+                }
+            };
+            let path = &path;
             let hover = normalize_whitespace_for_display(path);
             let path_buf = PathBuf::from(path);
             ui.horizontal(|ui| {

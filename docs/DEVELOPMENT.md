@@ -16,7 +16,7 @@ This guide covers local development setup, testing, code standards, and contribu
 
 ### Prerequisites
 
-- **Rust 1.82+** - Install via [rustup](https://rustup.rs)
+- **Rust 1.94.1** - Install via [rustup](https://rustup.rs). The exact toolchain is pinned in [`rust-toolchain.toml`](../rust-toolchain.toml), so rustup selects it automatically in this repo.
 - **Git** - For version control
 - **cargo-nextest** - Test runner (auto-installed by `make test` if missing, or `cargo install cargo-nextest --locked`)
 - **Blender** (optional) - For testing FBX conversion
@@ -164,24 +164,33 @@ Release builds use OS-specific config directories (e.g., `~/.config/asset-tap/` 
 
 ### Running Tests
 
+The test runner is [cargo-nextest](https://nexte.st) (auto-installed by `make test` if missing). `make test` is the canonical entrypoint — it invokes nextest with the repo's config.
+
 ```bash
-# All tests (MUST use --test-threads=1)
+# All tests (via cargo-nextest)
 make test
 
-# Specific test suites
-make test-core              # Core library tests only
-cargo test --test mock_server_tests
-cargo test --test file_io_tests
-cargo test --test pipeline_execution_tests
+# Core library tests only
+make test-core
+
+# Specific test suites (nextest -E filter, or plain cargo test)
+cargo nextest run -E 'test(mock_server)'
+cargo nextest run -E 'test(file_io)'
+cargo nextest run -E 'test(pipeline_execution)'
 
 # With output
-cargo test -- --nocapture --test-threads=1
+cargo nextest run --no-capture
 
 # Watch mode (auto-run on changes)
-cargo watch -x "test -- --test-threads=1"
+cargo watch -x "nextest run"
 ```
 
-**Important:** Tests must run with `--test-threads=1` due to shared file access in the template system.
+**Test isolation:** Tests run in parallel. A few tests mutate process-global state — environment variables (which the provider/settings code reads at runtime) and the shared `.dev/templates/` directory. Those tests take a guard from `asset_tap_core::test_support` (`env_lock()` or `templates_dir_lock()`) so they serialize against each other while the rest of the suite runs concurrently. When writing a new test:
+
+- Mutating `std::env`? Hold `let _env = asset_tap_core::test_support::env_lock();` for the whole test.
+- Building a template registry? Prefer `TemplateRegistry::from_dir(tempdir)` for full isolation; if you must use `TemplateRegistry::new()`, hold `templates_dir_lock()`.
+
+A test that flakes only under parallelism is almost always missing one of these guards.
 
 ### Test Coverage
 
@@ -202,6 +211,7 @@ make coverage-html
   - `pipeline_execution_tests.rs` - End-to-end pipeline
   - `integration_tests.rs` - Cross-module integration
   - `discovery_tests.rs` - Model discovery
+  - `provider_contracts.rs` - Provider YAML contract checks
 
 ### Writing Tests
 
@@ -337,7 +347,7 @@ text_to_image:
       body:
         prompt: "\${prompt}"
     response:
-      response_type: Json
+      response_type: json
       field: "image_url"
 EOF
 ```
@@ -529,4 +539,4 @@ make package-linux     # .deb and .AppImage
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+Asset Tap is dual-licensed under the MIT and Apache-2.0 licenses. Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual-licensed as above, without any additional terms or conditions.

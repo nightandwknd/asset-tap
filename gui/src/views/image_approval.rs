@@ -97,18 +97,41 @@ pub fn render(
         Some((cached_path, _)) => *cached_path != image_path,
         None => true,
     };
-    if needs_load
-        && image_path.exists()
-        && let Ok(img) = image::open(&image_path)
+    // A previous decode of a *different* path failing must not block this one.
+    if app
+        .approval_texture_failed
+        .as_ref()
+        .is_some_and(|p| *p != image_path)
     {
-        let rgba = img.to_rgba8();
-        let (w, h) = rgba.dimensions();
-        let color_image =
-            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], rgba.as_raw());
-        let texture =
-            ui.ctx()
-                .load_texture("approval_image", color_image, egui::TextureOptions::LINEAR);
-        app.approval_texture = Some((image_path.clone(), texture));
+        app.approval_texture_failed = None;
+    }
+    // Skip the decode if it already failed for this exact path — otherwise the
+    // per-frame request_repaint() below would retry a broken file forever.
+    let already_failed = app
+        .approval_texture_failed
+        .as_ref()
+        .is_some_and(|p| *p == image_path);
+    if needs_load && !already_failed && image_path.exists() {
+        match image::open(&image_path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [w as usize, h as usize],
+                    rgba.as_raw(),
+                );
+                let texture = ui.ctx().load_texture(
+                    "approval_image",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+                app.approval_texture = Some((image_path.clone(), texture));
+            }
+            Err(e) => {
+                tracing::warn!("Failed to decode approval image {:?}: {}", image_path, e);
+                app.approval_texture_failed = Some(image_path.clone());
+            }
+        }
     }
 
     // Image preview in scrollable area
@@ -138,11 +161,17 @@ pub fn render(
                     ));
                 });
             } else {
-                // Texture not loaded yet - mark for repaint
-                texture_loading = true;
-
                 // Check if file exists but hasn't loaded yet
                 let file_exists = approval_data.image_path.exists();
+                let decode_failed = app
+                    .approval_texture_failed
+                    .as_ref()
+                    .is_some_and(|p| *p == approval_data.image_path);
+
+                // Only keep repainting while we're genuinely still waiting on a
+                // load. A permanent decode failure must NOT request a repaint,
+                // or the UI would spin at max FPS forever.
+                texture_loading = file_exists && !decode_failed;
 
                 // Reserve space and show loading indicator or error
                 ui.allocate_ui_with_layout(
@@ -150,7 +179,20 @@ pub fn render(
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
                     |ui| {
                         ui.vertical_centered(|ui| {
-                            if file_exists {
+                            if decode_failed {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(255, 120, 120),
+                                    format!("{} Failed to load image", icons::WARNING),
+                                );
+                                ui.add_space(8.0);
+                                ui.label(
+                                    egui::RichText::new(
+                                        "The image file could not be decoded. You can regenerate or reject.",
+                                    )
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                                );
+                            } else if file_exists {
                                 ui.spinner();
                                 ui.add_space(8.0);
                                 ui.label("Loading image...");

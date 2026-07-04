@@ -62,9 +62,7 @@
 //!
 //! # Feature Flags
 //!
-//! - `mock` (default) - Enables mock API mode for testing without API costs
-
-#![doc(html_root_url = "https://docs.rs/asset-tap-core/0.1.0")]
+//! - `mock` (off by default) - Enables mock API mode for testing without API costs
 
 pub mod api;
 pub mod bundle;
@@ -82,6 +80,52 @@ pub mod settings;
 pub mod state;
 pub mod templates;
 pub mod types;
+
+/// Test-only synchronization for tests that mutate process-global state.
+///
+/// The provider/settings code reads API keys and mock flags from
+/// `std::env::var(...)` at runtime, so any test that calls
+/// `std::env::set_var`/`remove_var` races every other test that constructs a
+/// provider or loads settings. Rather than forcing the *entire* suite to run
+/// single-threaded, such tests take [`env_lock`] so only they serialize while
+/// the pure majority runs in parallel.
+///
+/// This lives in the public API (doc-hidden) rather than behind `#[cfg(test)]`
+/// so that integration tests in `core/tests/` — which compile against the
+/// crate's public interface, where `cfg(test)` does not apply — can share the
+/// *same* lock instance as the in-crate unit tests. The cost is one `Mutex`
+/// static; it is never touched outside tests.
+#[doc(hidden)]
+pub mod test_support {
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    static TEMPLATES_DIR_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Acquire the process-wide lock guarding `std::env` mutation in tests.
+    ///
+    /// Hold the returned guard for the duration of any test that sets or
+    /// removes environment variables. The guard is poison-tolerant: a panicking
+    /// test still releases the lock for the next one.
+    pub fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Acquire the lock guarding the shared user-templates directory in tests.
+    ///
+    /// `TemplateRegistry::new()` writes the embedded templates into the shared
+    /// on-disk templates dir; concurrent writers race on those files. Tests that
+    /// construct a registry via `new()` (rather than the isolated
+    /// `from_dir(tempdir)`) hold this so they serialize against each other while
+    /// the rest of the suite runs in parallel.
+    pub fn templates_dir_lock() -> MutexGuard<'static, ()> {
+        TEMPLATES_DIR_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 // Re-export commonly used types
 pub use bundle::{

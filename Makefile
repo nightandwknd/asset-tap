@@ -1,7 +1,7 @@
 .PHONY: help build build-debug build-cli \
 	cli gui dev mock mock-delay mock-gui mock-gui-delay refresh-models \
 	test test-core test-cli test-gui test-unit test-integration test-mock test-cli-comprehensive bench \
-	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps \
+	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps udeps-ci \
 	lint-workflows lint-shell \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
@@ -79,6 +79,9 @@ ifndef CHECK_NEXTEST
 	@cargo install cargo-nextest --locked
 endif
 	cargo nextest run --workspace --all-features
+	@# nextest does not run doctests; run them separately so the rustdoc
+	@# examples (e.g. the pipeline quick-start in lib.rs) can't silently rot.
+	cargo test --doc --workspace --all-features
 
 test-core: ## Test core library only
 	@rm -f core/custom_templates.json
@@ -188,6 +191,13 @@ ifndef CHECK_UDEPS
 endif
 	cargo +nightly udeps --workspace --all-features
 
+udeps-ci: ## udeps for `make ci` — skips gracefully if nightly is absent
+	@if rustup toolchain list 2>/dev/null | grep -q nightly; then \
+		$(MAKE) udeps; \
+	else \
+		echo "nightly toolchain not installed — skipping udeps (matches CI's nightly job)"; \
+	fi
+
 # =============================================================================
 # Documentation
 # =============================================================================
@@ -233,7 +243,7 @@ clippy-fix: ## Auto-fix clippy warnings where possible
 
 verify: fmt clippy-fix lint-workflows lint-shell check test ## Run all quality checks with auto-fixes
 
-ci: fmt-check clippy lint-workflows lint-shell check doc audit test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
+ci: fmt-check clippy lint-workflows lint-shell check doc audit udeps-ci test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
 
 # =============================================================================
 # Utilities

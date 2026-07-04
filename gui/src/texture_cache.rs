@@ -40,6 +40,9 @@ pub struct TextureCache {
     failed: HashSet<PathBuf>,
     /// Current textures directory being displayed
     current_dir: Option<PathBuf>,
+    /// Sorted texture file paths for `current_dir`, scanned once per directory
+    /// change so the UI doesn't `read_dir` + sort on every frame.
+    texture_paths: Vec<PathBuf>,
 }
 
 impl Default for TextureCache {
@@ -127,6 +130,7 @@ impl TextureCache {
             loading_requested: HashSet::new(),
             failed: HashSet::new(),
             current_dir: None,
+            texture_paths: Vec::new(),
         }
     }
 
@@ -138,7 +142,41 @@ impl TextureCache {
             self.cache.clear();
             self.loading_requested.clear();
             self.failed.clear();
+            // Rescan the directory's texture files once, here, instead of on
+            // every frame during rendering.
+            self.texture_paths = self
+                .current_dir
+                .as_ref()
+                .map(Self::scan_texture_paths)
+                .unwrap_or_default();
         }
+    }
+
+    /// Scan a directory for texture image files, returning them sorted by path.
+    fn scan_texture_paths(dir: &PathBuf) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                let is_texture = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| {
+                        matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg")
+                    });
+                if is_texture { Some(path) } else { None }
+            })
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    /// The sorted texture paths for the current directory (scanned once per
+    /// directory change via [`set_directory`](Self::set_directory)).
+    pub fn texture_paths(&self) -> &[PathBuf] {
+        &self.texture_paths
     }
 
     /// Process any loaded thumbnails from background thread.

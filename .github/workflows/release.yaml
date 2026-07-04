@@ -21,7 +21,8 @@ on:
       - '.mcp.json'
       - 'cliff.toml'
       - 'dprint.json'
-      - 'LICENSE'
+      - 'LICENSE-MIT'
+      - 'LICENSE-APACHE'
 
   workflow_dispatch:
 
