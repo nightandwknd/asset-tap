@@ -72,12 +72,13 @@ const SETTINGS_FILE: &str = config_files::SETTINGS;
 /// Local settings file for dev mode.
 const DEV_SETTINGS_FILE: &str = config_files::DEV_SETTINGS;
 
-/// Filesystem extension sidecar suffixes used by [`Settings::save_to`] and
-/// [`Settings::load_from_with_status`]. These are passed to
-/// [`std::path::Path::with_extension`], which replaces the entire existing
-/// extension — so "json.tmp" produces `settings.json.tmp`, not
-/// `settings.json.json.tmp`.
+/// Filesystem extension sidecar suffixes asserted on in tests. The actual
+/// tmp/bak files are produced by [`crate::config::atomic_write`], which derives
+/// these same suffixes from the destination's extension; the tests reconstruct
+/// them here to check the on-disk artifacts.
+#[cfg(test)]
 const TMP_EXT: &str = "json.tmp";
+#[cfg(test)]
 const BAK_EXT: &str = "json.bak";
 /// Prefix used to rename a corrupt settings file aside for recovery. The
 /// full sidecar filename is `<settings-filename>.corrupt-<unix_timestamp>`.
@@ -200,6 +201,41 @@ pub enum LoadStatus {
     CorruptAndInPlace { settings_path: PathBuf },
     /// File existed but couldn't even be read (permissions, I/O error, etc.).
     UnreadableFile { settings_path: PathBuf },
+}
+
+impl LoadStatus {
+    /// A user-facing warning describing a non-`Ok` load outcome, or `None` when
+    /// the load was clean. Shared by the CLI (stderr) and GUI (startup toast)
+    /// so the two don't drift — previously each hand-wrote this mapping.
+    pub fn user_message(&self) -> Option<String> {
+        match self {
+            LoadStatus::Ok => None,
+            LoadStatus::InitialCreateFailed {
+                settings_path,
+                error,
+            } => Some(format!(
+                "Could not create settings.json at {}: {}. Running with defaults; \
+                 changes won't persist until the underlying problem is resolved.",
+                settings_path.display(),
+                error
+            )),
+            LoadStatus::RecoveredFromCorrupt { quarantined_to } => Some(format!(
+                "settings.json was corrupt and could not be parsed. Original preserved at: {}. \
+                 Running with defaults; a fresh settings.json will be written on next save.",
+                quarantined_to.display()
+            )),
+            LoadStatus::CorruptAndInPlace { settings_path } => Some(format!(
+                "settings.json at {} is corrupt and could not be moved aside. Running with \
+                 defaults; the next save will move the corrupt file to settings.json.bak — \
+                 copy it somewhere safe first if you want to recover values.",
+                settings_path.display()
+            )),
+            LoadStatus::UnreadableFile { settings_path } => Some(format!(
+                "Could not read settings.json at {}. Running with defaults for this session.",
+                settings_path.display()
+            )),
+        }
+    }
 }
 
 impl Settings {
@@ -358,53 +394,19 @@ impl Settings {
     }
 
     /// Test-visible inner implementation of [`Self::save`]. See [`Self::load_from`].
+    ///
+    /// Settings hold API keys, so this uses the owner-only + backup variant of
+    /// the shared atomic writer.
     pub(crate) fn save_to(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let contents = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-
-        // 1. Write new contents to a tmp file in the same directory so the
-        //    subsequent rename is atomic (same filesystem guaranteed).
-        let tmp_path = path.with_extension(TMP_EXT);
-        {
-            use std::io::Write as _;
-            let mut tmp = std::fs::File::create(&tmp_path)?;
-            tmp.write_all(contents.as_bytes())?;
-            // fsync the data to disk before rename — without this, a crash
-            // between write() and rename() can leave an empty tmp file that
-            // the next rename promotes to the real settings.json.
-            tmp.sync_all()?;
-        }
-
-        // Restrict file permissions on the tmp file *before* the rename so
-        // the final file is never world-readable even for an instant.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(&tmp_path, perms)?;
-        }
-
-        // 2. Back up the existing file before stomping it.
-        if path.exists() {
-            let bak_path = path.with_extension(BAK_EXT);
-            if let Err(e) = std::fs::copy(path, &bak_path) {
-                // Non-fatal: we'd rather save the new settings than refuse
-                // because the backup failed. Log it and continue.
-                tracing::warn!(
-                    "Failed to back up existing settings to {:?}: {}",
-                    bak_path,
-                    e
-                );
-            }
-        }
-
-        // 3. Atomic rename into place.
-        std::fs::rename(&tmp_path, path)?;
-
-        Ok(())
+        let contents = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        crate::config::atomic_write(
+            path,
+            &contents,
+            crate::config::AtomicWriteOptions {
+                backup: true,
+                owner_only: true,
+            },
+        )
     }
 
     /// Check if the output directory exists and is writable.
@@ -817,6 +819,7 @@ mod tests {
 
     #[test]
     fn test_sync_from_env_only_adds_missing() {
+        let _env = crate::test_support::env_lock();
         let registry = ProviderRegistry::new();
 
         // Find a provider with env vars to test with
@@ -857,6 +860,7 @@ mod tests {
 
     #[test]
     fn test_sync_to_env() {
+        let _env = crate::test_support::env_lock();
         let registry = ProviderRegistry::new();
 
         // Find a provider with env vars to test with
@@ -896,6 +900,7 @@ mod tests {
     /// happens to a user with a corrupt or freshly-defaulted settings file.
     #[test]
     fn test_sync_to_env_preserves_preexisting_env_when_settings_empty() {
+        let _env = crate::test_support::env_lock();
         let registry = ProviderRegistry::new();
 
         let provider_info = registry.list_all().into_iter().find_map(|p| {
@@ -935,6 +940,7 @@ mod tests {
     /// would return true and short-circuit the remove).
     #[test]
     fn test_sync_to_env_authoritative_removes_when_settings_empty() {
+        let _env = crate::test_support::env_lock();
         let registry = ProviderRegistry::new();
 
         let provider_info = registry.list_all().into_iter().find_map(|p| {
@@ -968,6 +974,7 @@ mod tests {
     /// happens to have in their `settings.json`.
     #[test]
     fn test_sync_to_env_authoritative_preserves_env_in_dev_mode() {
+        let _env = crate::test_support::env_lock();
         let registry = ProviderRegistry::new();
 
         let provider_info = registry.list_all().into_iter().find_map(|p| {

@@ -50,7 +50,19 @@ fn extract_host(url: &str) -> Option<String> {
 ///
 /// Rejects non-HTTP(S) schemes and URLs pointing to private/internal IP ranges
 /// to prevent SSRF attacks via malicious API responses.
+/// Test-only switch to bypass SSRF validation so unit tests can point at a
+/// localhost wiremock server without depending on the process-global
+/// `MOCK_API` env var (which other tests mutate, causing cross-test flakiness).
+#[cfg(test)]
+pub(super) static SKIP_URL_VALIDATION_FOR_TEST: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 fn validate_download_url(url: &str) -> Result<()> {
+    #[cfg(test)]
+    if SKIP_URL_VALIDATION_FOR_TEST.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
     // Skip validation in mock mode (mock server runs on localhost)
     #[cfg(feature = "mock")]
     if crate::api::is_mock_mode() {
@@ -65,7 +77,9 @@ fn validate_download_url(url: &str) -> Result<()> {
         ));
     }
 
-    let host = extract_host(url).unwrap_or_default();
+    // Hostnames are case-insensitive; normalize so `LOCALHOST`, `.LOCAL`, etc.
+    // can't slip past the string checks below.
+    let host = extract_host(url).unwrap_or_default().to_ascii_lowercase();
 
     // Block empty host
     if host.is_empty() {
@@ -77,8 +91,15 @@ fn validate_download_url(url: &str) -> Result<()> {
         return Err(anyhow!("URL points to local/internal host: {}", host));
     }
 
-    // Block private/reserved IP ranges (handles both IPv4 and IPv6)
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+    // Block private/reserved IP ranges (handles both IPv4 and IPv6). `parse`
+    // handles dotted-quad and standard IPv6; `normalize_ip_host` additionally
+    // catches the non-dotted integer forms (decimal `2130706433`, hex
+    // `0x7f000001`) that resolve to 127.0.0.1 but don't parse as IpAddr.
+    let parsed_ip = host
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .or_else(|| normalize_ip_host(&host));
+    if let Some(ip) = parsed_ip {
         let is_private = match ip {
             std::net::IpAddr::V4(v4) => {
                 v4.is_loopback()             // 127.0.0.0/8
@@ -104,6 +125,27 @@ fn validate_download_url(url: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Interpret a host string as one of the non-dotted IPv4 integer notations that
+/// browsers/`curl` accept — bare decimal (`2130706433`), hex (`0x7f000001`), or
+/// octal (`017700000001`) — and return the equivalent [`std::net::IpAddr`].
+///
+/// These forms bypass a naive `host.parse::<IpAddr>()` (which only accepts
+/// dotted-quad), so an attacker could otherwise smuggle `http://2130706433/`
+/// past the loopback check. Returns `None` for anything that isn't a bare
+/// integer host, including normal DNS names.
+fn normalize_ip_host(host: &str) -> Option<std::net::IpAddr> {
+    let value = if let Some(hex) = host.strip_prefix("0x").or_else(|| host.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()?
+    } else if host.len() > 1 && host.starts_with('0') && host.bytes().all(|b| b.is_ascii_digit()) {
+        u32::from_str_radix(host, 8).ok()?
+    } else if host.bytes().all(|b| b.is_ascii_digit()) {
+        host.parse::<u32>().ok()?
+    } else {
+        return None;
+    };
+    Some(std::net::IpAddr::V4(std::net::Ipv4Addr::from(value)))
 }
 
 /// Structured HTTP error carrying request/response context.
@@ -138,6 +180,14 @@ impl std::fmt::Display for HttpError {
 }
 
 impl std::error::Error for HttpError {}
+
+/// Outcome of a single failed poll attempt. `retryable` distinguishes a
+/// transient blip (retry with backoff) from a terminal error (fail fast so we
+/// don't waste the whole retry budget on something that can't succeed).
+struct PollAttemptError {
+    retryable: bool,
+    error: anyhow::Error,
+}
 
 /// Context for sending progress updates during polling.
 struct PollingProgress {
@@ -244,6 +294,12 @@ impl HttpProviderClient {
     /// request to the server.
     pub fn set_cancel_flag(&mut self, flag: Arc<AtomicBool>) {
         self.cancel_flag = flag;
+    }
+
+    /// Clone of the shared cancel flag, so a rebuilt client can inherit the
+    /// wiring an active pipeline installed via [`Self::set_cancel_flag`].
+    pub fn cancel_flag(&self) -> Arc<AtomicBool> {
+        self.cancel_flag.clone()
     }
 
     /// Resolve a relative or absolute URL against this provider's base URL.
@@ -431,7 +487,7 @@ impl HttpProviderClient {
         &self,
         model: &ModelConfig,
         file_path: &Path,
-        _params: Option<&HashMap<String, serde_json::Value>>,
+        params: Option<&HashMap<String, serde_json::Value>>,
         polling_progress: Option<PollingProgress>,
     ) -> Result<Vec<u8>> {
         let url = self.resolve_url(&model.endpoint);
@@ -456,9 +512,32 @@ impl HttpProviderClient {
 
         let mut form = multipart::Form::new().part(multipart_config.file_field.clone(), file_part);
 
-        // Add additional fields
+        // User param overrides, restricted to the model's declared parameters
+        // (same allow-list guard as the JSON-body path) so tuned slider/`--param`
+        // values reach multipart models instead of being silently dropped.
+        let allowed: std::collections::HashSet<&str> =
+            model.parameters.iter().map(|p| p.name.as_str()).collect();
+        let overrides: HashMap<&str, &serde_json::Value> = params
+            .map(|p| {
+                p.iter()
+                    .filter(|(k, _)| allowed.contains(k.as_str()))
+                    .map(|(k, v)| (k.as_str(), v))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Add additional fields, letting a matching override replace the
+        // template's value. JSON strings render without quotes; other scalars
+        // via their JSON representation.
         for (key, value_template) in &multipart_config.fields {
-            let value = self.interpolate(value_template, &[])?;
+            let value = match overrides.get(key.as_str()) {
+                Some(serde_json::Value::Null) => continue, // unset → omit field
+                Some(v) => v
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| v.to_string()),
+                None => self.interpolate(value_template, &[])?,
+            };
             form = form.text(key.clone(), value);
         }
 
@@ -660,7 +739,70 @@ impl HttpProviderClient {
         request
     }
 
-    /// Poll for async result, emitting progress updates during the wait.
+    /// Perform a single poll request and return the parsed status JSON.
+    ///
+    /// On failure, returns a [`PollAttemptError`] whose `retryable` flag tells
+    /// the caller whether to back off and retry or fail fast:
+    /// - **Retryable**: connection error, request timeout, 5xx, or 429 (the
+    ///   task is still running remotely; the blip is on the network/server).
+    /// - **Terminal**: any other 4xx (400/401/403/404, …) — a bad request or
+    ///   auth/URL problem that retrying can't fix, so we don't burn the retry
+    ///   budget on it.
+    async fn poll_once(
+        &self,
+        poll_url: &str,
+        auth_headers: &HashMap<String, String>,
+    ) -> std::result::Result<serde_json::Value, PollAttemptError> {
+        let request = self.client.get(poll_url);
+        let request = self.apply_headers(request, auth_headers);
+        let response = match request.send().await {
+            Ok(r) => r,
+            // Transport-level failures (connection reset, timeout, DNS) are
+            // always transient — the remote task keeps running.
+            Err(e) => {
+                return Err(PollAttemptError {
+                    retryable: true,
+                    error: anyhow::Error::new(e)
+                        .context(format!("Poll request to {} failed", poll_url)),
+                });
+            }
+        };
+
+        if !response.status().is_success() {
+            let status = response.status();
+            // 5xx and 429 (rate limit) are transient; other 4xx are terminal.
+            let retryable =
+                status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            let error_body = response.text().await.unwrap_or_default();
+            tracing::warn!(
+                http.url = %poll_url,
+                http.status = %status.as_u16(),
+                retryable,
+                "Polling request returned HTTP {}: {}", status, error_body
+            );
+            return Err(PollAttemptError {
+                retryable,
+                error: HttpError {
+                    url: poll_url.to_string(),
+                    method: "GET".to_string(),
+                    status_code: Some(status.as_u16()),
+                    body: error_body,
+                    is_queue_failure: false,
+                }
+                .into(),
+            });
+        }
+
+        // A body that won't parse as JSON is treated as transient — a
+        // truncated response or a transient proxy error page can cause it, and
+        // a retry against a healthy backend will usually succeed.
+        response.json().await.map_err(|e| PollAttemptError {
+            retryable: true,
+            error: anyhow::Error::new(e)
+                .context(format!("Failed to parse poll response from {}", poll_url)),
+        })
+    }
+
     async fn poll_for_result(
         &self,
         initial_response: &serde_json::Value,
@@ -709,6 +851,9 @@ impl HttpProviderClient {
         let mut last_status = String::new();
         let mut seen_log_count = 0;
         let mut last_console_log = std::time::Instant::now();
+        // Consecutive transient failures (network error / 5xx). Reset to 0 on
+        // any successful poll. When it exceeds the cap we give up and cancel.
+        let mut consecutive_failures: u32 = 0;
 
         for attempt in 0..polling.max_attempts {
             // Check cancel flag at the top of every iteration so a cancel
@@ -727,29 +872,66 @@ impl HttpProviderClient {
             // The mock server returns COMPLETED instantly, so this also makes
             // mock-mode pipeline tests run effectively at memory speed instead
             // of paying 1-2s per polling stage.
-            let request = self.client.get(&poll_url);
-            let request = self.apply_headers(request, auth_headers);
-            let response = request.send().await?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let error_body = response.text().await.unwrap_or_default();
-                tracing::error!(
-                    http.url = %poll_url,
-                    http.status = %status.as_u16(),
-                    "Polling request failed with HTTP {}: {}", status, error_body
-                );
-                return Err(HttpError {
-                    url: poll_url.clone(),
-                    method: "GET".to_string(),
-                    status_code: Some(status.as_u16()),
-                    body: error_body,
-                    is_queue_failure: false,
+            //
+            // A paid task is already running remotely, so a *transient* network
+            // error or 5xx/429 here is retried (with backoff) up to
+            // MAX_CONSECUTIVE_POLL_FAILURES rather than aborting the whole
+            // generation on the first blip. A *terminal* error (4xx that isn't
+            // 429) fails fast — retrying a 401/404 can't succeed, so there's no
+            // point spending the retry budget on it.
+            let json = match self.poll_once(&poll_url, auth_headers).await {
+                Ok(json) => {
+                    consecutive_failures = 0;
+                    json
                 }
-                .into());
-            }
+                Err(poll_err) if !poll_err.retryable => {
+                    tracing::error!("Terminal polling error, aborting: {}", poll_err.error);
+                    self.send_cancel_request(&full_status_url, polling, auth_headers)
+                        .await;
+                    return Err(poll_err.error.context("Polling failed (request cancelled)"));
+                }
+                Err(poll_err) => {
+                    consecutive_failures += 1;
+                    if consecutive_failures
+                        > crate::constants::errors::MAX_CONSECUTIVE_POLL_FAILURES
+                    {
+                        tracing::error!(
+                            "Giving up after {} consecutive poll failures: {}",
+                            consecutive_failures,
+                            poll_err.error
+                        );
+                        self.send_cancel_request(&full_status_url, polling, auth_headers)
+                            .await;
+                        return Err(poll_err.error.context(format!(
+                            "Polling failed after {} consecutive transient errors (request cancelled)",
+                            consecutive_failures
+                        )));
+                    }
 
-            let json: serde_json::Value = response.json().await?;
+                    // Exponential backoff capped at MAX_POLL_RETRY_BACKOFF_SECS.
+                    let backoff = (crate::constants::errors::POLL_RETRY_BASE_BACKOFF_SECS
+                        << (consecutive_failures - 1).min(6))
+                    .min(crate::constants::errors::MAX_POLL_RETRY_BACKOFF_SECS);
+                    tracing::warn!(
+                        "Transient poll failure {}/{}, retrying in {}s: {}",
+                        consecutive_failures,
+                        crate::constants::errors::MAX_CONSECUTIVE_POLL_FAILURES,
+                        backoff,
+                        poll_err.error
+                    );
+                    if let Some(ref p) = progress {
+                        p.send(Progress::retrying(
+                            p.stage,
+                            consecutive_failures,
+                            crate::constants::errors::MAX_CONSECUTIVE_POLL_FAILURES,
+                            backoff,
+                            "Temporary network issue while checking status".to_string(),
+                        ));
+                    }
+                    tokio::time::sleep(Duration::from_secs(backoff)).await;
+                    continue;
+                }
+            };
 
             let status = self.extract_json_field(&json, Some(&polling.status_check_field))?;
 
@@ -996,8 +1178,9 @@ impl HttpProviderClient {
             return Err(anyhow!("Failed to download file: {}", response.status()));
         }
 
-        // Enforce size limit to prevent resource exhaustion
-        if let Some(len) = response.content_length()
+        // Fast-reject if the advertised length already exceeds the cap.
+        let content_length = response.content_length();
+        if let Some(len) = content_length
             && len > MAX_DOWNLOAD_SIZE
         {
             return Err(anyhow!(
@@ -1007,35 +1190,81 @@ impl HttpProviderClient {
             ));
         }
 
-        let bytes = response.bytes().await.context("Failed to read download")?;
-        if bytes.len() as u64 > MAX_DOWNLOAD_SIZE {
-            return Err(anyhow!(
-                "Download too large ({} bytes, max {} bytes)",
-                bytes.len(),
-                MAX_DOWNLOAD_SIZE
-            ));
+        // Stream the body and enforce the cap as bytes arrive. A server that
+        // omits or lies about Content-Length can't exhaust memory this way —
+        // we bail the moment the running total crosses MAX_DOWNLOAD_SIZE
+        // instead of buffering the entire (potentially unbounded) body first.
+        use futures::StreamExt as _;
+        let mut buf: Vec<u8> = Vec::with_capacity(
+            content_length
+                .map(|l| l.min(MAX_DOWNLOAD_SIZE) as usize)
+                .unwrap_or(0),
+        );
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Failed to read download")?;
+            if buf.len() as u64 + chunk.len() as u64 > MAX_DOWNLOAD_SIZE {
+                return Err(anyhow!(
+                    "Download too large (exceeded max {} bytes)",
+                    MAX_DOWNLOAD_SIZE
+                ));
+            }
+            buf.extend_from_slice(&chunk);
         }
-        Ok(bytes.to_vec())
+        Ok(buf)
     }
 
-    /// Interpolate variables in a template string.
+    /// Interpolate `${...}` variables in a template string.
+    ///
+    /// Resolution is a **single left-to-right pass**: each `${token}` is
+    /// resolved exactly once against the provided variables and this provider's
+    /// declared env vars, and the substituted text is never re-scanned. This is
+    /// deliberate — a naive multi-pass `replace` would let a user-supplied value
+    /// (e.g. a prompt containing the literal text `${FAL_KEY}`) get expanded
+    /// into a real API key on a later pass and leak it into the outgoing request
+    /// body. Env vars only resolve for names in `provider.env_vars`.
     fn interpolate(&self, template: &str, variables: &[(&str, &str)]) -> Result<String> {
-        let mut result = template.to_string();
-
-        // Interpolate provided variables
-        for (key, value) in variables {
-            result = result.replace(&format!("${{{}}}", key), value);
-        }
-
-        // Interpolate environment variables
-        for env_var in &self.config.provider.env_vars {
-            if let Ok(value) = std::env::var(env_var) {
-                result = result.replace(&format!("${{{}}}", env_var), &value);
+        let lookup = |name: &str| -> Option<String> {
+            if let Some((_, value)) = variables.iter().find(|(k, _)| *k == name) {
+                return Some((*value).to_string());
             }
+            if self.config.provider.env_vars.iter().any(|e| e == name) {
+                return std::env::var(name).ok();
+            }
+            None
+        };
+
+        let mut result = String::with_capacity(template.len());
+        let bytes = template.as_bytes();
+        let mut i = 0;
+        let mut had_unresolved = false;
+        while i < template.len() {
+            if bytes[i] == b'$'
+                && i + 1 < template.len()
+                && bytes[i + 1] == b'{'
+                && let Some(end_rel) = template[i + 2..].find('}')
+            {
+                let name = &template[i + 2..i + 2 + end_rel];
+                match lookup(name) {
+                    Some(value) => result.push_str(&value),
+                    None => {
+                        // Leave the token verbatim and flag it, matching the
+                        // previous soft-fail behavior for missing values.
+                        had_unresolved = true;
+                        result.push_str(&template[i..i + 2 + end_rel + 1]);
+                    }
+                }
+                i += 2 + end_rel + 1;
+                continue;
+            }
+            // Copy this byte through. `template` is valid UTF-8 and `${`/`}` are
+            // ASCII, so byte indexing here always lands on char boundaries.
+            let ch = template[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
         }
 
-        // Check for unresolved variables
-        if result.contains("${") {
+        if had_unresolved {
             tracing::warn!("Template contains unresolved variables: {}", template);
         }
 
@@ -1217,6 +1446,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_normalize_ip_host_integer_forms() {
+        use std::net::{IpAddr, Ipv4Addr};
+        // Decimal, hex, and octal notations that all resolve to 127.0.0.1 —
+        // these bypass a naive IpAddr::parse and must be caught by the SSRF
+        // guard.
+        let loopback = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(normalize_ip_host("2130706433"), Some(loopback));
+        assert_eq!(normalize_ip_host("0x7f000001"), Some(loopback));
+        assert_eq!(normalize_ip_host("017700000001"), Some(loopback));
+        // Real hostnames and dotted-quads are not integer forms.
+        assert_eq!(normalize_ip_host("api.example.com"), None);
+        assert_eq!(normalize_ip_host("127.0.0.1"), None); // handled by IpAddr::parse instead
+    }
+
+    #[test]
     fn test_resolve_url_absolute_http() {
         assert_eq!(
             resolve_url(Some("https://api.example.com"), "https://other.com/path"),
@@ -1263,6 +1507,7 @@ mod tests {
 
     #[test]
     fn test_interpolate() {
+        let _env = crate::test_support::env_lock();
         unsafe { std::env::set_var("TEST_KEY", "secret123") };
 
         let config = ProviderConfig {
@@ -1292,6 +1537,25 @@ mod tests {
             .interpolate("Prompt: ${prompt}", &[("prompt", "test")])
             .unwrap();
         assert_eq!(result, "Prompt: test");
+
+        // A user-supplied value that itself contains an env-var token must NOT
+        // be re-expanded — otherwise a prompt could exfiltrate the API key into
+        // the request body. The token stays literal.
+        let result = client
+            .interpolate("Prompt: ${prompt}", &[("prompt", "leak ${TEST_KEY}")])
+            .unwrap();
+        assert_eq!(result, "Prompt: leak ${TEST_KEY}");
+        assert!(
+            !result.contains("secret123"),
+            "API key must not leak via prompt text"
+        );
+
+        // Unknown tokens are left verbatim (soft-fail), and multiple tokens on
+        // one line each resolve once.
+        let result = client
+            .interpolate("${prompt} / ${TEST_KEY} / ${unknown}", &[("prompt", "p")])
+            .unwrap();
+        assert_eq!(result, "p / secret123 / ${unknown}");
     }
 
     #[test]
@@ -1447,6 +1711,92 @@ mod tests {
         );
     }
 
+    /// Golden-fixture test: the exact `result_field` / `status_check_field`
+    /// JSONPath strings that the shipped provider YAMLs declare must extract
+    /// cleanly from realistic recorded response shapes. This catches a typo in a
+    /// `field:` path or a provider changing its response envelope — failures
+    /// that otherwise only surface against the live API.
+    #[test]
+    fn test_provider_response_paths_resolve_against_recorded_shapes() {
+        let client = HttpProviderClient::new(ProviderConfig {
+            provider: super::super::config::ProviderMetadataConfig {
+                id: "t".into(),
+                name: "t".into(),
+                description: "t".into(),
+                env_vars: vec![],
+                base_url: None,
+                upload: None,
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+                auth_format: None,
+            },
+            text_to_image: vec![],
+            image_to_3d: vec![],
+        });
+
+        // fal.ai image models: result_field = "images[0].url"
+        let fal_image = serde_json::json!({
+            "images": [{ "url": "https://fal.media/out.png", "width": 1024 }],
+            "seed": 42,
+        });
+        assert_eq!(
+            client
+                .extract_json_field(&fal_image, Some("images[0].url"))
+                .unwrap(),
+            "https://fal.media/out.png"
+        );
+
+        // fal.ai 3D models: result_field = "model_glb.url"
+        let fal_3d = serde_json::json!({
+            "model_glb": { "url": "https://fal.media/model.glb", "file_size": 12345 }
+        });
+        assert_eq!(
+            client
+                .extract_json_field(&fal_3d, Some("model_glb.url"))
+                .unwrap(),
+            "https://fal.media/model.glb"
+        );
+
+        // Meshy image: result_field = "image_urls[0]", status_check_field = "status"
+        let meshy_image = serde_json::json!({
+            "status": "SUCCEEDED",
+            "image_urls": ["https://assets.meshy.ai/img.png"],
+        });
+        assert_eq!(
+            client
+                .extract_json_field(&meshy_image, Some("status"))
+                .unwrap(),
+            "SUCCEEDED"
+        );
+        assert_eq!(
+            client
+                .extract_json_field(&meshy_image, Some("image_urls[0]"))
+                .unwrap(),
+            "https://assets.meshy.ai/img.png"
+        );
+
+        // Meshy 3D: result_field = "model_urls.glb"
+        let meshy_3d = serde_json::json!({
+            "status": "SUCCEEDED",
+            "model_urls": { "glb": "https://assets.meshy.ai/m.glb", "fbx": "https://assets.meshy.ai/m.fbx" },
+        });
+        assert_eq!(
+            client
+                .extract_json_field(&meshy_3d, Some("model_urls.glb"))
+                .unwrap(),
+            "https://assets.meshy.ai/m.glb"
+        );
+
+        // A drifted/missing field must error, not silently return the whole doc.
+        assert!(
+            client
+                .extract_json_field(&fal_image, Some("images[0].nonexistent"))
+                .is_err()
+        );
+    }
+
     // ---- apply_param_overrides -------------------------------------------
 
     fn param_def(name: &str) -> super::super::config::ParameterDef {
@@ -1507,5 +1857,192 @@ mod tests {
         let mut body = serde_json::json!("just a string");
         apply_param_overrides(&mut body, None, &[], "m");
         assert_eq!(body, serde_json::json!("just a string"));
+    }
+}
+
+/// Wiremock-driven tests for the polling loop (`poll_for_result`). These cover
+/// the retry/backoff/give-up behavior and the Meshy-style `status_url_template`
+/// task-id variant — paths that are otherwise unexercised because Meshy is
+/// hidden in mock mode. Runs under `--features mock` (which pulls in wiremock).
+#[cfg(all(test, feature = "mock"))]
+mod poll_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn client_for(base_url: &str) -> HttpProviderClient {
+        let config = ProviderConfig {
+            provider: super::super::config::ProviderMetadataConfig {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: "Test".to_string(),
+                env_vars: vec![],
+                base_url: Some(base_url.to_string()),
+                upload: None,
+                api_key_url: None,
+                website_url: None,
+                docs_url: None,
+                discovery: None,
+                auth_format: None,
+            },
+            text_to_image: vec![],
+            image_to_3d: vec![],
+        };
+        HttpProviderClient::new(config)
+    }
+
+    /// Parse a PollingConfig from YAML so serde fills all the defaulted fields.
+    fn polling(yaml: &str) -> PollingConfig {
+        serde_yaml_ng::from_str(yaml).expect("valid polling yaml")
+    }
+
+    // A fast polling config: near-instant interval, plenty of attempts.
+    fn fast_polling(extra: &str) -> PollingConfig {
+        polling(&format!(
+            "status_field: status_url\n\
+             status_check_field: status\n\
+             success_value: COMPLETED\n\
+             failure_value: FAILED\n\
+             result_field: result_url\n\
+             interval_ms: 1\n\
+             max_attempts: 20\n\
+             {extra}"
+        ))
+    }
+
+    #[tokio::test]
+    async fn poll_retries_transient_5xx_then_succeeds() {
+        // Bypass SSRF validation so the wiremock localhost URLs are allowed,
+        // without touching the process-global MOCK_API env (which leaks between
+        // tests). Defaults false, so this doesn't weaken other tests.
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let server = MockServer::start().await;
+
+        // First status poll fails with 503 (transient), then COMPLETED. Only
+        // one failure so the test doesn't pay multiple backoff sleeps; the
+        // retry path is what's under test, not the exact count. `up_to_n_times`
+        // (not `.expect`) avoids a drop-time panic if the count differs.
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "COMPLETED",
+                "result_url": format!("{}/result", server.uri()),
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/result"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"MODELBYTES".to_vec()))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        // Zero backoff base would still sleep 2^0*2s; shrink by clamping via a
+        // tiny interval isn't enough (backoff uses its own constant), so this
+        // test tolerates the ~2s first-retry backoff. Keep attempts low.
+        let cfg = fast_polling("");
+
+        let result = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect("should succeed after retries");
+        assert_eq!(result, b"MODELBYTES");
+    }
+
+    #[tokio::test]
+    async fn poll_reports_failure_status() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "FAILED",
+                "error": "model exploded",
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = fast_polling("");
+
+        let err = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect_err("FAILED status should error");
+        assert!(err.to_string().contains("model exploded") || err.to_string().contains("FAILED"));
+    }
+
+    #[tokio::test]
+    async fn poll_fails_fast_on_terminal_4xx() {
+        // A 404 (terminal, non-retryable) must abort immediately — exactly one
+        // poll request — rather than burning the whole retry budget. `.expect(1)`
+        // asserts the request count, so a regression to retry-on-4xx fails here.
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = fast_polling("");
+
+        let err = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect_err("terminal 4xx should abort");
+        assert!(
+            err.to_string().to_lowercase().contains("cancelled") || err.to_string().contains("404")
+        );
+        // `.expect(1)` is verified on server drop — if the loop retried, the
+        // mock would have been hit >1 time and the drop would panic.
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn poll_builds_url_from_status_url_template() {
+        // Meshy-style: the initial response carries only a task id; the poll URL
+        // is built from `status_url_template`.
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tasks/task-123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "COMPLETED",
+                "result_url": format!("{}/result", server.uri()),
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/result"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"GLB".to_vec()))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        // Initial response is just a task id under `result`.
+        let initial = serde_json::json!({ "result": "task-123" });
+        let cfg = fast_polling(&format!(
+            "status_url_template: '{}/tasks/${{result}}'",
+            server.uri()
+        ));
+
+        let result = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect("template-built poll URL should resolve and complete");
+        assert_eq!(result, b"GLB");
     }
 }

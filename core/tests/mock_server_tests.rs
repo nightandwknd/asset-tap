@@ -61,6 +61,7 @@ async fn test_mock_server_with_delay_config() {
 
 #[test]
 fn test_mock_mode_detection() {
+    let _env = asset_tap_core::test_support::env_lock();
     use asset_tap_core::api::is_mock_mode;
 
     // Test various values
@@ -85,6 +86,7 @@ fn test_mock_mode_detection() {
 
 #[test]
 fn test_mock_delay_detection() {
+    let _env = asset_tap_core::test_support::env_lock();
     use asset_tap_core::api::is_mock_delay_enabled;
 
     unsafe { std::env::remove_var(env::MOCK_DELAY) };

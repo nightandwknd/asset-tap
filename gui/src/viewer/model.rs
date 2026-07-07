@@ -187,6 +187,11 @@ pub struct ModelViewer {
     /// irradiance convolution passes; caching the whole light (which owns the
     /// `Environment`) keeps per-frame cost at zero.
     cached_ambient: Option<AmbientLight>,
+
+    /// Cached key + fill directional lights. Their intensity, color, and
+    /// direction are constant, so — like `cached_ambient` — they are built once
+    /// rather than reallocated (GPU resources and all) on every rendered frame.
+    cached_directional: Option<(DirectionalLight, DirectionalLight)>,
 }
 
 impl ModelViewer {
@@ -207,6 +212,7 @@ impl ModelViewer {
             is_loading: false,
             offscreen: None,
             cached_ambient: None,
+            cached_directional: None,
         }
     }
 
@@ -633,24 +639,36 @@ impl ModelViewer {
                 &env,
             ));
         }
+
+        // Build the key + fill directional lights once and cache them. Their
+        // params are constant, so re-creating them every frame just churned GPU
+        // resources for no visual change. Populate the cache before taking the
+        // shared references below so both borrows are immutable.
+        if self.cached_directional.is_none() {
+            let key = DirectionalLight::new(
+                &context,
+                2.0,
+                Srgba::WHITE,
+                vec3(-1.0, -1.0, -1.0).normalize(),
+            );
+            let fill = DirectionalLight::new(
+                &context,
+                0.5,
+                Srgba::new(200, 210, 255, 255),
+                vec3(1.0, 0.5, 0.5).normalize(),
+            );
+            self.cached_directional = Some((key, fill));
+        }
+
         let ambient = self
             .cached_ambient
             .as_ref()
             .expect("ambient just initialized");
-
-        let directional = DirectionalLight::new(
-            &context,
-            2.0,
-            Srgba::WHITE,
-            vec3(-1.0, -1.0, -1.0).normalize(),
-        );
-        let fill = DirectionalLight::new(
-            &context,
-            0.5,
-            Srgba::new(200, 210, 255, 255),
-            vec3(1.0, 0.5, 0.5).normalize(),
-        );
-        let lights: Vec<&dyn Light> = vec![ambient, &directional, &fill];
+        let (directional, fill) = self
+            .cached_directional
+            .as_ref()
+            .expect("directional lights just initialized");
+        let lights: Vec<&dyn Light> = vec![ambient, directional, fill];
 
         // Render model
         for obj in &self.gpu_objects {

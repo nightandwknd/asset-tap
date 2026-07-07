@@ -17,6 +17,23 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::types::Progress;
 
+/// Token substituted with the uploaded/hosted image URL for URL-based 3D APIs.
+const IMAGE_URL_TOKEN: &str = "${image_url}";
+
+/// Whether any string leaf in this JSON value contains [`IMAGE_URL_TOKEN`].
+///
+/// Walks the structure instead of substring-matching the serialized body, so
+/// the token is only detected where it can actually be interpolated (a string
+/// value), not incidentally inside a key name or escaped text.
+fn json_contains_token(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => s.contains(IMAGE_URL_TOKEN),
+        serde_json::Value::Array(arr) => arr.iter().any(json_contains_token),
+        serde_json::Value::Object(map) => map.values().any(json_contains_token),
+        _ => false,
+    }
+}
+
 /// Convert an anyhow error from http_client into a structured Error.
 ///
 /// If the anyhow wraps an [`HttpError`], creates a full [`crate::types::ApiError`] with
@@ -235,8 +252,8 @@ impl DynamicProvider {
         }
 
         if synced > 0 {
-            // Recreate the HTTP client with updated config
-            *self.client.lock().unwrap() = HttpProviderClient::new(config.clone());
+            // Recreate the HTTP client with updated config (preserving cancel wiring)
+            self.rebuild_client(&config);
 
             tracing::info!(
                 "Synced {} discovered models from disk cache into config for '{}'",
@@ -256,6 +273,18 @@ impl DynamicProvider {
     /// send a server-side cancel request.
     pub fn set_cancel_flag(&self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
         self.client.lock().unwrap().set_cancel_flag(flag);
+    }
+
+    /// Replace the HTTP client with one built from `config`, **preserving** the
+    /// cancel flag the current client holds. A bare `HttpProviderClient::new`
+    /// resets the flag to a fresh one, which would silently disconnect an
+    /// active pipeline's cancel wiring if a discovery refresh raced with it.
+    fn rebuild_client(&self, config: &ProviderConfig) {
+        let mut guard = self.client.lock().unwrap();
+        let cancel_flag = guard.cancel_flag();
+        let mut new_client = HttpProviderClient::new(config.clone());
+        new_client.set_cancel_flag(cancel_flag);
+        *guard = new_client;
     }
 
     /// Disable model discovery for this provider.
@@ -368,8 +397,8 @@ impl DynamicProvider {
             }
         }
 
-        // Recreate the HTTP client with the new config
-        *self.client.lock().unwrap() = HttpProviderClient::new(config.clone());
+        // Recreate the HTTP client with the new config (preserving cancel wiring)
+        self.rebuild_client(&config);
 
         // Recreate the discovery client with the new config (if it exists)
         if let Some(ref client_arc) = self.discovery_client {
@@ -459,8 +488,8 @@ impl DynamicProvider {
                             }
                         }
 
-                        // Recreate the http client with updated config
-                        *self.client.lock().unwrap() = HttpProviderClient::new(config.clone());
+                        // Recreate the http client with updated config (preserving cancel wiring)
+                        self.rebuild_client(&config);
 
                         tracing::info!(
                             "Cached and updated {} models for {} ({:?})",
@@ -632,12 +661,15 @@ impl Provider for DynamicProvider {
                 .ok_or_else(|| crate::types::Error::Api(format!("Model not found: {}", model_id)))?
         };
 
-        // Check if model needs image_url parameter (URL-based API)
+        // Check if model needs image_url parameter (URL-based API). Walk the
+        // JSON string leaves rather than substring-matching the serialized body
+        // so a `${image_url}` token buried inside an unrelated key/value doesn't
+        // false-positive.
         let needs_url = model
             .request
             .body
             .as_ref()
-            .map(|body| body.to_string().contains("${image_url}"))
+            .map(json_contains_token)
             .unwrap_or(false);
 
         let data = if needs_url {
@@ -958,6 +990,9 @@ mod tests {
     /// Regression test for the Meshy provider path.
     #[cfg(feature = "mock")]
     #[tokio::test]
+    // Deliberately holds the env-lock guard across await to serialize env
+    // mutation for the whole test; current-thread runtime makes it sound.
+    #[allow(clippy::await_holding_lock)]
     async fn test_image_to_3d_uses_data_uri_when_no_upload_endpoint() {
         use crate::constants::http::data_uri::IMAGE_PNG_BASE64;
         use crate::constants::http::env as mock_env;
@@ -966,8 +1001,9 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate as WmResponseTemplate};
 
         // The mock wiremock server binds to 127.0.0.1; bypass SSRF validation.
-        // Tests run single-threaded (see .config/nextest.toml), so the env var
-        // mutation is safe. Removed at end of test.
+        // Hold the env lock for the whole test so this MOCK_API mutation can't
+        // race a concurrent test that reads it. Removed at end of test.
+        let _env = crate::test_support::env_lock();
         unsafe { std::env::set_var(mock_env::MOCK_API, "1") };
 
         let server = MockServer::start().await;

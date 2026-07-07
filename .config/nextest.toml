@@ -1,9 +1,14 @@
+# Tests run in parallel. Tests that touch process-global state serialize
+# themselves via guards from `asset_tap_core::test_support`:
+#   - env_lock():           tests that std::env::set_var/remove_var
+#   - templates_dir_lock(): tests that build TemplateRegistry::new() (which
+#                           writes the shared user-templates dir)
+# Isolated tests (the majority) run fully concurrent. Tests that construct a
+# fresh registry or mutate env WITHOUT the matching guard will race — prefer
+# TemplateRegistry::from_dir(tempdir) and the env guard for new tests.
 [profile.default]
-# Tests must run single-threaded due to template system file conflicts
-test-threads = 1
 
 [profile.ci]
-test-threads = 1
 # JUnit XML report for GitHub Actions test reporting
 [profile.ci.junit]
 path = "junit.xml"

@@ -114,7 +114,9 @@ fn test_app_state_round_trip() {
 
 #[test]
 fn test_model_registry() {
-    // Set fake API key so provider is available
+    // Set fake API key so provider is available. Hold the shared env lock so
+    // this doesn't race other env-mutating tests running in parallel.
+    let _env = asset_tap_core::test_support::env_lock();
     unsafe { std::env::set_var("FAL_KEY", "test-key") };
 
     let registry = ProviderRegistry::new();

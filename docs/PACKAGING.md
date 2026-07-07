@@ -146,7 +146,7 @@ All platforms also publish a standalone CLI download (tarball or zip) for users 
 
 ### Prerequisites
 
-1. **Rust toolchain** (stable)
+1. **Rust toolchain** (1.94.1 — pinned in `rust-toolchain.toml`, so rustup selects it automatically)
 2. **cargo-packager**: `cargo install cargo-packager --locked`
 3. **Platform-specific tools**:
    - macOS: Xcode Command Line Tools

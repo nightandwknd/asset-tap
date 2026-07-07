@@ -84,14 +84,18 @@ impl LibraryItem {
 
     /// Format the timestamp for display.
     pub fn formatted_timestamp(&self) -> String {
-        // Timestamp format: YYYY-MM-DD_HHMMSS (17 chars)
-        if self.timestamp.len() == 17 {
-            let date = &self.timestamp[0..10]; // YYYY-MM-DD
-            let time = &self.timestamp[11..17]; // HHMMSS
-            format!("{} {}:{}:{}", date, &time[0..2], &time[2..4], &time[4..6])
-        } else {
-            self.timestamp.clone()
-        }
+        // Timestamp format: YYYY-MM-DD_HHMMSS (17 chars). Use `.get()` rather
+        // than byte-index slices so a non-ASCII 17-byte string can't panic on a
+        // char boundary; fall back to the raw string if any slice is invalid.
+        let formatted = (self.timestamp.len() == 17)
+            .then(|| {
+                let date = self.timestamp.get(0..10)?; // YYYY-MM-DD
+                let time = self.timestamp.get(11..17)?; // HHMMSS
+                let (hh, mm, ss) = (time.get(0..2)?, time.get(2..4)?, time.get(4..6)?);
+                Some(format!("{} {}:{}:{}", date, hh, mm, ss))
+            })
+            .flatten();
+        formatted.unwrap_or_else(|| self.timestamp.clone())
     }
 
     /// Get the display name for this item (custom name > prompt > filename).
@@ -273,6 +277,13 @@ impl LibraryBrowser {
     /// the caller can still read it after the browser closes.
     pub fn close(&mut self) {
         self.is_open = false;
+        // Evict cached thumbnails so the cache doesn't grow unbounded for the
+        // whole process lifetime as the user browses large libraries. They're
+        // re-requested lazily on next open. Also clear the tracking sets so the
+        // re-requests actually fire.
+        self.thumb_cache.clear();
+        self.loading_requested.clear();
+        self.thumb_failed.clear();
         // Don't clear callback_id here - it's needed by handle_library_selection
         // which runs after render() returns. It gets cleared on next open.
     }

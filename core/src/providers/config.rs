@@ -522,6 +522,29 @@ impl ProviderConfig {
             if model.endpoint.is_empty() {
                 return Err(anyhow!("Model endpoint cannot be empty"));
             }
+
+            // Polling response types need a polling config, and it must give us
+            // *some* way to find the status. Catching this at load time turns a
+            // confusing runtime failure (empty status_field makes the whole
+            // response JSON get treated as the poll URL) into an upfront config
+            // error surfaced via `load_errors`.
+            if model.response.response_type == ResponseType::Polling {
+                match &model.response.polling {
+                    None => {
+                        return Err(anyhow!(
+                            "Model '{}' uses response_type: polling but has no `polling:` config",
+                            model.id
+                        ));
+                    }
+                    Some(p) if p.status_field.is_empty() && p.status_url_template.is_none() => {
+                        return Err(anyhow!(
+                            "Model '{}' polling config must set either `status_field` or `status_url_template`",
+                            model.id
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
         }
 
         Ok(())

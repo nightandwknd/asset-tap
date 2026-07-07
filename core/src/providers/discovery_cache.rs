@@ -240,22 +240,13 @@ impl DiscoveryCache {
             entries,
         };
 
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        match serde_json::to_string_pretty(&file_cache) {
-            Ok(json) => {
-                if let Err(e) = std::fs::write(&path, json) {
-                    tracing::warn!("Failed to write discovery cache: {}", e);
-                } else {
-                    tracing::debug!("Saved discovery cache to {:?}", path);
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to serialize discovery cache: {}", e);
-            }
+        match crate::config::atomic_write_json(
+            &path,
+            &file_cache,
+            crate::config::AtomicWriteOptions::default(),
+        ) {
+            Ok(()) => tracing::debug!("Saved discovery cache to {:?}", path),
+            Err(e) => tracing::warn!("Failed to write discovery cache: {}", e),
         }
     }
 

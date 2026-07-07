@@ -138,7 +138,7 @@ enum Command {
 enum AuthAction {
     /// Store an API key for a provider.
     ///
-    /// If KEY is omitted, reads from stdin (pipe-friendly: `echo $K | asset-tap auth set fal-ai`)
+    /// If KEY is omitted, reads from stdin (pipe-friendly: `echo $K | asset-tap auth set fal.ai`)
     /// or prompts when stdin is a TTY.
     Set {
         /// Provider id (see `asset-tap auth list` or `asset-tap --list-providers`)
@@ -248,47 +248,14 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     //
     // SAFETY: set_var is called here before any async task that reads these env
     // vars has been spawned; only this function holds the runtime at this point.
-    use asset_tap_core::settings::{LoadStatus, Settings};
+    use asset_tap_core::settings::Settings;
     let (mut settings, settings_status) = Settings::load_with_status();
     // Surface corruption to stderr so CLI users don't have to dig through
     // tracing logs to discover that their settings file just got moved aside.
-    // The GUI does the equivalent via a startup toast.
-    match &settings_status {
-        LoadStatus::Ok => {}
-        LoadStatus::InitialCreateFailed {
-            settings_path,
-            error,
-        } => {
-            eprintln!(
-                "warning: could not create settings.json at {}: {}\n  \
-                 Running with defaults. Anything you change won't persist \
-                 until the underlying problem is resolved.",
-                settings_path.display(),
-                error
-            );
-        }
-        LoadStatus::RecoveredFromCorrupt { quarantined_to } => {
-            eprintln!(
-                "warning: settings.json was corrupt and could not be parsed.\n  \
-                 Original preserved at: {}\n  \
-                 Running with defaults. A fresh settings.json will be written on next save.",
-                quarantined_to.display()
-            );
-        }
-        LoadStatus::CorruptAndInPlace { settings_path } => {
-            eprintln!(
-                "warning: settings.json at {} is corrupt and could not be moved aside.\n  \
-                 Running with defaults. The next save will move the corrupt file to \
-                 settings.json.bak — copy it somewhere safe first if you want to recover values.",
-                settings_path.display()
-            );
-        }
-        LoadStatus::UnreadableFile { settings_path } => {
-            eprintln!(
-                "warning: could not read settings.json at {}. Running with defaults for this session.",
-                settings_path.display()
-            );
-        }
+    // The GUI shows the equivalent message (from the same shared method) as a
+    // startup toast.
+    if let Some(msg) = settings_status.user_message() {
+        eprintln!("warning: {msg}");
     }
     if is_dev_mode() {
         settings.sync_from_env(&registry);
@@ -749,6 +716,17 @@ fn build_config(
     }
 
     if cli.image_only {
+        // `--image-only` skips the 3D stage. Combined with `--image` (which
+        // already skips image *generation*), that would leave a pipeline with
+        // nothing to do — reject the contradiction rather than silently
+        // producing an empty run.
+        if cli.image.is_some() {
+            anyhow::bail!(
+                "--image-only and --image can't be combined: --image already \
+                 supplies the image and --image-only skips 3D generation, so \
+                 there would be nothing to generate."
+            );
+        }
         config = config.with_skip_3d();
     }
 

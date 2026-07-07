@@ -1,4 +1,8 @@
 #![cfg(feature = "mock")]
+// Tests hold the shared env-lock guard across `.await` on purpose, to serialize
+// env mutation for the whole test; `#[tokio::test]`'s current-thread runtime
+// makes the `!Send` guard sound.
+#![allow(clippy::await_holding_lock)]
 //! Provider request-shape contract tests.
 //!
 //! Spin up the mock server, route a real `DynamicProvider` at it, and assert
@@ -33,10 +37,15 @@ fn load_fal_config() -> ProviderConfig {
     ProviderConfig::from_yaml_file(&path).expect("loading fal-ai provider yaml")
 }
 
-async fn spin_up_fal_against_mock() -> (DynamicProvider, MockApiServer) {
-    // Set env vars the provider + validator need. SAFETY: tests in this file
-    // run under nextest's single-threaded mode (see .config/nextest.toml), so
-    // no concurrent env reads can race.
+async fn spin_up_fal_against_mock() -> (
+    std::sync::MutexGuard<'static, ()>,
+    DynamicProvider,
+    MockApiServer,
+) {
+    // Hold the shared env lock for the caller's whole test so these mutations
+    // can't race a parallel env-mutating test. Returned to the caller, which
+    // must bind it (`let (_env, provider, mock) = ...`).
+    let guard = asset_tap_core::test_support::env_lock();
     unsafe {
         std::env::set_var("FAL_KEY", "mock-api-key");
         // Needed so validate_download_url() lets the mock's localhost URLs
@@ -57,7 +66,7 @@ async fn spin_up_fal_against_mock() -> (DynamicProvider, MockApiServer) {
     // Short-circuit polling so the mock's COMPLETED response arrives in
     // milliseconds, not seconds.
     provider.clamp_polling_interval(1);
-    (provider, mock)
+    (guard, provider, mock)
 }
 
 /// Find the most recent POST body sent to an exact endpoint path.
@@ -98,7 +107,7 @@ async fn captured_post_body(mock: &MockApiServer, endpoint_path: &str) -> Value 
 /// the YAML exactly (modulo null-stripping).
 #[tokio::test]
 async fn t2i_sends_yaml_defaults_with_no_overrides() {
-    let (provider, mock) = spin_up_fal_against_mock().await;
+    let (_env, provider, mock) = spin_up_fal_against_mock().await;
     let config = load_fal_config();
 
     for model_cfg in &config.text_to_image {
@@ -150,7 +159,7 @@ async fn t2i_sends_yaml_defaults_with_no_overrides() {
 /// an undeclared name is silently dropped (allowlist behavior).
 #[tokio::test]
 async fn t2i_overrides_reach_the_body() {
-    let (provider, mock) = spin_up_fal_against_mock().await;
+    let (_env, provider, mock) = spin_up_fal_against_mock().await;
     let config = load_fal_config();
 
     for model_cfg in &config.text_to_image {
@@ -210,7 +219,7 @@ async fn t2i_overrides_reach_the_body() {
 /// this one verifies the wiring through the full `DynamicProvider` path.
 #[tokio::test]
 async fn t2i_null_override_strips_key() {
-    let (provider, mock) = spin_up_fal_against_mock().await;
+    let (_env, provider, mock) = spin_up_fal_against_mock().await;
     let config = load_fal_config();
 
     // Use the first model that has at least one overrideable param with a
@@ -257,7 +266,7 @@ async fn t2i_null_override_strips_key() {
 /// only care about the generation POST body here.
 #[tokio::test]
 async fn i23d_sends_yaml_defaults_with_no_overrides() {
-    let (provider, mock) = spin_up_fal_against_mock().await;
+    let (_env, provider, mock) = spin_up_fal_against_mock().await;
     let config = load_fal_config();
 
     // Tiny valid PNG so `needs_url` pathways work.
@@ -314,6 +323,7 @@ async fn i23d_sends_yaml_defaults_with_no_overrides() {
 /// between the `parameters` list and the provider registry loading).
 #[test]
 fn high_risk_models_register_with_declared_parameter_names() {
+    let _env = asset_tap_core::test_support::env_lock();
     unsafe { std::env::set_var("FAL_KEY", "mock-api-key") };
     let registry = asset_tap_core::providers::ProviderRegistry::new();
     let fal = registry

@@ -48,10 +48,22 @@ provider:
 
 ```yaml
 base_url: string # Base URL for API endpoints (e.g., "https://api.example.com")
+auth_format: string # Authorization header format (see below)
 api_key_url: string # URL where users can obtain API keys
 website_url: string # Provider's main website
 docs_url: string # Link to provider's API documentation
 discovery: object # Optional: Dynamic model discovery configuration (see Discovery section)
+```
+
+**`auth_format`** — Template for the `Authorization` header, applied to every
+request for this provider. Supports `${VAR}` interpolation against `env_vars`.
+When omitted, defaults to `"Key ${API_KEY}"` (fal.ai's convention).
+
+```yaml
+provider:
+  # ...
+  env_vars: ['MESHY_API_KEY']
+  auth_format: 'Bearer ${MESHY_API_KEY}' # → "Authorization: Bearer <key>"
 ```
 
 **Guidelines:**
@@ -209,13 +221,15 @@ request:
 
 ### Response Types
 
-#### Json
+> **Note:** `response_type` values are case-sensitive and must be lowercase (`json`, `base64`, `binary`, `url`, `polling`). Any other casing fails to parse.
+
+#### json
 
 Extract a URL from JSON response and download the content:
 
 ```yaml
 response:
-  response_type: Json
+  response_type: json
   field: 'images[0].url' # JSONPath to the result URL
 ```
 
@@ -225,28 +239,38 @@ response:
 - `"data.images[0].url"` - Nested with array
 - `"output"` - Direct field access
 
-#### Binary
+#### url
+
+Same as `json` — extract a download URL from the response and fetch it. Use whichever name reads more clearly for the provider:
+
+```yaml
+response:
+  response_type: url
+  field: 'output' # JSONPath to the result URL
+```
+
+#### binary
 
 Direct binary response (image/model data):
 
 ```yaml
 response:
-  response_type: Binary
+  response_type: binary
 ```
 
 Use when API returns raw file data directly.
 
-#### Base64
+#### base64
 
 Decode base64-encoded data from JSON:
 
 ```yaml
 response:
-  response_type: Base64
+  response_type: base64
   field: 'artifacts[0].base64' # JSONPath to base64 string
 ```
 
-#### Polling
+#### polling
 
 For asynchronous APIs that require status polling:
 
@@ -265,15 +289,20 @@ response:
     response_url_field: 'response_url' # (Optional) Field with URL to fetch final result
     response_envelope_field: 'response' # (Optional) Envelope field wrapping the output
     poll_query_params: '?logs=1' # (Optional) Query params appended to poll URL
-    cancel_url_template: '${status_url}/cancel' # (Optional) URL template for cancelling
+    cancel_url_template: '${status_url}/cancel' # (Optional) Cancel URL built from ${status_url}
+    cancel_method: PUT # (Optional) HTTP method for cancel; defaults to PUT, use DELETE for REST-style
 ```
 
 **Polling workflow:**
 
-1. Initial request returns job ID (extracted via `status_field`)
-2. System polls `GET {base_url}/{endpoint}/{job_id}` every `interval_ms`
-3. Checks `status_check_field` until it equals `success_value` or `failure_value`
-4. On success, extracts result from `result_field`
+1. Initial request returns a status URL or task id.
+2. System derives the poll URL: it uses the `status_field` value directly when
+   that value is already a full URL (fal.ai), or builds one from
+   `status_url_template` when the provider returns only a task id (Meshy —
+   see below). It then polls that URL every `interval_ms`.
+3. Checks `status_check_field` until it equals `success_value` or `failure_value`.
+4. On success, extracts the result from `result_field` (fetching from
+   `response_url_field` first if set).
 
 **`status_url_template`** (optional) — for providers that return only a task id
 instead of a full status URL (e.g. Meshy's `{"result": "<task-id>"}`). When set,

@@ -416,7 +416,9 @@ impl BundleInfoPanel {
                         && let Some(ref mut bundle) = self.current_bundle
                     {
                         bundle.metadata.toggle_favorite();
-                        let _ = bundle.save();
+                        if let Err(e) = bundle.save() {
+                            tracing::warn!("Failed to save favorite state: {}", e);
+                        }
                         if let Some(entry) = self
                             .available_bundles
                             .iter_mut()
@@ -668,7 +670,9 @@ impl BundleInfoPanel {
                             && let Some(ref mut bundle) = self.current_bundle
                         {
                             bundle.metadata.remove_tag(&tag);
-                            let _ = bundle.save();
+                            if let Err(e) = bundle.save() {
+                                tracing::warn!("Failed to save tag removal: {}", e);
+                            }
                         }
                     });
                     ui.add_space(4.0);
@@ -692,8 +696,14 @@ impl BundleInfoPanel {
                         if submit {
                             if let Some(ref mut bundle) = self.current_bundle {
                                 bundle.metadata.add_tag(self.tag_input.trim());
-                                let _ = bundle.save();
-                                self.last_tag_save_time = Some(std::time::Instant::now());
+                                // Only show the "Added!" indicator if the save
+                                // actually succeeded.
+                                match bundle.save() {
+                                    Ok(_) => {
+                                        self.last_tag_save_time = Some(std::time::Instant::now());
+                                    }
+                                    Err(e) => tracing::warn!("Failed to save tag: {}", e),
+                                }
                             }
                             self.tag_input.clear();
                         }
@@ -736,8 +746,14 @@ impl BundleInfoPanel {
                         && bundle.metadata.notes != new_notes
                     {
                         bundle.metadata.notes = new_notes;
-                        let _ = bundle.save();
-                        self.last_notes_save_time = Some(std::time::Instant::now());
+                        // Only show the "Saved!" indicator if the save actually
+                        // succeeded.
+                        match bundle.save() {
+                            Ok(_) => {
+                                self.last_notes_save_time = Some(std::time::Instant::now());
+                            }
+                            Err(e) => tracing::warn!("Failed to save notes: {}", e),
+                        }
                     }
                 }
                 self.editing_notes = Some(notes_text);

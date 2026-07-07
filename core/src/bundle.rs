@@ -47,6 +47,14 @@ const BUNDLE_METADATA_FILE: &str = bundle_files::METADATA;
 /// Generator string stamped into every bundle created by this build.
 const GENERATOR: &str = concat!("asset-tap/", env!("CARGO_PKG_VERSION"));
 
+/// Maximum total decompressed size permitted when extracting a bundle zip.
+/// Guards against zip bombs during import (extraction itself is otherwise
+/// unbounded even though network downloads are size-capped).
+const MAX_EXTRACT_TOTAL_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
+
+/// Maximum number of entries permitted in a bundle zip.
+const MAX_EXTRACT_ENTRIES: usize = 10_000;
+
 /// Returns the generator identifier for the current build (e.g. "asset-tap/26.3.6").
 pub fn generator_string() -> &'static str {
     GENERATOR
@@ -233,10 +241,17 @@ impl BundleMetadata {
     pub fn save(&self, bundle_dir: &Path) -> Result<(), BundleError> {
         let path = bundle_dir.join(BUNDLE_METADATA_FILE);
 
-        let contents = serde_json::to_string_pretty(self)
+        let contents = serde_json::to_vec_pretty(self)
             .map_err(|e| BundleError::Serialization { source: e })?;
 
-        std::fs::write(&path, contents).map_err(|e| BundleError::Io { path, source: e })
+        // Atomic write so an interrupted save can't corrupt an existing
+        // bundle.json (favorites, tags, notes are edited in place).
+        crate::config::atomic_write(
+            &path,
+            &contents,
+            crate::config::AtomicWriteOptions::default(),
+        )
+        .map_err(|e| BundleError::Io { path, source: e })
     }
 
     /// Validate and sanitize this metadata, fixing any corrupt or out-of-bounds values.
@@ -660,11 +675,20 @@ pub async fn download_demo_bundle(
     on_progress(1.0);
     info!("Downloaded {} bytes, verifying integrity...", bytes.len());
 
-    // Phase 3: verify SHA-256 integrity if the manifest includes a hash.
-    if let Some(expected_hash) = manifest.get("sha256").and_then(|v| v.as_str()) {
-        verify_sha256(&bytes, expected_hash)?;
-        info!("SHA-256 integrity verified");
-    }
+    // Phase 3: verify SHA-256 integrity. Fail closed — a manifest without a
+    // hash is treated as an error rather than silently skipping verification,
+    // so a manifest-only compromise or a workflow regression can't disable the
+    // integrity check unnoticed.
+    let expected_hash = manifest
+        .get("sha256")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Demo manifest is missing a sha256 hash; refusing to install unverified download"
+            )
+        })?;
+    verify_sha256(&bytes, expected_hash)?;
+    info!("SHA-256 integrity verified");
 
     // Create a timestamped directory like normal bundles, with collision
     // suffix if another bundle landed in the same second.
@@ -1052,14 +1076,29 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     dest: &Path,
 ) -> Result<usize, String> {
-    // First pass: collect file paths and detect common prefix.
+    use std::io::Read as _;
+
+    if archive.len() > MAX_EXTRACT_ENTRIES {
+        return Err(format!(
+            "Archive has too many entries ({}, max {})",
+            archive.len(),
+            MAX_EXTRACT_ENTRIES
+        ));
+    }
+
+    // First pass: collect the *sanitized* file paths and detect common prefix.
+    // `safe_zip_entry_path` rejects absolute paths, `..` traversal, and other
+    // names that would escape `dest` (zip-slip); such entries are skipped here
+    // and again in the extraction pass below.
     let mut paths: Vec<String> = Vec::new();
     for i in 0..archive.len() {
         let entry = archive
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry: {}", e))?;
-        if entry.is_file() {
-            paths.push(entry.name().to_string());
+        if entry.is_file()
+            && let Some(safe) = safe_zip_entry_path(&entry)
+        {
+            paths.push(safe);
         }
     }
 
@@ -1068,6 +1107,7 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
 
     // Second pass: extract files, stripping the common prefix.
     let mut file_count = 0;
+    let mut total_bytes: u64 = 0;
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
@@ -1077,7 +1117,16 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
             continue;
         }
 
-        let raw_path = entry.name().to_string();
+        // Reject unsafe entry names outright rather than silently skipping, so a
+        // crafted archive that mixes safe and traversal entries can't partially
+        // extract. A None here means the name escapes the destination directory.
+        let Some(raw_path) = safe_zip_entry_path(&entry) else {
+            return Err(format!(
+                "Refusing to extract unsafe zip entry path: {:?}",
+                entry.name()
+            ));
+        };
+
         let relative = if let Some(ref pfx) = prefix {
             raw_path.strip_prefix(pfx).unwrap_or(&raw_path)
         } else {
@@ -1090,20 +1139,65 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
 
         let dest_path = dest.join(relative);
 
+        // Defense in depth: verify the joined path still lands under `dest`.
+        // `safe_zip_entry_path` already guarantees this, but re-check against
+        // the actual join so the invariant is enforced at the write site.
+        if !dest_path.starts_with(dest) {
+            return Err(format!(
+                "Refusing to extract zip entry outside destination: {:?}",
+                relative
+            ));
+        }
+
         // Create parent directories (for textures/ etc.)
         if let Some(parent) = dest_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
 
+        // Bound total decompressed bytes (zip-bomb guard). Copy through a
+        // limited reader so a lying/absent Content-Length can't exhaust disk.
+        let remaining = MAX_EXTRACT_TOTAL_BYTES.saturating_sub(total_bytes);
         let mut file = std::fs::File::create(&dest_path)
             .map_err(|e| format!("Failed to create file: {}", e))?;
-        std::io::copy(&mut entry, &mut file)
+        let written = std::io::copy(&mut (&mut entry).take(remaining + 1), &mut file)
             .map_err(|e| format!("Failed to extract file: {}", e))?;
+        total_bytes = total_bytes.saturating_add(written);
+        if total_bytes > MAX_EXTRACT_TOTAL_BYTES {
+            return Err(format!(
+                "Archive exceeds maximum decompressed size ({} bytes)",
+                MAX_EXTRACT_TOTAL_BYTES
+            ));
+        }
         file_count += 1;
     }
 
     Ok(file_count)
+}
+
+/// Return an entry's path as a forward-slashed relative string if — and only
+/// if — it is safe to join onto a destination directory.
+///
+/// Uses `zip`'s `enclosed_name()`, which returns `None` for absolute paths,
+/// paths containing `..` components, and (on Windows) drive-letter/UNC
+/// prefixes — the zip-slip attack surface. Normalizes the resulting path to
+/// `/` separators so downstream prefix detection is platform-independent.
+fn safe_zip_entry_path(entry: &zip::read::ZipFile<'_>) -> Option<String> {
+    let enclosed = entry.enclosed_name()?;
+    let mut parts = Vec::new();
+    for component in enclosed.components() {
+        match component {
+            std::path::Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            // enclosed_name() already guarantees these are absent, but reject
+            // defensively rather than silently dropping a component.
+            std::path::Component::CurDir => continue,
+            _ => return None,
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
 }
 
 /// Detect a common single-directory prefix shared by all paths.
@@ -1149,11 +1243,14 @@ fn add_dir_to_zip(
 
     for entry in entries.flatten() {
         let path = entry.path();
+        // Zip entry names must use forward slashes per the spec. On Windows
+        // `to_string_lossy()` yields backslashes, which produce non-portable
+        // archives and break the `/`-based prefix detection on re-import.
         let relative = path
             .strip_prefix(base)
             .unwrap_or(&path)
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
 
         if path.is_dir() {
             add_dir_to_zip(zip, &path, base, options, count)?;
@@ -1863,6 +1960,48 @@ mod tests {
         let result = import_bundle_zip(&zip_path, &output_dir);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_import_rejects_parent_dir_traversal() {
+        // A crafted archive with a `../` entry must not write outside the
+        // destination. The whole import is rejected rather than partially
+        // extracted (zip-slip).
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("evil.zip");
+        let zip_data =
+            create_test_zip(&[("image.png", b"fake-png"), ("../../escaped.txt", b"pwned")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let result = import_bundle_zip(&zip_path, &output_dir);
+        assert!(result.is_err(), "traversal archive should be rejected");
+        assert!(result.unwrap_err().contains("unsafe"));
+
+        // The escape target must not exist anywhere near the temp root.
+        assert!(!tmp.path().join("escaped.txt").exists());
+        assert!(!tmp.path().parent().unwrap().join("escaped.txt").exists());
+    }
+
+    #[test]
+    fn test_import_rejects_absolute_path_entry() {
+        // On Unix, `dest.join("/abs")` discards `dest` entirely; enclosed_name()
+        // rejects absolute entries so this must error, not escape.
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("evil.zip");
+        let abs_target = tmp.path().join("abs-escape.txt");
+        let entry_name = format!("{}", abs_target.display());
+        let zip_data =
+            create_test_zip(&[("image.png", b"fake-png"), (entry_name.as_str(), b"pwned")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        // Either the entry is rejected as unsafe, or (if the OS/zip normalized
+        // it to relative) it lands inside the bundle dir — never at the abs path.
+        match import_bundle_zip(&zip_path, &output_dir) {
+            Ok(_) => assert!(!abs_target.exists()),
+            Err(e) => assert!(e.contains("unsafe")),
+        }
     }
 
     #[test]

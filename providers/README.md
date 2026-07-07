@@ -69,7 +69,7 @@ Downloads from a URL in the JSON response:
 
 ```yaml
 response:
-  response_type: Json
+  response_type: json
   field: 'data.url' # JSONPath to URL field
 ```
 
@@ -79,7 +79,7 @@ Direct binary response:
 
 ```yaml
 response:
-  response_type: Binary
+  response_type: binary
 ```
 
 #### 3. Base64
@@ -88,7 +88,7 @@ Base64-encoded data in JSON:
 
 ```yaml
 response:
-  response_type: Base64
+  response_type: base64
   field: 'data.image'
 ```
 
@@ -98,7 +98,7 @@ For async operations that require polling:
 
 ```yaml
 response:
-  response_type: Polling
+  response_type: polling
   polling:
     status_field: 'job_id' # Initial response field with job ID (or full status URL)
     status_url_template: '/v1/jobs/${job_id}' # Optional: build the poll URL from initial response fields
@@ -143,11 +143,18 @@ See [meshy.yaml](meshy.yaml) for a provider that uses:
 - Set `is_default: true` on a model to make it the default selection; if no model has this flag, the first model is used
 - Config changes require app restart
 
-## Additional Model Fields
+## Additional Fields
 
-Models support additional optional fields beyond the basics:
+### Model-level
 
 - **`is_default`** (`bool`) - Mark this model as the default selection for its capability. Only one model per capability should have this set to `true`.
-- **`auth_format`** (`string`) - Override the authentication header format for this model (e.g., `"Bearer ${FAL_KEY}"`, `"Key ${FAL_KEY}"`).
+
+### Provider-level
+
+- **`auth_format`** (`string`) - Override the `Authorization` header format for all of this provider's models (e.g., `"Bearer ${MESHY_API_KEY}"`, `"Key ${FAL_KEY}"`). Set under `provider:`, not per model. Defaults to `"Key ${API_KEY}"` when omitted.
+
+### Polling-level (under `response.polling`)
+
 - **`poll_query_params`** (`string`) - Additional query parameters to append to each polling status check URL (e.g., `"?logs=1"`).
-- **`cancel_url_template`** (`string`) - URL template for cancelling in-progress requests (e.g., `"https://queue.fal.run/{model_id}/requests/{request_id}/cancel"`).
+- **`cancel_url_template`** (`string`) - Template for building the cancel URL from the poll's status URL, using `${status_url}` substitution (e.g., `"${status_url}/cancel"` for fal.ai, or just `"${status_url}"` for Meshy). Defaults to replacing `/status` with `/cancel`.
+- **`cancel_method`** (`string`) - HTTP method for the cancel request. Defaults to `PUT` (fal.ai convention); set to `DELETE` for REST-style cancel endpoints (e.g., Meshy).

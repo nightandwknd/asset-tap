@@ -46,12 +46,23 @@ const MAX_DOWNLOAD_SIZE: u64 = 500 * 1024 * 1024;
 
 /// Download a file from a URL to a local path and return the bytes.
 ///
-/// Enforces a size limit to prevent resource exhaustion.
+/// Uses an explicit request timeout (the bare `reqwest::get` client has none,
+/// so a stalled server would hang the pipeline forever) and streams the body,
+/// enforcing the size cap as bytes arrive so a server that lies about or omits
+/// Content-Length cannot exhaust memory.
 pub async fn download_file(url: &str, destination: &Path) -> Result<Vec<u8>> {
-    let response = reqwest::get(url).await?.error_for_status()?;
+    use crate::constants::polling::DEFAULT_HTTP_TIMEOUT_SECS;
+    use futures::StreamExt as _;
 
-    // Enforce size limit
-    if let Some(len) = response.content_length()
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| crate::types::Error::Pipeline(format!("HTTP client build failed: {e}")))?;
+
+    let response = client.get(url).send().await?.error_for_status()?;
+
+    let content_length = response.content_length();
+    if let Some(len) = content_length
         && len > MAX_DOWNLOAD_SIZE
     {
         return Err(crate::types::Error::Pipeline(format!(
@@ -60,16 +71,23 @@ pub async fn download_file(url: &str, destination: &Path) -> Result<Vec<u8>> {
         )));
     }
 
-    let bytes = response.bytes().await?;
-    if bytes.len() as u64 > MAX_DOWNLOAD_SIZE {
-        return Err(crate::types::Error::Pipeline(format!(
-            "Download too large ({} bytes, max {} bytes)",
-            bytes.len(),
-            MAX_DOWNLOAD_SIZE
-        )));
+    let mut buf: Vec<u8> = Vec::with_capacity(
+        content_length
+            .map(|l| l.min(MAX_DOWNLOAD_SIZE) as usize)
+            .unwrap_or(0),
+    );
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if buf.len() as u64 + chunk.len() as u64 > MAX_DOWNLOAD_SIZE {
+            return Err(crate::types::Error::Pipeline(format!(
+                "Download too large (exceeded max {} bytes)",
+                MAX_DOWNLOAD_SIZE
+            )));
+        }
+        buf.extend_from_slice(&chunk);
     }
 
-    let vec = bytes.to_vec();
-    std::fs::write(destination, &vec)?;
-    Ok(vec)
+    tokio::fs::write(destination, &buf).await?;
+    Ok(buf)
 }

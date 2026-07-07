@@ -130,13 +130,33 @@ impl ProviderRegistry {
             if force { " (forced)" } else { "" }
         );
 
-        // Use tokio::task::block_in_place to run async code synchronously
-        // This works whether we're in a runtime or not
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                Self::run_discovery_for_providers(providers_to_refresh, force).await;
-            })
-        });
+        // Run the async discovery synchronously. The correct mechanism depends
+        // on our execution context, and getting it wrong panics:
+        //  - Inside a multi-thread runtime: `block_in_place` + the current
+        //    handle's `block_on` (can't call `Handle::block_on` directly from a
+        //    worker without block_in_place).
+        //  - Inside a current-thread runtime: `block_in_place` itself panics, so
+        //    fall back to the handle's `block_on` directly.
+        //  - No runtime at all: build a throwaway current-thread runtime.
+        let fut = Self::run_discovery_for_providers(providers_to_refresh, force);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.runtime_flavor() {
+                tokio::runtime::RuntimeFlavor::CurrentThread => handle.block_on(fut),
+                _ => tokio::task::block_in_place(|| handle.block_on(fut)),
+            },
+            Err(_) => {
+                match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt.block_on(fut),
+                    Err(e) => {
+                        tracing::error!("Failed to build runtime for blocking discovery: {}", e);
+                        return Err(anyhow::anyhow!("Could not run discovery: {e}"));
+                    }
+                }
+            }
+        }
 
         tracing::info!("Discovery refresh complete");
         Ok(())

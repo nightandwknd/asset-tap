@@ -107,6 +107,16 @@ pub struct PipelineConfig {
     #[doc(hidden)]
     pub approval_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::types::ApprovalResponse>>,
 
+    /// Optional shared cell the pipeline populates with the timestamped
+    /// generation directory as soon as it is created, before any stage runs.
+    ///
+    /// This lets a caller reliably locate a run's own output directory even
+    /// when the pipeline fails partway (e.g. to recover a saved image),
+    /// instead of guessing by scanning/sorting the output directory. Set by
+    /// the caller; written by the pipeline.
+    #[doc(hidden)]
+    pub gen_dir_out: Option<Arc<std::sync::Mutex<Option<PathBuf>>>>,
+
     /// User-tuned parameter overrides for the image generation model.
     pub image_model_params: HashMap<String, serde_json::Value>,
 
@@ -526,6 +536,7 @@ async fn generate_image_stage(
     progress_tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
     approval_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ApprovalResponse>,
     cancel_flag: &Arc<AtomicBool>,
+    cancel_notify: &Arc<tokio::sync::Notify>,
     image_params: Option<&HashMap<String, serde_json::Value>>,
 ) -> Result<(Vec<u8>, Option<String>)> {
     let mut resolved_image_model = config.image_model.clone();
@@ -536,9 +547,9 @@ async fn generate_image_stage(
         if path.exists() {
             // Local file — read bytes and copy to gen_dir
             let dest_path = gen_dir.join(bundle_files::IMAGE);
-            std::fs::copy(&path, &dest_path)?;
+            let bytes = tokio::fs::read(&path).await?;
+            tokio::fs::write(&dest_path, &bytes).await?;
             output.image_path = Some(dest_path);
-            let bytes = std::fs::read(&path)?;
             return Ok((bytes, resolved_image_model));
         } else {
             // Remote URL — download it
@@ -591,7 +602,7 @@ async fn generate_image_stage(
         })?;
 
     // Save image bytes to disk
-    std::fs::write(&image_path, &result.data)?;
+    tokio::fs::write(&image_path, &result.data).await?;
     output.image_path = Some(image_path.clone());
 
     // Approval loop: if approval is required, wait for user response.
@@ -617,7 +628,19 @@ async fn generate_image_stage(
             if cancel_flag.load(Ordering::Acquire) {
                 return Err(Error::Pipeline("Generation cancelled by user".to_string()));
             }
-            match approval_rx.recv().await {
+            // Wait for either an approval response OR a cancel. Without the
+            // cancel arm, a cancel raised while we block here would only flip
+            // the atomic flag and never wake this await — the pipeline task
+            // would hang until the approval channel happened to close.
+            let approval = tokio::select! {
+                biased;
+                _ = cancel_notify.notified() => {
+                    tracing::info!("Cancel received while awaiting approval");
+                    return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+                }
+                response = approval_rx.recv() => response,
+            };
+            match approval {
                 Some(ApprovalResponse::Approve) => {
                     tracing::info!("Image approved by user, continuing to 3D generation");
                     let _ = progress_tx.send(Progress::processing(
@@ -641,7 +664,7 @@ async fn generate_image_stage(
                         .await?;
 
                     // Overwrite image on disk
-                    std::fs::write(&image_path, &result.data)?;
+                    tokio::fs::write(&image_path, &result.data).await?;
                     output.image_path = Some(image_path.clone());
                     // Loop back to send Completed then new AwaitingApproval
                 }
@@ -703,7 +726,7 @@ async fn generate_3d_stage(
         })?;
 
     let model_path = gen_dir.join(bundle_files::MODEL_GLB);
-    std::fs::write(&model_path, &model_result.data)?;
+    tokio::fs::write(&model_path, &model_result.data).await?;
     let _ = progress_tx.send(Progress::completed(Stage::Model3DGeneration));
 
     Ok((model_path, model_3d_id))
@@ -713,7 +736,7 @@ async fn generate_3d_stage(
 ///
 /// This stage is best-effort — failures are reported via progress but do not
 /// fail the pipeline.
-fn export_fbx_stage(
+async fn export_fbx_stage(
     model_path: &std::path::Path,
     output: &mut PipelineOutput,
     progress_tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
@@ -721,7 +744,27 @@ fn export_fbx_stage(
 ) {
     let _ = progress_tx.send(Progress::started(Stage::FbxConversion));
 
-    match convert_glb_to_fbx(model_path, blender_path) {
+    // Blender runs synchronously for minutes; do it on the blocking pool so it
+    // doesn't stall a tokio worker (and, with it, other pipeline async tasks).
+    let model_path_owned = model_path.to_path_buf();
+    let blender_path_owned = blender_path.map(|s| s.to_string());
+    let result = tokio::task::spawn_blocking(move || {
+        convert_glb_to_fbx(&model_path_owned, blender_path_owned.as_deref())
+    })
+    .await;
+
+    let result = match result {
+        Ok(inner) => inner,
+        Err(join_err) => {
+            let _ = progress_tx.send(Progress::failed(
+                Stage::FbxConversion,
+                format!("FBX conversion task failed: {join_err}"),
+            ));
+            return;
+        }
+    };
+
+    match result {
         Ok(Some((fbx_path, textures_dir))) => {
             output.fbx_path = Some(fbx_path);
             output.textures_dir = textures_dir;
@@ -755,12 +798,18 @@ async fn run_pipeline_internal(
     cancel_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<PipelineOutput> {
-    // Bridge the cancel channel to the atomic flag so polling loops see it immediately.
+    // Bridge the cancel channel to the atomic flag so polling loops see it
+    // immediately, and to a Notify so an in-progress `.await` (e.g. blocking on
+    // image approval) wakes right away instead of hanging until its own channel
+    // happens to close.
+    let cancel_notify = Arc::new(tokio::sync::Notify::new());
     let flag_for_bridge = cancel_flag.clone();
+    let notify_for_bridge = cancel_notify.clone();
     let mut cancel_rx = cancel_rx;
     tokio::spawn(async move {
         if cancel_rx.recv().await.is_some() {
             flag_for_bridge.store(true, Ordering::Release);
+            notify_for_bridge.notify_waiters();
             tracing::info!("Cancel flag set via channel bridge");
         }
     });
@@ -787,6 +836,12 @@ async fn run_pipeline_internal(
         create_generation_dir()?
     };
     output.output_dir = Some(gen_dir.clone());
+
+    // Publish the generation directory to the caller's shared cell (if any) so
+    // failure-recovery can locate this run's assets without guessing.
+    if let Some(cell) = &config.gen_dir_out {
+        *cell.lock().unwrap() = Some(gen_dir.clone());
+    }
 
     // Check provider availability
     if !image_provider.is_available() {
@@ -816,6 +871,7 @@ async fn run_pipeline_internal(
         &progress_tx,
         &mut approval_rx,
         &cancel_flag,
+        &cancel_notify,
         image_params,
     )
     .await?;
@@ -861,7 +917,8 @@ async fn run_pipeline_internal(
                 &mut output,
                 &progress_tx,
                 config.blender_path.as_deref(),
-            );
+            )
+            .await;
         }
 
         // Extract model stats from the GLB before saving metadata

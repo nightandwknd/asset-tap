@@ -141,23 +141,29 @@ impl AppState {
         }
 
         match std::fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|e| {
+                // Surface corruption instead of silently discarding prompt
+                // history, per-model parameters, and stats.
+                tracing::warn!("App state at {:?} is corrupt, using defaults: {}", path, e);
+                Self::default()
+            }),
+            Err(e) => {
+                tracing::warn!("Failed to read app state at {:?}: {}", path, e);
+                Self::default()
+            }
         }
     }
 
     /// Save state to the state file.
+    ///
+    /// Written atomically (tmp + fsync + rename) so a crash mid-save can't
+    /// truncate the file and lose accumulated prompt history and stats.
     pub fn save(&self) -> std::io::Result<()> {
-        let path = state_file_path();
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let contents = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-
-        std::fs::write(&path, contents)
+        crate::config::atomic_write_json(
+            &state_file_path(),
+            self,
+            crate::config::AtomicWriteOptions::default(),
+        )
     }
 
     /// Mark a generation as in-progress (for crash recovery).

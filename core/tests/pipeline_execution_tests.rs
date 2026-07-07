@@ -1,4 +1,8 @@
 #![cfg(feature = "mock")]
+// These tests deliberately hold the shared env-lock guard across `.await` to
+// serialize env mutation for the whole test body — the intended pattern here.
+// `#[tokio::test]`'s current-thread runtime means the `!Send` guard is sound.
+#![allow(clippy::await_holding_lock)]
 //! Pipeline execution tests.
 //!
 //! These tests validate the core pipeline orchestration using mock providers.
@@ -16,12 +20,20 @@ use tempfile::TempDir;
 // =============================================================================
 
 /// Set up test environment with mock mode enabled.
-fn setup_mock_env() -> TempDir {
+///
+/// Returns the shared env-lock guard alongside the temp dir. Callers must bind
+/// **both** (e.g. `let (_env, temp) = setup_mock_env();`) and hold the guard for
+/// the whole test — it serializes this test against every other env-mutating
+/// test so the suite can otherwise run in parallel. The guard is `!Send`, which
+/// is fine under `#[tokio::test]`'s default current-thread runtime.
+fn setup_mock_env() -> (std::sync::MutexGuard<'static, ()>, TempDir) {
+    let guard = asset_tap_core::test_support::env_lock();
     unsafe {
         std::env::set_var(env::MOCK_API, "1");
         std::env::set_var("FAL_KEY", "test-key-for-mock-mode");
     }
-    TempDir::new().expect("Failed to create temp directory")
+    let temp = TempDir::new().expect("Failed to create temp directory");
+    (guard, temp)
 }
 
 fn cleanup_mock_env() {
@@ -37,7 +49,7 @@ fn cleanup_mock_env() {
 
 #[tokio::test]
 async fn test_pipeline_text_to_3d_with_mock() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("a test robot")
@@ -78,7 +90,7 @@ async fn test_pipeline_text_to_3d_with_mock() {
 
 #[tokio::test]
 async fn test_pipeline_with_existing_image() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     // Create a local test image file instead of using a URL that would 404
     let test_image_path = temp_dir.path().join("test_input.png");
@@ -112,7 +124,7 @@ async fn test_pipeline_with_existing_image() {
 
 #[tokio::test]
 async fn test_pipeline_progress_stages() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test")
@@ -178,7 +190,7 @@ fn test_pipeline_config_effective_image_model() {
 
 #[tokio::test]
 async fn test_pipeline_with_specific_provider() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test")
@@ -206,7 +218,7 @@ async fn test_pipeline_with_specific_provider() {
 
 #[tokio::test]
 async fn test_pipeline_with_invalid_provider() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test")
@@ -229,7 +241,7 @@ async fn test_pipeline_with_invalid_provider() {
 
 #[tokio::test]
 async fn test_pipeline_creates_output_directory() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test")
@@ -262,7 +274,7 @@ async fn test_pipeline_creates_output_directory() {
 
 #[tokio::test]
 async fn test_pipeline_creates_bundle_metadata() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test metadata")
@@ -298,7 +310,7 @@ async fn test_pipeline_creates_bundle_metadata() {
 
 #[tokio::test]
 async fn test_pipeline_creates_expected_files() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("test files")
@@ -339,7 +351,7 @@ async fn test_pipeline_creates_expected_files() {
 
 #[tokio::test]
 async fn test_multiple_pipelines_concurrent() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
     let registry = ProviderRegistry::new();
 
     // Start 3 pipelines concurrently
@@ -415,7 +427,7 @@ async fn test_pipeline_without_providers() {
 
 #[tokio::test]
 async fn test_pipeline_rejects_oversized_prompt() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
     let registry = ProviderRegistry::new();
 
     let long_prompt = "x".repeat(asset_tap_core::constants::validation::MAX_PROMPT_LENGTH + 1);
@@ -445,7 +457,7 @@ async fn test_pipeline_rejects_oversized_prompt() {
 
 #[tokio::test]
 async fn test_pipeline_accepts_max_length_prompt() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
     let registry = ProviderRegistry::new();
 
     let max_prompt = "x".repeat(asset_tap_core::constants::validation::MAX_PROMPT_LENGTH);
@@ -477,7 +489,7 @@ async fn test_pipeline_accepts_max_length_prompt() {
 
 #[tokio::test]
 async fn test_pipeline_cancel_before_3d() {
-    let temp_dir = setup_mock_env();
+    let (_env, temp_dir) = setup_mock_env();
 
     let config = PipelineConfig::new()
         .with_prompt("cancel test")

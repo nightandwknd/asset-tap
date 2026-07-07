@@ -122,6 +122,19 @@ pub struct EnvironmentInfo {
 
 impl Default for EnvironmentInfo {
     fn default() -> Self {
+        // Gathering this info spawns three subprocesses (sw_vers/uname, blender
+        // --version). Every error log constructs an EnvironmentInfo, so cache
+        // it in a OnceLock — the values are process-lifetime-stable, and this
+        // keeps the (async) error path from shelling out on every failure.
+        static CACHED: std::sync::OnceLock<EnvironmentInfo> = std::sync::OnceLock::new();
+        CACHED.get_or_init(EnvironmentInfo::probe).clone()
+    }
+}
+
+impl EnvironmentInfo {
+    /// Probe the environment by running subprocesses. Prefer `default()`, which
+    /// caches the result; call this only if you need a fresh probe.
+    fn probe() -> Self {
         Self {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             os: std::env::consts::OS.to_string(),
