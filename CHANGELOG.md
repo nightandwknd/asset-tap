@@ -2,6 +2,22 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.7.1 — 2026-07-07
+
+### Bug Fixes
+
+- security hardening, robustness, and parallel test suite ([#36](https://github.com/nightandwknd/asset-tap/pull/36))
+
+### Chores
+
+- bump rpassword in the rust-dependencies group ([#27](https://github.com/nightandwknd/asset-tap/pull/27)) _(deps)_
+- bump the rust-dependencies group across 1 directory with 3 updates ([#30](https://github.com/nightandwknd/asset-tap/pull/30)) _(deps)_
+- bump the rust-dependencies group with 2 updates ([#31](https://github.com/nightandwknd/asset-tap/pull/31)) _(deps)_
+- bump actions/checkout from 6 to 7 ([#34](https://github.com/nightandwknd/asset-tap/pull/34)) _(deps)_
+- bump the rust-dependencies group across 1 directory with 2 updates ([#33](https://github.com/nightandwknd/asset-tap/pull/33)) _(deps)_
+- bump the rust-dependencies group with 2 updates ([#35](https://github.com/nightandwknd/asset-tap/pull/35)) _(deps)_
+- bump open in the rust-dependencies group ([#37](https://github.com/nightandwknd/asset-tap/pull/37)) _(deps)_
+
 ## v26.4.18 — 2026-04-28
 
 ### Chores
