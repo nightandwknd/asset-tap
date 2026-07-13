@@ -16,8 +16,11 @@ use anyhow::Result;
 use std::path::Path;
 
 /// Backup sidecar extension produced when an on-disk embedded config is
-/// overwritten. Passed to [`Path::with_extension`], so it replaces the entire
-/// existing extension — `provider.yaml` becomes `provider.yaml.bak`.
+/// overwritten (by `atomic_write` with `backup: true`). Passed to
+/// [`Path::with_extension`], so it replaces the entire existing extension —
+/// `provider.yaml` becomes `provider.yaml.bak`. Production naming lives in
+/// `config::atomic_write`; this constant pins the tests to the same shape.
+#[cfg(test)]
 const BACKUP_EXT: &str = "yaml.bak";
 
 /// Result of comparing an embedded config against its on-disk counterpart.
@@ -57,24 +60,31 @@ pub fn write_with_backup(
 ) -> Result<bool> {
     match determine_action(embedded_content, target_path) {
         SyncAction::WriteNew => {
-            std::fs::write(target_path, embedded_content)?;
+            // Atomic (tmp + rename) so a concurrent registry build never reads a
+            // half-written provider/template file — a bare `fs::write` truncates
+            // in place, and a reader hitting that window loads an empty config
+            // (surfacing as "No available provider exposes model …" in tests and,
+            // in principle, a racing app launch).
+            crate::config::atomic_write(
+                target_path,
+                embedded_content.as_bytes(),
+                crate::config::AtomicWriteOptions::default(),
+            )?;
             tracing::info!("Created default {} config: {:?}", config_type, target_path);
             Ok(true)
         }
         SyncAction::Overwrite => {
-            let backup_path = target_path.with_extension(BACKUP_EXT);
-            if let Err(e) = std::fs::copy(target_path, &backup_path) {
-                tracing::warn!(
-                    "Failed to backup {} config {:?}: {}",
-                    config_type,
-                    target_path,
-                    e
-                );
-            } else {
-                tracing::info!("Backed up {} config to {:?}", config_type, backup_path);
-            }
-
-            std::fs::write(target_path, embedded_content)?;
+            // atomic_write handles the `.bak` backup itself, matching the prior
+            // behavior — but as a same-extension sibling and only after the new
+            // content is safely renamed into place.
+            crate::config::atomic_write(
+                target_path,
+                embedded_content.as_bytes(),
+                crate::config::AtomicWriteOptions {
+                    backup: true,
+                    owner_only: false,
+                },
+            )?;
             tracing::info!(
                 "Updated {} config {:?} (content changed vs embedded)",
                 config_type,

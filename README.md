@@ -144,7 +144,20 @@ asset-tap -y "a wooden treasure chest"
 asset-tap auth set fal.ai
 echo "$FAL_KEY" | asset-tap auth set fal.ai
 asset-tap auth list
+
+# Machine-readable output for tooling: NDJSON events on stdout, one per line
+asset-tap --json "a wooden treasure chest"
+
+# Machine-readable model/template catalog (single JSON document)
+asset-tap --list-providers --json
+asset-tap --list --json
 ```
+
+`--json` mode is a stable wire-format contract for external tools (e.g. the
+editor integrations) that drive `asset-tap` as a subprocess. It emits newline-delimited
+JSON events on stdout (all human logs go to stderr), ends with a single
+authoritative `result` event, and uses differentiated exit codes. The full
+contract is in [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md).
 
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.
 

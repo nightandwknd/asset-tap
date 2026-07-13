@@ -1,0 +1,4 @@
+{"event":"start","interface":"1.0","generator":"asset-tap/26.4.18"}
+{"event":"progress","stage":"image_generation","state":"started"}
+{"event":"progress","stage":"image_generation","state":"failed","message":"fal.ai API key is invalid or expired."}
+{"event":"result","status":"error","kind":"unauthorized","provider":"fal.ai","stage":"image_generation","message":"fal.ai API key is invalid or expired.","action":"Check your fal.ai API key in Settings.","retryable":false}

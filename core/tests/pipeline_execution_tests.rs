@@ -395,6 +395,14 @@ async fn test_multiple_pipelines_concurrent() {
 
 #[tokio::test]
 async fn test_pipeline_without_providers() {
+    // Hold the shared env-lock guard for the whole test body (through the
+    // `.await` and all assertions) — this test mutates process-global env vars
+    // just like `setup_mock_env()` does, so it must serialize against every
+    // other env-mutating test the same way they serialize against each other.
+    // Without this, an unguarded `remove_var("FAL_KEY")` here can race another
+    // test's live `is_configured()` env read and intermittently fail it.
+    let _env = asset_tap_core::test_support::env_lock();
+
     // Ensure mock mode is OFF so providers aren't auto-configured with fake keys
     unsafe {
         std::env::remove_var(env::MOCK_API);
