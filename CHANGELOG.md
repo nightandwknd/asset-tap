@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.7.2 — 2026-07-14
+
+### Features
+
+- machine-readable CLI interface (--json) for external tools ([#39](https://github.com/nightandwknd/asset-tap/pull/39))
+
 ## v26.7.1 — 2026-07-07
 
 ### Bug Fixes
