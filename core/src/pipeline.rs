@@ -581,7 +581,7 @@ async fn generate_image_stage(
 
     // Check for cancellation before image generation
     if cancel_flag.load(Ordering::Acquire) {
-        return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+        return Err(Error::Cancelled);
     }
 
     let _ = progress_tx.send(Progress::started(Stage::ImageGeneration));
@@ -626,7 +626,7 @@ async fn generate_image_stage(
 
             tracing::info!("Waiting for user approval...");
             if cancel_flag.load(Ordering::Acquire) {
-                return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+                return Err(Error::Cancelled);
             }
             // Wait for either an approval response OR a cancel. Without the
             // cancel arm, a cancel raised while we block here would only flip
@@ -636,7 +636,7 @@ async fn generate_image_stage(
                 biased;
                 _ = cancel_notify.notified() => {
                     tracing::info!("Cancel received while awaiting approval");
-                    return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+                    return Err(Error::Cancelled);
                 }
                 response = approval_rx.recv() => response,
             };
@@ -651,9 +651,7 @@ async fn generate_image_stage(
                 }
                 Some(ApprovalResponse::Reject) => {
                     tracing::info!("Image rejected by user, cancelling pipeline");
-                    return Err(Error::Pipeline(
-                        "Image generation cancelled by user".to_string(),
-                    ));
+                    return Err(Error::Cancelled);
                 }
                 Some(ApprovalResponse::Regenerate) => {
                     tracing::info!("User requested regeneration, re-running image generation");
@@ -878,7 +876,7 @@ async fn run_pipeline_internal(
 
     // Check for cancellation before 3D generation
     if cancel_flag.load(Ordering::Acquire) {
-        return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+        return Err(Error::Cancelled);
     }
 
     // Stages 2–3 (3D + FBX) and model stats are skipped when the caller asked
@@ -907,7 +905,7 @@ async fn run_pipeline_internal(
 
         // Check for cancellation before FBX conversion
         if cancel_flag.load(Ordering::Acquire) {
-            return Err(Error::Pipeline("Generation cancelled by user".to_string()));
+            return Err(Error::Cancelled);
         }
 
         // Stage 3: Convert to FBX (optional, best-effort)

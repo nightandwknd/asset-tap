@@ -73,9 +73,12 @@ jobs:
         run: sed -i.bak 's/^version = ".*"/version = "${{ needs.version.outputs.new_version }}"/' Cargo.toml
 
       - name: Build
+        # --features mock ships zero-cost pipeline evaluation in release
+        # binaries — the CLI's own --help advertises `--mock --json`, and the
+        # first-party integrations depend on it.
         run: |
-          cargo build --release --package asset-tap     --target ${{ matrix.target }}
-          cargo build --release --package asset-tap-gui --target ${{ matrix.target }}
+          cargo build --release --package asset-tap     --features mock --target ${{ matrix.target }}
+          cargo build --release --package asset-tap-gui --features mock --target ${{ matrix.target }}
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -239,6 +242,9 @@ jobs:
           version: ${{ needs.version.outputs.new_version }}
           upload-installers: 'true'
           upload-cli-archives: 'true'
+          # Mock mode ships in releases: --help advertises it and first-party
+          # plugin's Mock toggle depends on it.
+          cargo-flags: '--features mock'
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -261,6 +267,7 @@ jobs:
           version: ${{ needs.version.outputs.new_version }}
           upload-installers: 'true'
           upload-cli-archives: 'true'
+          cargo-flags: '--features mock'
 
   # ─── Release: commit, tag, and create GitHub Release ─────────────────
   release:
@@ -337,6 +344,14 @@ jobs:
           cp artifacts/asset-tap-sbom/asset-tap-sbom release/asset-tap-sbom.cdx.json
 
           ls -la release/
+
+      - name: Generate checksums
+        run: |
+          # SHA-256 over every release asset; downstream consumers verify
+          # downloads against this file. Paths are basenames so `sha256sum -c`
+          # works from within the download directory.
+          ( cd release && sha256sum -- * > SHA256SUMS.txt )
+          cat release/SHA256SUMS.txt
 
       - name: Create GitHub Release
         env:

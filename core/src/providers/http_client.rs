@@ -863,7 +863,7 @@ impl HttpProviderClient {
                 tracing::info!("Cancel flag detected during polling — cancelling server request");
                 self.send_cancel_request(&full_status_url, polling, auth_headers)
                     .await;
-                return Err(anyhow!("Generation cancelled by user"));
+                return Err(crate::types::Error::Cancelled.into());
             }
 
             // Poll first, sleep last. Real APIs that return COMPLETED on the

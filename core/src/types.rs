@@ -47,6 +47,13 @@ pub enum Error {
     #[error("Pipeline error: {0}")]
     Pipeline(String),
 
+    /// The run was cancelled (user signal, image rejection, or provider-side
+    /// cancel). Typed so consumers classify cancellation without matching
+    /// message text. Display keeps the historical "cancelled by user" phrasing
+    /// that existing UIs substring-match.
+    #[error("Generation cancelled by user")]
+    Cancelled,
+
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -55,6 +62,20 @@ pub enum Error {
 
     #[error("Configuration error: {0}")]
     Config(String),
+}
+
+impl Error {
+    /// True when this error represents a cancellation — user signal, image
+    /// rejection, or a provider-side cancel reported via the API. The single
+    /// source of truth for "was this run cancelled": consumers must use this
+    /// instead of matching error message text.
+    pub fn is_cancellation(&self) -> bool {
+        match self {
+            Error::Cancelled => true,
+            Error::ApiError(api) => api.kind == ApiErrorKind::Cancelled,
+            _ => false,
+        }
+    }
 }
 
 impl From<ApiError> for Error {
@@ -142,6 +163,8 @@ pub enum ApiErrorKind {
     ModelError,
     /// Network/connection error
     NetworkError,
+    /// The request was cancelled (provider-side or user-initiated)
+    Cancelled,
     /// Unknown error type
     Unknown,
 }
@@ -287,7 +310,7 @@ impl ApiError {
             )
         } else if error.contains("canceled") || error.contains("cancelled") {
             (
-                ApiErrorKind::Unknown,
+                ApiErrorKind::Cancelled,
                 "Request was canceled.".to_string(),
                 None,
                 false,
@@ -542,6 +565,21 @@ pub enum Stage {
     Download,
 }
 
+impl Stage {
+    /// Machine-interface wire name (docs/CLI_MACHINE_INTERFACE.md §1). The
+    /// single source of these strings: the serde derive would render
+    /// `Model3DGeneration` as `model3_d_generation`, so external consumers
+    /// (CLI --json, and any future emitter) must use this instead.
+    pub fn wire_name(&self) -> &'static str {
+        match self {
+            Stage::ImageGeneration => "image_generation",
+            Stage::Model3DGeneration => "model_3d_generation",
+            Stage::FbxConversion => "fbx_conversion",
+            Stage::Download => "download",
+        }
+    }
+}
+
 impl std::fmt::Display for Stage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -762,8 +800,10 @@ mod tests {
     #[test]
     fn test_api_error_from_model_error_canceled() {
         let err = ApiError::from_model_error(ApiProvider::new("fal.ai"), "task was canceled");
-        assert_eq!(err.kind, ApiErrorKind::Unknown);
+        assert_eq!(err.kind, ApiErrorKind::Cancelled);
         assert!(!err.retryable);
+        // And the typed helper agrees — this is what exit-code mapping keys off.
+        assert!(Error::from(err).is_cancellation());
     }
 
     #[test]

@@ -1,0 +1,6 @@
+{"event":"start","interface":"1.0","generator":"asset-tap/26.4.18"}
+{"event":"progress","stage":"image_generation","state":"started"}
+{"event":"progress","stage":"image_generation","state":"completed"}
+{"event":"progress","stage":"model_3d_generation","state":"started"}
+{"event":"progress","stage":"model_3d_generation","state":"processing","message":"meshing"}
+{"event":"result","status":"canceled","stage":"model_3d_generation"}

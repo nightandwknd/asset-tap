@@ -13,17 +13,19 @@ use asset_tap_core::{
     format_progress,
     pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
-    providers::{ParameterType, ProviderCapability, ProviderRegistry},
+    providers::{ParameterType, ProviderRegistry},
     settings::{get_output_dir, is_dev_mode},
     templates::{apply_template, list_templates},
     types::Progress,
 };
 
+use asset_tap::machine;
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use walkdir::WalkDir;
 
 /// Asset Tap - Generate 3D models from text prompts
@@ -31,6 +33,25 @@ use walkdir::WalkDir;
 #[command(name = "asset-tap")]
 #[command(about = "Asset Tap - AI-powered text-to-3D generation")]
 #[command(version)]
+#[command(after_help = "\
+EXAMPLES:
+  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation
+  asset-tap --image ref.png --no-fbx           image-to-3D, GLB only (no Blender)
+  asset-tap \"a crate\" --json --no-fbx -o ./out programmatic use: parse NDJSON events
+  asset-tap --list --json                      machine-readable model/template catalog
+  asset-tap \"test\" --mock --json               zero-cost pipeline test (no API calls)
+  echo $KEY | asset-tap auth set fal.ai        store a provider API key
+
+AUTHENTICATION:
+  Provider keys resolve from stored settings first, then environment variables
+  (e.g. FAL_KEY). `asset-tap auth list` shows each provider's effective source.
+
+EXIT CODES:
+  0 ok · 1 other error · 2 usage · 3 auth/key · 4 provider · 5 canceled ·
+  6 network/timeout · 7 local environment (Blender, filesystem)
+
+For the full machine interface (NDJSON events, result contract, catalog schema),
+run: asset-tap --machine-help")]
 struct Cli {
     /// Text prompt describing what to create (interactive if not provided)
     prompt: Option<String>,
@@ -121,6 +142,31 @@ struct Cli {
     #[arg(long = "param", value_name = "KEY=VALUE")]
     params: Vec<String>,
 
+    /// Emit machine-readable NDJSON events on stdout (implies --yes; run --machine-help for the full contract)
+    ///
+    /// Contract: stdout carries NDJSON only — one JSON object per line
+    /// (`start`, `progress`, `log`, then exactly one `result`). All
+    /// human-facing diagnostics go to stderr; never parse stderr. Implies
+    /// --yes (fully non-interactive). Exit codes: 0 ok, 2 usage, 3 auth/key,
+    /// 4 provider, 5 canceled, 6 network, 7 local environment, 1 other.
+    /// Full spec (event fields, result shape, catalog schema): --machine-help
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "approve",
+            "convert_only",
+            "convert_webp",
+            "export_bundle",
+            "convert_fbx",
+            "inspect_template",
+        ]
+    )]
+    json: bool,
+
+    /// Print the machine-interface specification (NDJSON wire format, exit codes, catalog schema) and exit
+    #[arg(long = "machine-help", alias = "describe", hide_short_help = true)]
+    machine_help: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -167,11 +213,38 @@ fn print_banner() {
     ));
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> ExitCode {
     // Load .env file (before tokio runtime starts, so set_var is safe)
     dotenvy::dotenv().ok();
 
+    // `--version --json`: emit a single JSON object instead of clap's built-in
+    // human `--version` line. Must be checked on the raw args *before*
+    // `Cli::parse()` — clap's derived `#[command(version)]` handler consumes
+    // `--version` and exits the process before our code would otherwise see
+    // it. Plain `--version` (no --json) is untouched: it falls through to
+    // `Cli::parse()` below and keeps clap's stable single-line output.
+    let raw_args: Vec<String> = std::env::args().collect();
+    let has_version = raw_args.iter().any(|a| a == "--version" || a == "-V");
+    let has_json = raw_args.iter().any(|a| a == "--json");
+    if has_version && has_json {
+        let doc = machine::VersionDoc {
+            version: env!("CARGO_PKG_VERSION"),
+            interface: machine::INTERFACE_VERSION,
+        };
+        if let Ok(line) = serde_json::to_string(&doc) {
+            println!("{line}");
+        }
+        return ExitCode::SUCCESS;
+    }
+
     let cli = Cli::parse();
+
+    // Self-contained machine-interface documentation: agents/tools driving the
+    // CLI have no repo checkout, so the spec ships inside the binary (spec §7).
+    if cli.machine_help {
+        print!("{}", include_str!("../../docs/CLI_MACHINE_INTERFACE.md"));
+        return ExitCode::SUCCESS;
+    }
 
     // Set mock env vars before tokio runtime starts (thread-safe)
     #[cfg(feature = "mock")]
@@ -186,11 +259,40 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Build and enter the tokio runtime
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async_main(cli))
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("Error: failed to start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let json_mode = cli.json;
+    match rt.block_on(async_main(cli)) {
+        Ok(code) => code,
+        // The --json generation path emits its result event and returns an
+        // exit code; an error escaping to here is pre-`start` or human mode.
+        // Print the same "Error: ..." + cause chain anyhow's default handler
+        // would, then map to the differentiated exit code (spec §2).
+        Err(err) => {
+            eprintln!("Error: {:?}", err);
+            let code = if machine::is_cancellation(&err) {
+                // Spec §2 exit codes govern --json; interactive cancellation
+                // keeps the shell convention (128 + SIGINT) so wrappers that
+                // detect interruption via 130 keep working.
+                if json_mode {
+                    machine::EXIT_CANCELED
+                } else {
+                    machine::EXIT_SIGINT_HUMAN
+                }
+            } else {
+                machine::exit_code_for_kind(machine::classify_error(&err).kind)
+            };
+            ExitCode::from(code)
+        }
+    }
 }
 
-async fn async_main(cli: Cli) -> anyhow::Result<()> {
+async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // Auth subcommands run an interactive prompt, so suppress INFO logs on
     // stderr — they'd drown out the "API key for ...:" prompt. File logging
     // still captures INFO for debugging.
@@ -200,41 +302,58 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // Handle subcommands before any banner/pipeline setup. Auth commands
     // mutate settings.json directly and don't need the generation pipeline.
     if let Some(Command::Auth { action }) = cli.command {
-        return handle_auth(action);
+        // clap can't express flag-vs-subcommand conflicts, so gate manually.
+        if cli.json {
+            eprintln!("error: '--json' cannot be used with the 'auth' subcommand");
+            return Ok(ExitCode::from(machine::EXIT_USAGE));
+        }
+        return handle_auth(action).map(|_| ExitCode::SUCCESS);
     }
 
-    // Show banner for main commands (not for --list or --inspect)
-    if !cli.list && !cli.list_providers && cli.inspect_template.is_none() && !cli.convert_webp {
+    // Show banner for main commands (not for --list, --inspect, or --json,
+    // where stdout must stay machine-readable)
+    if !cli.list
+        && !cli.list_providers
+        && cli.inspect_template.is_none()
+        && !cli.convert_webp
+        && !cli.json
+    {
         print_banner();
     }
 
     // Handle --inspect-template flag (no registry needed)
     if let Some(template_name) = &cli.inspect_template {
-        return handle_inspect_template(template_name);
+        return handle_inspect_template(template_name).map(|_| ExitCode::SUCCESS);
     }
 
     // Handle --convert-webp flag (no registry needed)
     if cli.convert_webp {
-        return handle_convert_webp(&cli.output);
+        return handle_convert_webp(&cli.output).map(|_| ExitCode::SUCCESS);
     }
 
     // Handle --export-bundle flag (no registry needed)
     if let Some(ref bundle_dir) = cli.export_bundle {
-        return handle_export_bundle(bundle_dir, &cli.output, cli.name.as_deref());
+        return handle_export_bundle(bundle_dir, &cli.output, cli.name.as_deref())
+            .map(|_| ExitCode::SUCCESS);
     }
 
     // Handle --convert-fbx flag (no registry needed)
     if let Some(ref path) = cli.convert_fbx {
-        return handle_convert_fbx(path);
+        return handle_convert_fbx(path).map(|_| ExitCode::SUCCESS);
     }
 
     // Handle mock mode
     #[cfg(feature = "mock")]
     if cli.mock {
-        println!(
+        let msg = format!(
             "🎭 Running in mock mode{}",
             if cli.mock_delay { " (with delays)" } else { "" }
         );
+        if cli.json {
+            eprintln!("{msg}");
+        } else {
+            println!("{msg}");
+        }
     }
 
     // Create provider registry once and reuse everywhere
@@ -264,24 +383,36 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     // Handle --list-providers flag
     if cli.list_providers {
-        print_available_providers(&registry);
-        return Ok(());
+        if cli.json {
+            machine::print_catalog(&machine::build_catalog(&registry, false));
+        } else {
+            print_available_providers(&registry);
+        }
+        return Ok(ExitCode::SUCCESS);
     }
 
     // Handle --list flag
     if cli.list {
-        print_available_options(&registry);
-        return Ok(());
+        if cli.json {
+            machine::print_catalog(&machine::build_catalog(&registry, true));
+        } else {
+            print_available_options(&registry);
+        }
+        return Ok(ExitCode::SUCCESS);
     }
 
     // Show dev mode indicator
     if is_dev_mode() {
-        println!("🔧 Running in development mode (using ./output/)");
+        if cli.json {
+            eprintln!("🔧 Running in development mode (using ./output/)");
+        } else {
+            println!("🔧 Running in development mode (using ./output/)");
+        }
     }
 
     // Handle --convert-only mode
     if cli.convert_only {
-        return handle_convert_only(!cli.no_fbx);
+        return handle_convert_only(!cli.no_fbx).map(|_| ExitCode::SUCCESS);
     }
 
     // Surface a warning for any provider that's still unconfigured AFTER
@@ -294,12 +425,86 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // exit before reaching this point and already show per-provider state.
     registry.log_unconfigured_providers();
 
+    if cli.json {
+        // --json is non-interactive: a prompt (or --image) must come from the
+        // args. This is a usage error, so it exits 2 before the start event.
+        if cli.prompt.is_none() && cli.image.is_none() {
+            eprintln!(
+                "error: '--json' requires a prompt argument or '--image' \
+                 (interactive prompting is disabled)"
+            );
+            return Ok(ExitCode::from(machine::EXIT_USAGE));
+        }
+
+        machine::emit(&machine::Event::start());
+        let run_started = std::time::Instant::now();
+        let mut last_stage = None;
+        return Ok(
+            match run_generation(&cli, &settings, &registry, &mut last_stage).await {
+                Ok(output) => {
+                    // bundle_dir is contractually absolute — refuse to emit a
+                    // relative or missing path rather than silently violating
+                    // the contract downstream consumers resolve against.
+                    let resolved = output
+                        .output_dir
+                        .as_deref()
+                        .ok_or_else(|| "pipeline reported no output directory".to_string())
+                        .and_then(|dir| {
+                            std::path::absolute(dir)
+                                .map(|d| d.display().to_string())
+                                .map_err(|e| format!("could not resolve bundle directory: {e}"))
+                        });
+                    match resolved {
+                        Ok(bundle_dir) => {
+                            machine::emit(&machine::Event::result_success(
+                                bundle_dir,
+                                run_started.elapsed().as_millis() as u64,
+                            ));
+                            ExitCode::SUCCESS
+                        }
+                        Err(message) => {
+                            let wire = machine::WireError::bare(machine::KIND_IO_ERROR, message);
+                            let code = machine::exit_code_for_kind(wire.kind);
+                            machine::emit(&machine::Event::result_error(wire, last_stage));
+                            ExitCode::from(code)
+                        }
+                    }
+                }
+                Err(err) if machine::is_cancellation(&err) => {
+                    machine::emit(&machine::Event::result_canceled(last_stage));
+                    ExitCode::from(machine::EXIT_CANCELED)
+                }
+                Err(err) => {
+                    let wire = machine::classify_error(&err);
+                    let code = machine::exit_code_for_kind(wire.kind);
+                    machine::emit(&machine::Event::result_error(wire, last_stage));
+                    ExitCode::from(code)
+                }
+            },
+        );
+    }
+
+    run_generation(&cli, &settings, &registry, &mut None).await?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Run the full generation flow: validate keys and config, execute the
+/// pipeline, relay progress (human print or NDJSON), and apply `--name`.
+///
+/// `last_stage` is updated as stages start so callers can attach stage
+/// context to error/cancel results.
+async fn run_generation(
+    cli: &Cli,
+    settings: &asset_tap_core::settings::Settings,
+    registry: &ProviderRegistry,
+    last_stage: &mut Option<asset_tap_core::types::Stage>,
+) -> anyhow::Result<asset_tap_core::PipelineOutput> {
     // Validate API keys before prompting the user for input — otherwise the user
     // types a prompt only to hit a missing-key error with no actionable hint.
-    validate_api_keys(&settings, &registry)?;
+    validate_api_keys(settings, registry)?;
 
     // Build pipeline configuration
-    let mut config = build_config(&cli, &settings)?;
+    let mut config = build_config(cli, settings)?;
 
     // Validate remaining requirements (output dir, etc.)
     validate_requirements(&config)?;
@@ -312,16 +517,16 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         let effective_image_model = config
             .image_model
             .clone()
-            .or_else(|| get_default_text_to_image_model(&registry));
+            .or_else(|| get_default_text_to_image_model(registry));
         let effective_3d_model = if config.model_3d.is_empty() {
-            get_default_image_to_3d_model(&registry).unwrap_or_default()
+            get_default_image_to_3d_model(registry).unwrap_or_default()
         } else {
             config.model_3d.clone()
         };
 
         let (image_params, model_3d_params) = route_params(
             &parsed,
-            &registry,
+            registry,
             effective_image_model.as_deref(),
             &effective_3d_model,
         )?;
@@ -335,20 +540,66 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     }
 
     // Enable approval if: --approve flag OR settings require it (but not in
-    // auto-confirm mode, and not in image-only mode where there's no 3D stage
-    // to approve continuing to).
-    if (cli.approve || settings.require_image_approval) && !cli.yes && !cli.image_only {
+    // auto-confirm mode, not in image-only mode where there's no 3D stage to
+    // approve continuing to, and never under --json which implies --yes).
+    if (cli.approve || settings.require_image_approval) && !cli.yes && !cli.image_only && !cli.json
+    {
         config = config.with_image_approval();
     }
 
     // Run the pipeline
-    let (mut progress_rx, handle, approval_tx, _cancel_tx) =
-        run_pipeline(config.clone(), &registry).await?;
+    let (mut progress_rx, handle, approval_tx, cancel_tx) =
+        run_pipeline(config.clone(), registry).await?;
+
+    // Graceful cancellation (spec §4): the first SIGINT/SIGTERM asks the
+    // pipeline to cancel; a second force-quits. Exit codes: 5 (spec §2) under
+    // --json; conventional 130 (128+SIGINT) for interactive users so wrappers
+    // detecting signal interruption keep working.
+    let cancel_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let force_exit_code = if cli.json {
+        machine::EXIT_CANCELED
+    } else {
+        machine::EXIT_SIGINT_HUMAN
+    };
+    {
+        let cancel_requested = cancel_requested.clone();
+        tokio::spawn(async move {
+            wait_for_shutdown_signal().await;
+            cancel_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = cancel_tx.send(());
+            wait_for_shutdown_signal().await;
+            // Force-quit skips destructors — flush stdout so already-emitted
+            // lines (NDJSON events, human summaries) aren't lost.
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            std::process::exit(force_exit_code as i32);
+        });
+    }
 
     // Process progress updates
     while let Some(progress) = progress_rx.recv().await {
-        // Handle approval requests in CLI
-        if let asset_tap_core::types::Progress::AwaitingApproval { approval_data, .. } = &progress {
+        // Track the stage currently in flight for error/cancel result context:
+        // Started opens a stage, Completed closes it (an error between stages
+        // must not blame the stage that already finished), Failed pins it.
+        match &progress {
+            asset_tap_core::types::Progress::Started { stage } => {
+                *last_stage = Some(*stage);
+            }
+            asset_tap_core::types::Progress::Completed { .. } => {
+                *last_stage = None;
+            }
+            asset_tap_core::types::Progress::Failed { stage, .. } => {
+                *last_stage = Some(*stage);
+            }
+            _ => {}
+        }
+        if cli.json {
+            if let Some(event) = machine::progress_event(&progress) {
+                machine::emit(&event);
+            }
+        } else if let asset_tap_core::types::Progress::AwaitingApproval { approval_data, .. } =
+            &progress
+        {
+            // Handle approval requests in CLI
             print_progress(&progress);
             let response = handle_cli_approval(approval_data)?;
             if let Some(tx) = &approval_tx {
@@ -364,6 +615,12 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Pipeline task failed: {}", e))??;
 
+    // A cancel that lands after the pipeline's final cancel-flag check can
+    // still complete the run — report it canceled, not success.
+    if cancel_requested.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(asset_tap_core::types::Error::Cancelled.into());
+    }
+
     // Apply --name to the generated bundle
     if let Some(ref name) = cli.name
         && let Some(ref dir) = output.output_dir
@@ -378,10 +635,35 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
-    // Print summary
-    print_summary(&output);
+    // Print summary (human mode only — --json reports via the result event)
+    if !cli.json {
+        print_summary(&output);
+    }
 
-    Ok(())
+    Ok(output)
+}
+
+/// Wait for a shutdown signal (SIGINT/ctrl-c, plus SIGTERM on unix).
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(_) => {
+                    let _ = tokio::signal::ctrl_c().await;
+                    return;
+                }
+            };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 /// Parse `KEY=VALUE` strings into a JSON value map.
@@ -743,19 +1025,24 @@ fn build_config(
 fn validate_requirements(config: &PipelineConfig) -> anyhow::Result<()> {
     // Validate output directory is set
     if config.output_dir.is_none() {
-        anyhow::bail!(
-            "Output directory is required. Set it via:\n\
-            1. --output flag: asset-tap --output /path/to/output \"prompt\"\n\
-            2. Settings file (GUI): Configure in the application settings\n\
-            3. Dev mode: Uses ./output/ by default"
-        );
+        return Err(anyhow::Error::new(machine::KindedError {
+            kind: machine::KIND_IO_ERROR,
+            message: "Output directory is required. Set it via:\n\
+                1. --output flag: asset-tap --output /path/to/output \"prompt\"\n\
+                2. Settings file (GUI): Configure in the application settings\n\
+                3. Dev mode: Uses ./output/ by default"
+                .to_string(),
+        }));
     }
 
     // Validate output directory is not empty
     if let Some(ref dir) = config.output_dir
         && dir.as_os_str().is_empty()
     {
-        anyhow::bail!("Output directory cannot be empty");
+        return Err(anyhow::Error::new(machine::KindedError {
+            kind: machine::KIND_IO_ERROR,
+            message: "Output directory cannot be empty".to_string(),
+        }));
     }
 
     Ok(())
@@ -794,14 +1081,17 @@ fn validate_api_keys(
         } else {
             format!("\n\nGet API keys at: {}", key_urls.join(", "))
         };
-        anyhow::bail!(
-            "API key(s) required: {env_list}\n\
-            Set via:\n\
-            1. Environment variable (e.g., {env_var}=your_key_here)\n\
-            2. .env file\n\
-            3. Settings file (GUI): Configure in the application settings{url_hint}",
-            env_var = env_vars.first().unwrap_or(&"API_KEY".to_string()),
-        );
+        return Err(anyhow::Error::new(machine::KindedError {
+            kind: machine::KIND_MISSING_API_KEY,
+            message: format!(
+                "API key(s) required: {env_list}\n\
+                Set via:\n\
+                1. Environment variable (e.g., {env_var}=your_key_here)\n\
+                2. .env file\n\
+                3. Settings file (GUI): Configure in the application settings{url_hint}",
+                env_var = env_vars.first().unwrap_or(&"API_KEY".to_string()),
+            ),
+        }));
     }
 
     Ok(())
@@ -1206,22 +1496,26 @@ fn handle_convert_only(export_fbx: bool) -> anyhow::Result<()> {
 }
 
 fn print_available_providers(registry: &ProviderRegistry) {
+    // Single registry traversal shared with the --json catalog
+    // (machine::build_catalog) so the human list and the machine catalog can't
+    // drift — same providers, same models, same `is_default`/`configured`.
+    let catalog = machine::build_catalog(registry, false);
+
     println!();
     println!("Available Providers");
     println!("{}", "=".repeat(60));
-    let providers = registry.list_available();
 
-    if providers.is_empty() {
+    let available: Vec<_> = catalog.providers.iter().filter(|p| p.configured).collect();
+    if available.is_empty() {
         println!("\n⚠️  No providers available");
         println!("   Configure API key(s) in environment variables.");
         // List all providers and their required env vars
-        for provider in &registry.list_all() {
-            let meta = provider.metadata();
-            if !meta.required_env_vars.is_empty() {
+        for provider in &catalog.providers {
+            if !provider.required_env_vars.is_empty() {
                 println!(
                     "   - {} for {}",
-                    meta.required_env_vars.join(", "),
-                    meta.name
+                    provider.required_env_vars.join(", "),
+                    provider.name
                 );
             }
         }
@@ -1229,41 +1523,46 @@ fn print_available_providers(registry: &ProviderRegistry) {
         return;
     }
 
-    for provider in &providers {
-        let metadata = provider.metadata();
-        println!("\n{} - {}", metadata.name, metadata.description);
-        println!("  ID: {} (-p {})", metadata.id, metadata.id);
+    for provider in available {
+        println!("\n{} - {}", provider.name, provider.description);
+        println!("  ID: {} (-p {})", provider.id, provider.id);
 
-        if !metadata.required_env_vars.is_empty() {
-            println!("  Env: {}", metadata.required_env_vars.join(", "));
+        if !provider.required_env_vars.is_empty() {
+            println!("  Env: {}", provider.required_env_vars.join(", "));
         }
 
-        // List text-to-image models
-        let text_to_image = provider.list_models(ProviderCapability::TextToImage);
-        if !text_to_image.is_empty() {
-            println!("\n  Text-to-Image Models (--image-model):");
-            for model in &text_to_image {
-                let default_marker = if model.is_default { " (default)" } else { "" };
-                let desc = model.description.as_deref().unwrap_or("");
-                println!("    • {} - {}{}", model.id, desc, default_marker);
-            }
-        }
-
-        // List image-to-3D models
-        let image_to_3d = provider.list_models(ProviderCapability::ImageTo3D);
-        if !image_to_3d.is_empty() {
-            println!("\n  Image-to-3D Models (--3d-model):");
-            for model in &image_to_3d {
-                let default_marker = if model.is_default { " (default)" } else { "" };
-                let desc = model.description.as_deref().unwrap_or("");
-                println!("    • {} - {}{}", model.id, desc, default_marker);
-            }
-        }
+        print_catalog_models(
+            provider,
+            "text_to_image",
+            "Text-to-Image Models (--image-model)",
+        );
+        print_catalog_models(provider, "image_to_3d", "Image-to-3D Models (--3d-model)");
     }
 
     println!();
 }
 
+fn print_catalog_models(provider: &machine::CatalogProvider, modality: &str, heading: &str) {
+    let models: Vec<_> = provider
+        .models
+        .iter()
+        .filter(|m| m.modality == modality)
+        .collect();
+    if models.is_empty() {
+        return;
+    }
+    println!("\n  {}:", heading);
+    for model in models {
+        let default_marker = if model.is_default { " (default)" } else { "" };
+        let desc = model.description.as_deref().unwrap_or("");
+        println!("    • {} - {}{}", model.id, desc, default_marker);
+    }
+}
+
+/// Note: the "(default)" marker here is the EFFECTIVE default — what a run
+/// uses when no model flag is given (first available provider's default) —
+/// which is intentionally different from the catalog's per-provider
+/// `is_default` (what a consumer preselects after choosing a provider).
 fn print_available_options(registry: &ProviderRegistry) {
     println!();
     println!("Available Models and Templates");

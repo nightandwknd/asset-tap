@@ -530,6 +530,20 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 - `docs/architecture/MOCK_MODE.md` - Mock mode architecture and upload fix
 - `docs/guides/BUNDLE_STRUCTURE.md` - Output format reference
 - `docs/guides/PROVIDER_SCHEMA.md` - Complete YAML schema
+- `docs/CLI_MACHINE_INTERFACE.md` - `--json` wire-format contract for external tooling
+
+## CLI Machine Interface (`--json`)
+
+The CLI has a machine-readable mode for external tools that drive `asset-tap` as a subprocess. Defined by [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md); implemented in [cli/src/machine.rs](cli/src/machine.rs).
+
+- **`--json`**: emits NDJSON events on stdout (one object per line), all human logs on stderr. First line is `start`, last is a single authoritative `result` (success/error/canceled). Implies `--yes`; conflicts with `--approve` and the conversion/inspection flags (`--convert-only`, `--convert-webp`, `--convert-fbx`, `--export-bundle`, `--inspect-template`) → exit 2. It **combines** with `--list`/`--list-providers` — that's the catalog mode.
+- **Catalog**: `--list-providers --json` and `--list --json` emit a single JSON document (not NDJSON) describing providers, models, tunable parameters, and (for `--list`) templates. The human `--list-providers` output renders from the same `machine::build_catalog` traversal — one source, no drift.
+- **`interface` field is a `"MAJOR.MINOR"` string** (e.g. `"1.0"`), Terraform `format_version`-style: MAJOR bumps on breaking wire changes (consumers must reject an unrecognized MAJOR), MINOR bumps on additive/backward-compatible changes (consumers ignore unknown fields, tolerate a higher MINOR). Single-sourced from `machine::INTERFACE_VERSION`. See [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md)'s Versioning section.
+- **`--version --json`** emits `{"version":"<calver>","interface":"1.0"}` instead of the plain human version line. Detected on raw `std::env::args()` in `main()` _before_ `Cli::parse()`, because clap's derived `#[command(version)]` handles bare `--version` and exits before application code runs. Plain `--version` (no `--json`) is untouched.
+- **`--describe`** is a hidden clap alias for `--machine-help` (same behavior; not shown in `--help`) — added for tooling that probes a conventional "describe yourself" flag.
+- **Exit codes** (spec §2) now apply in **human mode too**, not just `--json` — previously every error exited 1. E.g. validation → 4, network → 6, io → 7. One deliberate exception: **cancellation in human mode exits 130** (shell convention, 128+SIGINT); exit 5 is `--json` only. Mapping lives in `machine::exit_code_for_kind` / `classify_error`; cancellation detection is typed (`core::types::Error::is_cancellation`), never message-text matching.
+- **Wire format is decoupled from core types on purpose.** Never derive serde on `Progress`/`Stage`/`ApiErrorKind` for the wire; the `machine` module maps them to explicit string literals so internal renames can't silently change the format. Stage names are the one exception: they're single-sourced from `Stage::wire_name()` in core (note: `Model3DGeneration` → `model_3d_generation`, which core's serde derive would get wrong).
+- **Golden fixtures** in [cli/tests/fixtures/machine-interface/](cli/tests/fixtures/machine-interface/) are the drift alarm — vendored identically by downstream consumers and checked by [cli/tests/json_interface.rs](cli/tests/json_interface.rs). If you change the wire format, regenerate the fixtures (and re-vendor them in consumers) in the same change.
 
 ## Key Principles
 

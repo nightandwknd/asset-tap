@@ -95,6 +95,28 @@ cleanup_test_outputs() {
 }
 trap cleanup_test_outputs EXIT
 
+# --- Shared harness primitives -----------------------------------------------
+# All assert helpers report through these three so the counters, colors, and
+# log format live in exactly one place and can't drift between test families.
+
+test_begin() { # <test_name> <command-for-log>
+    TOTAL=$((TOTAL + 1))
+    echo -e "${BLUE}TEST $TOTAL: $1${NC}" | tee -a "$LOG_FILE"
+    echo "Command: $2" >> "$LOG_FILE"
+}
+
+test_pass() {
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+    echo "" | tee -a "$LOG_FILE"
+}
+
+test_fail() { # <reason>
+    echo -e "${RED}✗ FAIL ($1)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+    echo "" | tee -a "$LOG_FILE"
+}
+
 # Helper: assert that a jq expression evaluates to `true` against a bundle.json.
 # Runs a mock generation into a temp dir, then applies the jq assertion.
 #
@@ -106,13 +128,10 @@ assert_bundle_json() {
     local cli_args="$2"
     local jq_expr="$3"
 
-    TOTAL=$((TOTAL + 1))
-    echo -e "${BLUE}TEST $TOTAL: $test_name${NC}" | tee -a "$LOG_FILE"
-
     local tmpdir
     tmpdir=$(mktemp -d)
     local cli_cmd="$CLI --mock -y --no-fbx -o '$tmpdir' $cli_args"
-    echo "Command: $cli_cmd" >> "$LOG_FILE"
+    test_begin "$test_name" "$cli_cmd"
     echo "jq: $jq_expr" >> "$LOG_FILE"
 
     set +e
@@ -121,20 +140,16 @@ assert_bundle_json() {
     set -e
 
     if [ $exit_code -ne 0 ]; then
-        echo -e "${RED}✗ FAIL (CLI exit $exit_code)${NC}" | tee -a "$LOG_FILE"
-        FAILED=$((FAILED + 1))
         rm -rf "$tmpdir"
-        echo "" | tee -a "$LOG_FILE"
+        test_fail "CLI exit $exit_code"
         return
     fi
 
     local bundle
     bundle=$(find "$tmpdir" -maxdepth 2 -name 'bundle.json' | head -1)
     if [ -z "$bundle" ]; then
-        echo -e "${RED}✗ FAIL (no bundle.json produced)${NC}" | tee -a "$LOG_FILE"
-        FAILED=$((FAILED + 1))
         rm -rf "$tmpdir"
-        echo "" | tee -a "$LOG_FILE"
+        test_fail "no bundle.json produced"
         return
     fi
 
@@ -145,18 +160,85 @@ assert_bundle_json() {
     set -e
 
     if [ $jq_exit -eq 0 ] && [ "$result" = "true" ]; then
-        echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
-        PASSED=$((PASSED + 1))
+        test_pass
     else
-        echo -e "${RED}✗ FAIL (jq '$jq_expr' returned '$result')${NC}" | tee -a "$LOG_FILE"
         {
             echo "Bundle contents for debugging:"
             jq '.config | {image_model, model_3d, image_model_params, model_3d_params}' "$bundle"
         } >> "$LOG_FILE"
-        FAILED=$((FAILED + 1))
+        test_fail "jq '$jq_expr' returned '$result'"
     fi
     rm -rf "$tmpdir"
-    echo "" | tee -a "$LOG_FILE"
+}
+
+# Helper: run a `--json` generation and assert the NDJSON wire contract
+# (docs/CLI_MACHINE_INTERFACE.md): every stdout line is valid JSON, the first
+# event is `start`, the last is `result`, and stdout carries nothing else.
+# Also asserts the expected process exit code.
+#
+# Args: <test_name> <cli_args> <expected_exit_code> <expected_result_status>
+# `cli_args` runs after `--mock --json -o <tmpdir>`; don't pass -o/--mock/--json.
+assert_json_stream() {
+    local test_name="$1"
+    local cli_args="$2"
+    local expected_exit="${3:-0}"
+    local expected_status="${4:-success}"
+
+    local tmpdir out
+    tmpdir=$(mktemp -d)
+    out=$(mktemp -t asset_tap_json.XXXXXX)
+    local cli_cmd="$CLI --mock --json -o '$tmpdir' $cli_args"
+    test_begin "$test_name" "$cli_cmd"
+
+    set +e
+    bash -c "$cli_cmd" < /dev/null > "$out" 2>>"$LOG_FILE"
+    local exit_code=$?
+    set -e
+    cat "$out" >> "$LOG_FILE"
+
+    # Validate the stream with python: pure NDJSON, start-first/result-last,
+    # exactly one of each, and the terminal result status.
+    set +e
+    python3 - "$out" "$expected_status" <<'PY'
+import json, sys
+path, want_status = sys.argv[1], sys.argv[2]
+events = []
+with open(path) as f:
+    for n, line in enumerate(f, 1):
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as e:
+            sys.exit(f"line {n} is not valid JSON: {e}")
+        if not isinstance(obj, dict) or "event" not in obj:
+            sys.exit(f"line {n} missing 'event' field")
+        events.append(obj)
+if not events:
+    sys.exit("no events emitted")
+if events[0]["event"] != "start":
+    sys.exit(f"first event is {events[0]['event']}, expected start")
+if events[-1]["event"] != "result":
+    sys.exit(f"last event is {events[-1]['event']}, expected result")
+if sum(e["event"] == "start" for e in events) != 1:
+    sys.exit("expected exactly one start event")
+if sum(e["event"] == "result" for e in events) != 1:
+    sys.exit("expected exactly one result event")
+if events[0].get("interface") != "1.0":
+    sys.exit("start event missing interface:\"1.0\"")
+status = events[-1].get("status")
+if status != want_status:
+    sys.exit(f"result status {status!r}, expected {want_status!r}")
+PY
+    local stream_ok=$?
+    set -e
+
+    if [ $exit_code -eq "$expected_exit" ] && [ $stream_ok -eq 0 ]; then
+        test_pass
+    else
+        test_fail "exit $exit_code want $expected_exit; stream check $stream_ok"
+    fi
+    rm -rf "$tmpdir" "$out"
 }
 
 # Helper function to run a test
@@ -166,9 +248,7 @@ run_test() {
     local expected_exit_code="${3:-0}"
     local test_input="${4:-}"
 
-    TOTAL=$((TOTAL + 1))
-    echo -e "${BLUE}TEST $TOTAL: $test_name${NC}" | tee -a "$LOG_FILE"
-    echo "Command: $test_cmd" >> "$LOG_FILE"
+    test_begin "$test_name" "$test_cmd"
 
     # Run the command (use bash -c instead of eval for safety).
     # Always redirect stdin — either from test_input or /dev/null — so that
@@ -185,13 +265,10 @@ run_test() {
 
     # Check result
     if [ $exit_code -eq $expected_exit_code ]; then
-        echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
-        PASSED=$((PASSED + 1))
+        test_pass
     else
-        echo -e "${RED}✗ FAIL (exit code: $exit_code, expected: $expected_exit_code)${NC}" | tee -a "$LOG_FILE"
-        FAILED=$((FAILED + 1))
+        test_fail "exit code: $exit_code, expected: $expected_exit_code"
     fi
-    echo "" | tee -a "$LOG_FILE"
 }
 
 echo "=== 1. HELP & INFO TESTS ===" | tee -a "$LOG_FILE"
@@ -290,25 +367,28 @@ run_test "Combined: provider + models + output + no-fbx" \
 run_test "Combined: template + provider + model" \
     "$CLI --mock -y --no-fbx -t humanoid -p fal.ai --image-model fal-ai/nano-banana-pro 'an orc warrior'" 0
 
+# Invalid provider/model resolve to a validation error → exit 4 (spec §2
+# exit-code table; codes apply in human mode too).
 run_test "Invalid provider name" \
-    "$CLI --mock -y -p nonexistent 'test'" 1
+    "$CLI --mock -y -p nonexistent 'test'" 4
 
 run_test "Invalid image model name" \
-    "$CLI --mock -y --no-fbx --image-model totally-fake-model 'test'" 1
+    "$CLI --mock -y --no-fbx --image-model totally-fake-model 'test'" 4
 
 run_test "Invalid 3D model name" \
-    "$CLI --mock -y --no-fbx --3d-model totally-fake-model 'test'" 1
+    "$CLI --mock -y --no-fbx --3d-model totally-fake-model 'test'" 4
 
 echo "=== 6. ERROR HANDLING TESTS ===" | tee -a "$LOG_FILE"
 
 run_test "No prompt and non-TTY stdin (should fail fast)" \
     "$CLI --mock" 1
 
+# Empty/whitespace prompts fail pipeline validation → exit 4 (validation_error).
 run_test "Empty string prompt (should fail)" \
-    "$CLI --mock ''" 1
+    "$CLI --mock ''" 4
 
 run_test "Whitespace-only prompt (should fail)" \
-    "$CLI --mock '   '" 1
+    "$CLI --mock '   '" 4
 
 # Regression guard: when no API key is configured, the CLI must fail BEFORE
 # prompting for a text prompt (it used to read stdin first, then emit a terse
@@ -423,11 +503,14 @@ run_test "Approval with yes (approve)" \
 run_test "Approval with Enter (approve)" \
     "$CLI --mock --approve 'test approval 3'" 0 ""
 
+# Rejecting the image cancels the run. Human mode uses the shell convention
+# for interruption/cancel (130 = 128+SIGINT); exit 5 is --json mode only
+# (spec §2 governs the machine interface).
 run_test "Approval with n (reject)" \
-    "$CLI --mock --approve 'test rejection'" 1 "n"
+    "$CLI --mock --approve 'test rejection'" 130 "n"
 
 run_test "Approval with no (reject)" \
-    "$CLI --mock --approve 'test rejection 2'" 1 "no"
+    "$CLI --mock --approve 'test rejection 2'" 130 "no"
 
 run_test "Approval with r (regenerate and complete)" \
     "$CLI --mock --approve 'test regen'" 0 "r"
@@ -944,6 +1027,38 @@ assert_bundle_json "Bundle: cleared param (--param face_count=) falls back to YA
 # --- Meshy v6 parity check: same overrides produce identical bundle shape ---
 # Skipped because Meshy provider is hidden in mock mode. Parity is enforced
 # by the meshy_v6_parameter_surface_matches_across_providers integration test.
+
+echo "" | tee -a "$LOG_FILE"
+
+echo "=== 12. MACHINE INTERFACE (--json) TESTS ===" | tee -a "$LOG_FILE"
+
+# Full run: pure NDJSON, start→result, exit 0, success status.
+assert_json_stream "JSON: successful generation stream" \
+    "'a wooden treasure chest'" 0 success
+
+# --image-only still produces a well-formed success stream.
+assert_json_stream "JSON: image-only stream" \
+    "--image-only 'a wooden chest'" 0 success
+
+# --json implies --yes: an approve-requiring flag combination is a usage error.
+run_test "JSON: --json + --approve is a usage error (exit 2)" \
+    "$CLI --mock --json --approve 'x'" 2
+
+# --json without a prompt or --image is a usage error (no interactive fallback).
+run_test "JSON: --json with no prompt (exit 2)" \
+    "$CLI --mock --json" 2
+
+# --json is rejected alongside the auth subcommand.
+run_test "JSON: --json + auth subcommand is a usage error (exit 2)" \
+    "$CLI --mock --json auth list" 2
+
+# Catalog document: single valid JSON object with interface + providers.
+run_test "JSON: --list-providers --json is a single JSON document" \
+    "$CLI --mock --list-providers --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"interface\"]==\"1.0\" and isinstance(d[\"providers\"],list)'" 0
+
+# Catalog with templates.
+run_test "JSON: --list --json includes templates array" \
+    "$CLI --mock --list --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d[\"templates\"],list)'" 0
 
 echo "" | tee -a "$LOG_FILE"
 

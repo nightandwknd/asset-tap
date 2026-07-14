@@ -1,0 +1,83 @@
+{
+  "interface": "1.0",
+  "providers": [
+    {
+      "id": "fal.ai",
+      "name": "fal.ai",
+      "description": "Serverless AI model APIs",
+      "configured": true,
+      "required_env_vars": [
+        "FAL_KEY"
+      ],
+      "models": [
+        {
+          "id": "fal-ai/flux-2",
+          "name": "FLUX.2",
+          "description": "High-quality text-to-image model",
+          "modality": "text_to_image",
+          "is_default": true,
+          "parameters": [
+            {
+              "name": "guidance_scale",
+              "label": "Guidance Scale",
+              "description": "Higher = stricter prompt adherence",
+              "type": "float",
+              "default": 3.5,
+              "min": 1.0,
+              "max": 20.0,
+              "step": 0.5
+            }
+          ]
+        },
+        {
+          "id": "fal-ai/trellis-2",
+          "name": "Trellis 2",
+          "description": "Image-to-3D mesh generation",
+          "modality": "image_to_3d",
+          "is_default": true,
+          "parameters": [
+            {
+              "name": "resolution",
+              "label": "Resolution",
+              "type": "select",
+              "default": 1024,
+              "options": [
+                512,
+                1024,
+                1536
+              ]
+            },
+            {
+              "name": "seed",
+              "label": "Seed",
+              "description": "Leave blank for random",
+              "type": "integer",
+              "default": null,
+              "min": 0.0,
+              "max": 2147483647.0,
+              "widget": "input"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "id": "humanoid",
+      "name": "Humanoid Character",
+      "description": "A stylized humanoid character, T-pose, game-ready",
+      "category": "character",
+      "variables": [
+        {
+          "name": "description",
+          "description": "What the character looks like",
+          "required": true
+        }
+      ],
+      "examples": [
+        "a cowboy ninja with dual katanas"
+      ]
+    }
+  ]
+}
