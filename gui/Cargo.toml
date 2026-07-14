@@ -90,6 +90,17 @@ zip = { workspace = true }
 # Open files/URLs in default application
 open = { workspace = true }
 
+# eframe is built with default-features = false to keep the wgpu renderer out
+# (the three-d viewer requires glow; see root Cargo.toml). That also drops
+# eframe's `winit/default`, losing winit's Wayland runtime features. Re-enable
+# them here via feature unification: dlopen keeps the AppImage running on
+# X11-only systems, csd-adwaita provides window decorations on GNOME Wayland.
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.30.13", default-features = false, features = ["wayland-dlopen", "wayland-csd-adwaita"] }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["winit"]
+
 [dev-dependencies]
 tempfile = "3.8"
 

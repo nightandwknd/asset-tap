@@ -1980,7 +1980,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Captured under the state lock and processed after release; see the
         // error-toast branch below for context.
         let mut pending_recovery_bundle: Option<PathBuf> = None;
@@ -2160,6 +2160,12 @@ impl eframe::App for App {
         // Update library browser with current output directory
         self.library_browser
             .set_output_dir(self.settings.output_dir.clone());
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Detach the Context from `ui`'s borrow so modals/windows can take it
+        // while panels borrow `ui` mutably.
+        let ctx = &ui.ctx().clone();
 
         // Handle welcome modal (renders over main UI)
         // Skip backdrop if settings modal is also open to avoid double backdrop effect
@@ -2396,7 +2402,7 @@ impl eframe::App for App {
         }
 
         // Menu bar
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Import Bundle...").clicked() {
@@ -2475,21 +2481,21 @@ impl eframe::App for App {
         });
 
         // Left sidebar - configuration
-        egui::SidePanel::left("config_panel")
+        egui::Panel::left("config_panel")
             .resizable(true)
-            .default_width(320.0)
-            .min_width(280.0)
-            .show(ctx, |ui| {
+            .default_size(320.0)
+            .min_size(280.0)
+            .show_inside(ui, |ui| {
                 views::sidebar::render(self, ui);
             });
 
         // Bundle info panel - between sidebar and preview
-        egui::SidePanel::left("bundle_info_panel")
+        egui::Panel::left("bundle_info_panel")
             .resizable(true)
-            .default_width(300.0)
-            .min_width(250.0)
-            .max_width(400.0)
-            .show(ctx, |ui| {
+            .default_size(300.0)
+            .min_size(250.0)
+            .max_size(400.0)
+            .show_inside(ui, |ui| {
                 if let Some(action) = self.bundle_info_panel.render(ui) {
                     match action {
                         views::bundle_info::BundleInfoAction::CopyPrompt(prompt) => {
@@ -2531,16 +2537,16 @@ impl eframe::App for App {
             });
 
         // Bottom panel - progress
-        egui::TopBottomPanel::bottom("progress_panel")
+        egui::Panel::bottom("progress_panel")
             .resizable(true)
-            .default_height(300.0)
-            .min_height(100.0)
-            .show(ctx, |ui| {
+            .default_size(300.0)
+            .min_size(100.0)
+            .show_inside(ui, |ui| {
                 views::progress::render(self, ui);
             });
 
         // Central panel - preview
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             views::preview::render(self, ui);
         });
 
