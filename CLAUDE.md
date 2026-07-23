@@ -444,11 +444,12 @@ make test  # Uses cargo-nextest (runs in parallel)
 
 10. **egui/three-d version compatibility:**
 
-- We use egui/eframe **0.33** (NOT the latest — 0.34 is available) with glow **0.16**, three-d pinned to a git rev (`da7cef6c5e17`), and three-d-asset pinned to a git rev (`edbc5d8f`)
-- three-d's last crates.io release (0.18.2) only supports egui 0.29/glow 0.14 — the git master has egui 0.32/glow 0.16 support but no release has been published ([issue #568](https://github.com/asny/three-d/issues/568))
-- Both git pins are in root `Cargo.toml`: three-d via `[workspace.dependencies]`, three-d-asset via `[patch.crates-io]`
-- **Why not egui 0.34:** egui 0.34 requires glow **0.17**, but three-d master is on glow 0.16. No one has started porting three-d to glow 0.17. Also, `egui-phosphor` has no 0.34-compatible release yet.
-- **Next upgrade path:** (1) Check if three-d has a new release or commit supporting glow 0.17. (2) Check if egui-phosphor has a 0.34-compatible release. (3) Then bump egui 0.33 → 0.34, which also involves migrating `App::update` → `App::logic`+`App::ui` and `SidePanel`/`TopBottomPanel` → unified `Panel`.
+- We use egui/eframe **0.34** (NOT the latest — 0.35 is available) with glow **0.17**, three-d **0.19**, three-d-asset **0.10**, and egui-phosphor **0.12** — all from crates.io, no git pins
+- The stack must move together: three-d 0.19 and egui-phosphor 0.12 both require egui ^0.34, and our direct `glow` dependency must match eframe's (0.34 → glow 0.17)
+- **glow must be the ONLY compiled renderer.** eframe's default features include `wgpu` (since 0.34), and at runtime eframe prefers wgpu when both renderers are compiled in — which hands the three-d viewer no glow context and silently breaks the 3D preview. Root `Cargo.toml` sets `default-features = false` on eframe (re-adding the native platform features) and `main.rs` pins `renderer: eframe::Renderer::Glow`. Dropping eframe's defaults also drops `winit/default`; the Wayland runtime features winit needs on Linux (`wayland-dlopen`, `wayland-csd-adwaita`) are re-enabled via a Linux-only direct `winit` dep in `gui/Cargo.toml` (ignored by cargo-udeps).
+- three-d is built with `default-features = false`: its `window` feature is three-d's own glutin/winit windowing, unused because eframe owns the window (it also drags in a second, older winit)
+- **Why not egui 0.35:** three-d 0.19 and egui-phosphor 0.12 cap at egui ^0.34. eframe 0.35 also removed all `#[deprecated]` APIs and regrouped glow config in `NativeOptions`, so the bump is not mechanical.
+- **Next upgrade path:** (1) Check for a three-d release supporting egui 0.35. (2) Check for an egui-phosphor release targeting egui 0.35. (3) Then bump egui 0.34 → 0.35 across the stack.
 - See https://github.com/emilk/egui/discussions/113 for integration approaches
 
 ## Packaging & Distribution

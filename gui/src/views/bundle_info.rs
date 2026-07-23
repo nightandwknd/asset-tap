@@ -56,8 +56,7 @@ fn scrollable_prompt_field(
             ui.add(
                 egui::TextEdit::multiline(&mut s)
                     .interactive(false)
-                    .desired_width(f32::INFINITY)
-                    .frame(true),
+                    .desired_width(f32::INFINITY),
             );
         });
 }

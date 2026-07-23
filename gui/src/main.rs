@@ -49,6 +49,9 @@ fn main() -> eframe::Result<()> {
             .with_title(APP_DISPLAY_NAME)
             .with_app_id(APP_ID)
             .with_icon(icon_data),
+        // The three-d model viewer renders through eframe's glow context;
+        // never let eframe pick another renderer.
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 
