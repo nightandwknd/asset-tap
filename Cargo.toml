@@ -3,7 +3,7 @@ resolver = "2"
 members = ["cli", "core", "gui"]
 
 [workspace.package]
-version = "26.7.2"
+version = "26.7.3"
 authors = ["Night and Wknd"]
 categories = ["multimedia", "graphics", "command-line-utilities"]
 edition = "2024"

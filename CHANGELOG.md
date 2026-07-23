@@ -2,6 +2,14 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.7.3 — 2026-07-23
+
+### Chores
+
+- bump the rust-dependencies group across 1 directory with 2 updates ([#40](https://github.com/nightandwknd/asset-tap/pull/40)) _(deps)_
+- bump the rust-dependencies group with 4 updates ([#42](https://github.com/nightandwknd/asset-tap/pull/42)) _(deps)_
+- move 3D stack to crates.io releases (egui 0.34, three-d 0.19) ([#41](https://github.com/nightandwknd/asset-tap/pull/41)) _(deps)_
+
 ## v26.7.2 — 2026-07-14
 
 ### Features
