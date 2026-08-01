@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.1 — 2026-08-01
+
+### Bug Fixes
+
+- correct CLI validation scope, exit codes, and provider catalog ([#44](https://github.com/nightandwknd/asset-tap/pull/44))
+
+### Chores
+
+- bump serde_json in the rust-dependencies group ([#43](https://github.com/nightandwknd/asset-tap/pull/43)) _(deps)_
+
 ## v26.7.3 — 2026-07-23
 
 ### Chores
