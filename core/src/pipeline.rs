@@ -523,6 +523,48 @@ fn log_stage_error(
     }
 }
 
+/// Re-encode image bytes to PNG when they aren't already.
+///
+/// Two things here assume PNG: the bundle contract fixes the filename at
+/// `image.png`, and the data-URI fallback for providers without an upload
+/// endpoint hardcodes `data:image/png;base64,`. Providers serve other formats
+/// — Meshy's text-to-image returns JPEG — and decoders that go by file
+/// extension reject the mismatch.
+///
+/// Returns `None` when the bytes are already PNG (the common case, no work) or
+/// when they can't be converted. A failed re-encode is non-fatal: keeping a
+/// usable image in the wrong container beats discarding a paid generation.
+fn png_reencode(bytes: &[u8]) -> Option<Vec<u8>> {
+    let format = match image::guess_format(bytes) {
+        Ok(image::ImageFormat::Png) => return None,
+        Ok(format) => format,
+        Err(e) => {
+            tracing::warn!("Unrecognized image format, writing bytes as-is: {e}");
+            return None;
+        }
+    };
+
+    let decoded = match image::load_from_memory_with_format(bytes, format) {
+        Ok(img) => img,
+        Err(e) => {
+            tracing::warn!("Could not decode {format:?} image for PNG re-encode: {e}");
+            return None;
+        }
+    };
+
+    let mut out = std::io::Cursor::new(Vec::new());
+    match decoded.write_to(&mut out, image::ImageFormat::Png) {
+        Ok(()) => {
+            tracing::info!("Re-encoded {format:?} image to PNG");
+            Some(out.into_inner())
+        }
+        Err(e) => {
+            tracing::warn!("Could not encode image as PNG: {e}");
+            None
+        }
+    }
+}
+
 /// Stage 1: Obtain an image — either from an existing file/URL or by generating one.
 ///
 /// Returns the raw image bytes and the resolved image model ID (if generation occurred).
@@ -547,7 +589,10 @@ async fn generate_image_stage(
         if path.exists() {
             // Local file — read bytes and copy to gen_dir
             let dest_path = gen_dir.join(bundle_files::IMAGE);
-            let bytes = tokio::fs::read(&path).await?;
+            let mut bytes = tokio::fs::read(&path).await?;
+            if let Some(png) = png_reencode(&bytes) {
+                bytes = png;
+            }
             tokio::fs::write(&dest_path, &bytes).await?;
             output.image_path = Some(dest_path);
             return Ok((bytes, resolved_image_model));
@@ -555,7 +600,13 @@ async fn generate_image_stage(
             // Remote URL — download it
             let image_path = gen_dir.join(bundle_files::IMAGE);
             let _ = progress_tx.send(Progress::started(Stage::Download));
-            let bytes = download_file(url, &image_path).await?;
+            let mut bytes = download_file(url, &image_path).await?;
+            // download_file already wrote the raw bytes; only rewrite if they
+            // weren't PNG to begin with.
+            if let Some(png) = png_reencode(&bytes) {
+                tokio::fs::write(&image_path, &png).await?;
+                bytes = png;
+            }
             output.image_path = Some(image_path);
             output.image_url = Some(url.clone());
             let _ = progress_tx.send(Progress::completed(Stage::Download));
@@ -601,7 +652,12 @@ async fn generate_image_stage(
             );
         })?;
 
-    // Save image bytes to disk
+    // Save image bytes to disk. Normalizing here (rather than at the write)
+    // keeps `result.data` — which feeds the 3D stage's upload/data URI — in
+    // step with what landed on disk.
+    if let Some(png) = png_reencode(&result.data) {
+        result.data = png;
+    }
     tokio::fs::write(&image_path, &result.data).await?;
     output.image_path = Some(image_path.clone());
 
@@ -662,6 +718,9 @@ async fn generate_image_stage(
                         .await?;
 
                     // Overwrite image on disk
+                    if let Some(png) = png_reencode(&result.data) {
+                        result.data = png;
+                    }
                     tokio::fs::write(&image_path, &result.data).await?;
                     output.image_path = Some(image_path.clone());
                     // Loop back to send Completed then new AwaitingApproval
@@ -1057,6 +1116,7 @@ mod tests {
                 step: Some(0.5),
                 options: None,
                 widget: None,
+                allow_unset: false,
             },
             ParameterDef {
                 name: "topology".into(),
@@ -1072,6 +1132,7 @@ mod tests {
                     serde_json::json!("quad"),
                 ]),
                 widget: None,
+                allow_unset: false,
             },
         ];
 
@@ -1130,6 +1191,7 @@ mod tests {
             step: None,
             options: None,
             widget: None,
+            allow_unset: false,
         }];
 
         // User cleared the input (null override). The request body stripped
@@ -1159,5 +1221,37 @@ mod tests {
         // With existing image
         let config = PipelineConfig::new().with_existing_image("http://example.com/image.png");
         assert_eq!(config.effective_image_model(), None);
+    }
+
+    /// Encode a 2x2 test image in `format`.
+    fn encode_sample(format: image::ImageFormat) -> Vec<u8> {
+        let img = image::DynamicImage::new_rgb8(2, 2);
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, format).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn png_bytes_are_left_alone() {
+        assert!(png_reencode(&encode_sample(image::ImageFormat::Png)).is_none());
+    }
+
+    #[test]
+    fn jpeg_bytes_are_reencoded_to_png() {
+        // Meshy serves JPEG, but the bundle writes it as image.png and the
+        // data-URI fallback labels it image/png — so the bytes have to follow.
+        let jpeg = encode_sample(image::ImageFormat::Jpeg);
+        let png = png_reencode(&jpeg).expect("JPEG must be re-encoded");
+        assert_eq!(
+            image::guess_format(&png).unwrap(),
+            image::ImageFormat::Png,
+            "re-encoded bytes are not PNG"
+        );
+    }
+
+    #[test]
+    fn undecodable_bytes_are_kept_as_is() {
+        // Never discard a paid generation over a failed container fix.
+        assert!(png_reencode(b"not an image at all").is_none());
     }
 }

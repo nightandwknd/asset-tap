@@ -316,6 +316,33 @@ impl std::fmt::Display for KindedError {
 
 impl std::error::Error for KindedError {}
 
+/// A local usage error: bad flags or `--param` names/values, detected before
+/// any pipeline work starts.
+///
+/// Spec §2 maps these to exit 2 and allows them to exit *before* the `start`
+/// event, so they never produce a `result` — the same shape a clap usage error
+/// already has. Kept distinct from [`KindedError`] because no wire `kind`
+/// describes an invalid invocation: `unknown` exits 1, which reads as a
+/// retryable internal failure.
+#[derive(Debug)]
+pub struct UsageError {
+    pub message: String,
+}
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for UsageError {}
+
+/// Find a [`UsageError`] in the cause chain, if any.
+pub fn find_usage_error(err: &anyhow::Error) -> Option<&UsageError> {
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<UsageError>())
+}
+
 /// True when the error represents a cancellation — user signal, image
 /// rejection, or a provider-side cancel. Typed (downcast to core's
 /// `Error::is_cancellation`) rather than matching message text, so a

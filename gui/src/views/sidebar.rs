@@ -1117,6 +1117,36 @@ enum NumericKind {
     Float,
 }
 
+/// Dropdown entry shown for a cleared (`allow_unset`) select parameter.
+///
+/// Parenthesized so it can't collide with a real option value — provider
+/// options are API enum values, none of which are wrapped in parentheses.
+const UNSET_LABEL: &str = "(unset)";
+
+/// Map a chosen dropdown label back to the JSON value to store.
+///
+/// Options are rendered as strings but may be numbers in YAML (trellis-2's
+/// `resolution: [512, 1024, 1536]`), so the original type is recovered from
+/// the options list rather than reconstructed from the label. The `(unset)`
+/// entry maps to null, which strips the key from the request body entirely.
+fn select_value_for_label(
+    param: &asset_tap_core::providers::ParameterDef,
+    label: &str,
+) -> serde_json::Value {
+    if param.allow_unset && label == UNSET_LABEL {
+        return serde_json::Value::Null;
+    }
+    param
+        .options
+        .as_ref()
+        .and_then(|opts| {
+            opts.iter()
+                .find(|o| json_scalar_display(o) == label)
+                .cloned()
+        })
+        .unwrap_or_else(|| serde_json::Value::String(label.to_string()))
+}
+
 /// Human-readable form of a JSON scalar (strings, numbers, booleans) for
 /// rendering as combo-box option labels.
 fn json_scalar_display(v: &serde_json::Value) -> String {
@@ -1328,7 +1358,15 @@ fn render_parameter_widget(
             }
 
             if val != current {
-                values.insert(param.name.clone(), serde_json::Value::from(val));
+                // `Input` means an empty field omits the key rather than
+                // sending "", matching the numeric inputs. Optional text fields
+                // like Meshy's texture_prompt document no empty-string value.
+                let new_value = if use_input && val.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::from(val)
+                };
+                values.insert(param.name.clone(), new_value);
                 changed = true;
             }
         }
@@ -1341,12 +1379,23 @@ fn render_parameter_widget(
                 .get(&param.name)
                 .cloned()
                 .unwrap_or(param.default.clone());
-            let current_str = json_scalar_display(&current_value);
+            let current_str = if current_value.is_null() {
+                UNSET_LABEL.to_string()
+            } else {
+                json_scalar_display(&current_value)
+            };
             let mut selected_str = current_str.clone();
 
             ui.label(&param.label);
             let combo = egui::ComboBox::from_id_salt(&param.name).selected_text(&selected_str);
             let response = combo.show_ui(ui, |ui| {
+                // Every entry writes one of `options`, so a dropdown can't
+                // express "no value" without this. Parameters that are mutually
+                // exclusive with another need it; the CLI equivalent is
+                // `--param name=`.
+                if param.allow_unset {
+                    ui.selectable_value(&mut selected_str, UNSET_LABEL.to_string(), UNSET_LABEL);
+                }
                 if let Some(ref options) = param.options {
                     for opt in options {
                         let opt_str = json_scalar_display(opt);
@@ -1359,17 +1408,10 @@ fn render_parameter_widget(
             }
 
             if selected_str != current_str {
-                // Map back to the option's original JSON type.
-                let new_value = param
-                    .options
-                    .as_ref()
-                    .and_then(|opts| {
-                        opts.iter()
-                            .find(|o| json_scalar_display(o) == selected_str)
-                            .cloned()
-                    })
-                    .unwrap_or(serde_json::Value::String(selected_str.clone()));
-                values.insert(param.name.clone(), new_value);
+                values.insert(
+                    param.name.clone(),
+                    select_value_for_label(param, &selected_str),
+                );
                 changed = true;
             }
         }
@@ -1381,6 +1423,7 @@ fn render_parameter_widget(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use asset_tap_core::providers::ParameterDef;
     use std::fs;
     use tempfile::TempDir;
 
@@ -1457,6 +1500,62 @@ mod tests {
         fs::write(&image, b"fake").unwrap();
         let label = format_existing_image_label(image.to_str().unwrap());
         assert_eq!(label, "photo.png");
+    }
+
+    fn select_def(allow_unset: bool, options: Vec<serde_json::Value>) -> ParameterDef {
+        ParameterDef {
+            name: "aspect_ratio".into(),
+            label: "Aspect Ratio".into(),
+            description: None,
+            param_type: asset_tap_core::providers::ParameterType::Select,
+            default: serde_json::json!("1:1"),
+            min: None,
+            max: None,
+            step: None,
+            options: Some(options),
+            widget: None,
+            allow_unset,
+        }
+    }
+
+    #[test]
+    fn select_unset_entry_clears_to_null() {
+        // Meshy rejects aspect_ratio alongside generate_multi_view, so the GUI
+        // needs the same escape hatch the CLI has in `--param aspect_ratio=`.
+        let param = select_def(
+            true,
+            vec![serde_json::json!("1:1"), serde_json::json!("3:4")],
+        );
+        assert_eq!(
+            select_value_for_label(&param, UNSET_LABEL),
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            select_value_for_label(&param, "3:4"),
+            serde_json::json!("3:4")
+        );
+    }
+
+    #[test]
+    fn select_preserves_numeric_option_types() {
+        // trellis-2's resolution options are numbers; writing back the label as
+        // a string would send the API the wrong type.
+        let param = select_def(false, vec![serde_json::json!(512), serde_json::json!(1024)]);
+        assert_eq!(
+            select_value_for_label(&param, "1024"),
+            serde_json::json!(1024)
+        );
+    }
+
+    #[test]
+    fn unset_label_is_literal_when_not_allowed() {
+        // Without allow_unset there is no "(unset)" entry to pick, so the label
+        // must not be treated as a magic clear value.
+        let param = select_def(false, vec![serde_json::json!("1:1")]);
+        assert_ne!(
+            select_value_for_label(&param, UNSET_LABEL),
+            serde_json::Value::Null
+        );
     }
 
     #[test]

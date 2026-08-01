@@ -13,6 +13,20 @@ impl MockFixtures {
         uuid::Uuid::new_v4().to_string()
     }
 
+    /// URL of the sample image served by `generic_handlers::setup_file_serving`.
+    ///
+    /// Response builders in both `fixtures` and `config_driven` hand this URL
+    /// to the client, so it lives in one place — a rename here can't leave one
+    /// of them pointing at a path nothing serves.
+    pub fn sample_image_url(base_url: &str) -> String {
+        format!("{base_url}/files/generated-image.png")
+    }
+
+    /// URL of the sample GLB served by `generic_handlers::setup_file_serving`.
+    pub fn sample_model_url(base_url: &str) -> String {
+        format!("{base_url}/files/{}", bundle_files::MODEL_GLB)
+    }
+
     // =========================================================================
     // Generic Responses (Provider-Agnostic)
     // =========================================================================
@@ -42,27 +56,27 @@ impl MockFixtures {
             "response": {
                 // Image generation result
                 "images": [{
-                    "url": format!("{}/files/generated-image.png", base_url),
+                    "url": Self::sample_image_url(base_url),
                     "width": 1024,
                     "height": 1024,
                     "content_type": mime::IMAGE_PNG
                 }],
                 // 3D generation results (model_glb for Trellis 2 / Hunyuan3D)
                 "model_glb": {
-                    "url": format!("{}/files/{}", base_url, bundle_files::MODEL_GLB),
+                    "url": Self::sample_model_url(base_url),
                     "content_type": mime::MODEL_GLTF_BINARY,
                     "file_name": bundle_files::MODEL_GLB,
                     "file_size": 1024000
                 },
                 // 3D generation results (model_mesh for Trellis v1)
                 "model_mesh": {
-                    "url": format!("{}/files/{}", base_url, bundle_files::MODEL_GLB),
+                    "url": Self::sample_model_url(base_url),
                     "content_type": mime::MODEL_GLTF_BINARY,
                     "file_name": bundle_files::MODEL_GLB,
                     "file_size": 1024000
                 },
                 // Direct output URL
-                "output": format!("{}/files/{}", base_url, bundle_files::MODEL_GLB)
+                "output": Self::sample_model_url(base_url)
             }
         })
     }

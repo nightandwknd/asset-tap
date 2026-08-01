@@ -10,13 +10,6 @@ use std::sync::Arc;
 /// Embedded provider configs (all *.yaml files from providers/ directory).
 static EMBEDDED_PROVIDERS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../providers");
 
-/// Providers whose queue/poll/result shapes the shared mock server emulates.
-/// When mock mode is on, providers outside this list are hidden so users
-/// can't pick a provider whose pipeline would break at runtime. Expand this
-/// list as the mock server gains support for more provider shapes.
-#[cfg(feature = "mock")]
-const MOCK_SUPPORTED_PROVIDERS: &[&str] = &["fal.ai"];
-
 /// Provider info collected for discovery refresh: (provider, capabilities, has_cache).
 type DiscoveryTarget = (Arc<dyn Provider>, Vec<ProviderCapability>, bool);
 
@@ -289,23 +282,6 @@ impl ProviderRegistry {
 
             match self.load_provider_config(&path) {
                 Ok(provider) => {
-                    // In mock mode, only register providers whose behavior the
-                    // shared mock server actually emulates. Today that's fal.ai
-                    // only — Meshy uses a different task-id + status-URL shape
-                    // that the mock doesn't speak. Loading other providers in
-                    // mock mode would offer the user a choice that silently
-                    // breaks at runtime, which is worse than hiding it.
-                    #[cfg(feature = "mock")]
-                    if crate::api::is_mock_mode()
-                        && !MOCK_SUPPORTED_PROVIDERS.contains(&provider.id())
-                    {
-                        tracing::info!(
-                            "Hiding provider {} ({}) in mock mode — not supported by mock server",
-                            provider.name(),
-                            provider.id()
-                        );
-                        continue;
-                    }
                     tracing::info!(
                         "Loaded custom provider: {} ({})",
                         provider.name(),
@@ -375,16 +351,22 @@ impl ProviderRegistry {
             is_mock_delay_enabled, is_mock_fail_enabled,
             mock::{MockApiServer, MockServerConfig, SimulatedFailure},
         };
-        use std::sync::OnceLock;
-        use std::sync::{Arc, Mutex};
+        use std::collections::HashSet;
+        use std::sync::{Mutex, OnceLock};
 
         tracing::debug!("apply_mock_mode called for provider: {}", provider.id());
 
-        // Use a static OnceLock to store the mock server URL
-        static MOCK_INIT: OnceLock<Arc<Mutex<Option<String>>>> = OnceLock::new();
+        /// The process-wide mock server plus the providers already mounted on
+        /// it. The server itself (not just its URL) has to survive, because
+        /// every provider mounts its own YAML-derived handlers as it loads.
+        struct MockState {
+            server: &'static MockApiServer,
+            mounted: HashSet<String>,
+        }
 
-        let mock_cell = MOCK_INIT.get_or_init(|| Arc::new(Mutex::new(None)));
-        let mut mock_guard = mock_cell.lock().unwrap();
+        static MOCK_INIT: OnceLock<Mutex<Option<MockState>>> = OnceLock::new();
+
+        let mut mock_guard = MOCK_INIT.get_or_init(|| Mutex::new(None)).lock().unwrap();
 
         if mock_guard.is_none() {
             tracing::debug!("First provider in mock mode - starting mock server");
@@ -402,51 +384,48 @@ impl ProviderRegistry {
                 });
             }
 
-            // Check if we're already in a tokio runtime
-            let url = if tokio::runtime::Handle::try_current().is_ok() {
-                // We're in an async context - spawn a future
-                std::thread::spawn(|| {
-                    let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-                    let server = rt.block_on(MockApiServer::start(config));
-                    let url = server.url();
-                    // Keep server alive
-                    Box::leak(Box::new(server));
-                    Box::leak(Box::new(rt));
-                    url
-                })
-                .join()
-                .expect("Mock server thread panicked")
-            } else {
-                // Not in async context - can block directly
-                let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-                let server = rt.block_on(MockApiServer::start(config));
-                let url = server.url();
-                // Keep server and runtime alive
-                Box::leak(Box::new(server));
-                Box::leak(Box::new(rt));
-                url
-            };
+            let server = Self::run_blocking(async move {
+                let server: &'static MockApiServer =
+                    Box::leak(Box::new(MockApiServer::start(config).await));
+                server
+            });
 
-            tracing::info!("🎭 Mock mode enabled at {}", url);
+            tracing::info!("🎭 Mock mode enabled at {}", server.url());
 
-            // Set dummy API keys for all provider env vars if not present
-            for env_var in &provider.metadata().required_env_vars {
-                if std::env::var(env_var).is_err() {
-                    // SAFETY: Mock mode runs single-threaded before any provider
-                    // threads are spawned. No concurrent env reads are possible.
-                    unsafe { std::env::set_var(env_var, "mock-api-key") };
-                }
-            }
-
-            *mock_guard = Some(url);
+            *mock_guard = Some(MockState {
+                server,
+                mounted: HashSet::new(),
+            });
         }
 
-        // Get the URL from the cell
-        let mock_url = mock_guard.as_ref().unwrap().clone();
+        let state = mock_guard.as_mut().expect("just initialized");
+        let server = state.server;
+
+        // Every provider gets a dummy key, not just the one that started the
+        // server: without a key a provider isn't "available" and can't be
+        // selected, even in mock mode.
+        for env_var in &provider.metadata().required_env_vars {
+            if std::env::var(env_var).is_err() {
+                // SAFETY: Mock mode runs single-threaded before any provider
+                // threads are spawned. No concurrent env reads are possible.
+                unsafe { std::env::set_var(env_var, "mock-api-key") };
+            }
+        }
+
+        // Mount this provider's own queue/poll/result contract so mock runs
+        // exercise the shapes its YAML declares rather than fal.ai's.
+        //
+        // Once per provider per process: the server outlives any single
+        // registry, so repeated registry construction would otherwise pile up
+        // identical handlers.
+        if state.mounted.insert(provider.id().to_string()) {
+            let provider_config = provider.config_snapshot();
+            Self::run_blocking(async move { server.mount_provider(&provider_config).await });
+        }
         drop(mock_guard); // Release lock
 
         // Override the provider's base_url
-        provider.set_base_url(mock_url);
+        provider.set_base_url(server.url());
 
         // Collapse polling intervals so mock-mode pipeline runs don't pay the
         // YAML-declared 1-2 second per-stage cadence. Combined with the
@@ -461,6 +440,41 @@ impl ProviderRegistry {
         provider.disable_discovery();
 
         Ok(provider)
+    }
+
+    /// Run an async block to completion from sync provider-loading code.
+    ///
+    /// Provider registration is synchronous but may be invoked from inside a
+    /// tokio runtime (GUI/CLI) or outside one (tests). `block_on` panics on the
+    /// former, so that case gets its own thread and runtime. The runtime is
+    /// leaked because the mock server it hosts must outlive this call.
+    #[cfg(feature = "mock")]
+    fn run_blocking<T, F>(future: F) -> T
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        use std::sync::OnceLock;
+
+        // One runtime for the whole process, deliberately leaked: it hosts the
+        // mock server, which must outlive every registry that mounts onto it.
+        static MOCK_RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+        let handle = MOCK_RUNTIME
+            .get_or_init(|| {
+                let rt: &'static tokio::runtime::Runtime = Box::leak(Box::new(
+                    tokio::runtime::Runtime::new().expect("Failed to create mock runtime"),
+                ));
+                rt.handle().clone()
+            })
+            .clone();
+
+        // Always drive it from a fresh thread. `Handle::block_on` panics when
+        // called from inside a runtime, and provider loading runs both ways —
+        // under the GUI/CLI runtime and bare in tests. A dedicated thread is
+        // neither, so one path covers both.
+        std::thread::spawn(move || handle.block_on(future))
+            .join()
+            .expect("Mock server thread panicked")
     }
 
     /// Create a new empty provider registry.

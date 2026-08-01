@@ -626,6 +626,7 @@ fn parameter_serialization_omits_unset_optionals() {
             serde_json::json!("quad"),
         ]),
         widget: None,
+        allow_unset: false,
     };
     let v = serde_json::to_value(machine::parameter_wire(&def)).unwrap();
     assert_eq!(v["name"], "topology");

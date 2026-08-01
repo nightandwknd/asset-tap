@@ -322,23 +322,101 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     let native_v6 = param_names(&meshy, "meshy/v6/image-to-3d");
     let native_v5 = param_names(&meshy, "meshy/v5/image-to-3d");
 
-    assert_eq!(
-        fal_v6,
-        native_v6,
-        "fal's Meshy v6 wrapper and Meshy's native v6 must expose the same \
-         parameter names so users see identical knobs. Mismatch: only-in-fal={:?}, \
-         only-in-native={:?}",
-        fal_v6.difference(&native_v6).collect::<Vec<_>>(),
-        native_v6.difference(&fal_v6).collect::<Vec<_>>()
+    // Params the native Meshy API documents but fal's wrapper hasn't been
+    // confirmed to pass through. They stay native-only until someone checks
+    // fal's schema for `fal-ai/meshy/v6/image-to-3d`.
+    const NATIVE_ONLY: &[&str] = &[
+        "texture_resolution",
+        "remove_lighting",
+        "image_enhancement",
+        "texture_prompt",
+    ];
+
+    // No fal-only params: anything the wrapper exposes must exist natively too.
+    let only_in_fal: Vec<_> = fal_v6.difference(&native_v6).collect();
+    assert!(
+        only_in_fal.is_empty(),
+        "fal's Meshy v6 wrapper exposes parameters the native provider doesn't: {only_in_fal:?}. \
+         Add them to providers/meshy.yaml so routing doesn't change the knobs."
     );
 
+    // Everything else must match, so an unlisted addition to one copy still fails.
+    let unexplained: Vec<_> = native_v6
+        .difference(&fal_v6)
+        .filter(|name| !NATIVE_ONLY.contains(&name.as_str()))
+        .collect();
+    assert!(
+        unexplained.is_empty(),
+        "Native Meshy v6 gained parameters that fal's wrapper lacks: {unexplained:?}. \
+         Either add them to fal-ai.yaml's meshy/v6 block or, if fal's wrapper \
+         genuinely doesn't support them, add them to NATIVE_ONLY with a note."
+    );
+
+    // Meshy documents texture_resolution 4k/8k, remove_lighting and
+    // image_enhancement as meshy-6-or-latest only, so v5 must expose strictly
+    // fewer knobs — by exactly that documented set.
+    const V6_ONLY: &[&str] = &["texture_resolution", "remove_lighting", "image_enhancement"];
+
+    let expected_v5: BTreeSet<String> = native_v6
+        .iter()
+        .filter(|name| !V6_ONLY.contains(&name.as_str()))
+        .cloned()
+        .collect();
     assert_eq!(
-        native_v6,
         native_v5,
-        "Meshy v6 and v5 share the same parameter surface (only defaults differ). \
-         Mismatch: only-in-v6={:?}, only-in-v5={:?}",
-        native_v6.difference(&native_v5).collect::<Vec<_>>(),
-        native_v5.difference(&native_v6).collect::<Vec<_>>()
+        expected_v5,
+        "Meshy v5 should expose v6's surface minus the documented v6-only knobs \
+         ({V6_ONLY:?}). Mismatch: only-in-v5={:?}, missing-from-v5={:?}",
+        native_v5.difference(&expected_v5).collect::<Vec<_>>(),
+        expected_v5.difference(&native_v5).collect::<Vec<_>>()
+    );
+}
+
+/// Meshy rejects a request that sets `aspect_ratio` while `generate_multi_view`
+/// is true — the two are mutually exclusive, not merely redundant.
+///
+/// The YAML schema can't express "these conflict", so the user needs a way to
+/// clear one. The CLI has `--param aspect_ratio=`; a GUI dropdown can only
+/// write one of `options` unless `allow_unset` adds an explicit entry. Any
+/// model offering both knobs must therefore mark aspect_ratio clearable.
+#[test]
+fn mutually_exclusive_select_params_are_clearable() {
+    use asset_tap_core::providers::config::ProviderConfig;
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../providers/meshy.yaml");
+    let config = ProviderConfig::from_yaml_file(&path).expect("meshy.yaml loads");
+
+    let mut checked = 0;
+    for model in &config.text_to_image {
+        let has_multi_view = model
+            .parameters
+            .iter()
+            .any(|p| p.name == "generate_multi_view");
+        if !has_multi_view {
+            continue;
+        }
+        let aspect = model
+            .parameters
+            .iter()
+            .find(|p| p.name == "aspect_ratio")
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: declares generate_multi_view but no aspect_ratio",
+                    model.id
+                )
+            });
+        assert!(
+            aspect.allow_unset,
+            "{}: aspect_ratio must set `allow_unset: true` — it conflicts with \
+             generate_multi_view, and a GUI dropdown offers no other way to clear it",
+            model.id
+        );
+        checked += 1;
+    }
+
+    assert!(
+        checked >= 4,
+        "expected every Meshy text-to-image model to be checked, saw {checked}"
     );
 }
 

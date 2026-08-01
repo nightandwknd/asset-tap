@@ -34,6 +34,25 @@ fn json_contains_token(value: &serde_json::Value) -> bool {
     }
 }
 
+/// Error for a model id this provider doesn't serve for the given stage.
+///
+/// Typed as `InvalidModel` (→ wire `validation_error`, exit 4) rather than a
+/// generic `Api` string, which would classify as `unknown` and exit 1 — the
+/// code for a retryable internal failure.
+fn model_not_found(
+    provider_id: &str,
+    capability: ProviderCapability,
+    model_id: &str,
+) -> crate::types::Error {
+    let stage = match capability {
+        ProviderCapability::TextToImage => "text-to-image",
+        ProviderCapability::ImageTo3D => "image-to-3D",
+    };
+    crate::types::Error::InvalidModel(format!(
+        "provider '{provider_id}' has no {stage} model '{model_id}'"
+    ))
+}
+
 /// Convert an anyhow error from http_client into a structured Error.
 ///
 /// If the anyhow wraps an [`HttpError`], creates a full [`crate::types::ApiError`] with
@@ -337,6 +356,36 @@ impl DynamicProvider {
     ///
     /// This also overrides upload endpoints to use relative paths instead of
     /// absolute URLs, ensuring all requests go to the mock server.
+    /// Fail with a typed [`Error::InvalidModel`] when this provider doesn't
+    /// serve `model_id` for `capability`.
+    ///
+    /// [`Error::InvalidModel`]: crate::types::Error::InvalidModel
+    fn require_model(
+        &self,
+        capability: ProviderCapability,
+        model_id: &str,
+    ) -> crate::types::Result<()> {
+        let config = self.config.lock().unwrap();
+        let models = match capability {
+            ProviderCapability::TextToImage => &config.text_to_image,
+            ProviderCapability::ImageTo3D => &config.image_to_3d,
+        };
+        if models.iter().any(|m| m.id == model_id) {
+            Ok(())
+        } else {
+            Err(model_not_found(&self.metadata.id, capability, model_id))
+        }
+    }
+
+    /// Clone the provider's current config.
+    ///
+    /// Used by mock mode to build handlers that answer exactly what this
+    /// provider's YAML says it expects.
+    #[cfg(feature = "mock")]
+    pub fn config_snapshot(&self) -> ProviderConfig {
+        self.config.lock().unwrap().clone()
+    }
+
     pub fn set_base_url(&self, base_url: String) {
         tracing::debug!("Setting provider base_url to: {}", base_url);
         let mut config = self.config.lock().unwrap();
@@ -624,6 +673,12 @@ impl Provider for DynamicProvider {
             crate::types::Error::Pipeline("Progress channel required".to_string())
         })?;
 
+        // Check the model here rather than letting the HTTP client bail with an
+        // untyped `anyhow!`: `convert_http_error` only classifies a real
+        // `HttpError`, so anything else collapses to `Error::Api` → `unknown` →
+        // exit 1. Mirrors the image_to_3d arm below.
+        self.require_model(ProviderCapability::TextToImage, model_id)?;
+
         tracing::debug!("Calling client.generate_image");
 
         // Clone client to avoid holding lock across await
@@ -658,7 +713,9 @@ impl Provider for DynamicProvider {
                 .iter()
                 .find(|m| m.id == model_id)
                 .cloned()
-                .ok_or_else(|| crate::types::Error::Api(format!("Model not found: {}", model_id)))?
+                .ok_or_else(|| {
+                    model_not_found(self.id(), ProviderCapability::ImageTo3D, model_id)
+                })?
         };
 
         // Check if model needs image_url parameter (URL-based API). Walk the
@@ -849,6 +906,26 @@ mod tests {
                 assert!(api_err.raw_message.contains("GPU out of memory"));
             }
             other => panic!("Expected Error::ApiError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn model_not_found_is_a_validation_error_not_unknown() {
+        // A model id that doesn't exist can never succeed on retry, so it must
+        // not classify as `unknown` (exit 1, internal error).
+        for (capability, stage) in [
+            (ProviderCapability::TextToImage, "text-to-image"),
+            (ProviderCapability::ImageTo3D, "image-to-3D"),
+        ] {
+            let err = model_not_found("meshy", capability, "nope/v9");
+            match &err {
+                crate::types::Error::InvalidModel(msg) => {
+                    assert!(msg.contains("nope/v9"), "{msg}");
+                    assert!(msg.contains("meshy"), "{msg}");
+                    assert!(msg.contains(stage), "{msg}");
+                }
+                other => panic!("expected InvalidModel, got {other:?}"),
+            }
         }
     }
 
