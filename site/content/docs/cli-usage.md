@@ -104,7 +104,11 @@ asset-tap -y "a robot" --param guidance_scale=7.0 --param num_inference_steps=10
 asset-tap -y "a robot" --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad --param enable_pbr=false
 ```
 
-Value types are auto-detected (`true`/`false` -> bool, integers, floats, strings). Invalid parameter names error out with a list of valid options. The applied overrides are recorded into `bundle.json` under `config.image_model_params` and `config.model_3d_params`, and shown in the GUI's bundle info panel.
+Value types are auto-detected (`true`/`false` -> bool, integers, floats, strings). An empty value (`--param seed=`) clears the parameter so the provider applies its own default.
+
+Parameters are validated against the models the run actually uses: under `--image-only` no image-to-3D parameter is accepted, and with `--image` no text-to-image parameter is. An invalid name or value is a usage error — exit code 2, with the valid parameters for each active model listed.
+
+The applied overrides are recorded into `bundle.json` under `config.image_model_params` and `config.model_3d_params`, and shown in the GUI's bundle info panel.
 
 ## Templates
 
@@ -178,10 +182,17 @@ output/
 
 ### Exporting Bundles
 
+A bundle needs a name before it can be exported. Set one at generation time with `-n/--name`, or pass it alongside `--export-bundle`:
+
 ```bash
-# Export a bundle directory as a zip archive
-asset-tap --export-bundle output/2024-12-29_153045
+# Name at generation time
+asset-tap -y --name "My Robot" "a robot"
+
+# Or name an existing bundle while exporting it
+asset-tap --export-bundle output/2024-12-29_153045 --name "My Robot"
 ```
+
+Exporting a bundle that has no name exits with an error telling you which command to run.
 
 ## FBX Conversion
 
@@ -240,7 +251,7 @@ Or build with the feature explicitly:
 cargo run --features mock --bin asset-tap -- --mock "test prompt"
 ```
 
-Mock mode redirects all API requests to a local server that returns synthetic data (test images and 3D models). It validates the pipeline and configuration plumbing, not provider-specific response parsing. To verify a custom provider's response format, test against the real API.
+Mock mode redirects all API requests to a local server that returns synthetic data (test images and 3D models). Handlers are built from each provider's own YAML, so every provider can be exercised this way. It validates the pipeline and configuration plumbing, not provider-specific response parsing — to verify a response format, test against the real API.
 
 ## Complete Flag Reference
 

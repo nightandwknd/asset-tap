@@ -30,7 +30,11 @@ The sidebar is where you configure and launch generations:
 - **Template** -- Optionally select a prompt template to structure your input
 - **Provider** -- Select the AI provider to use
 - **Image Model** -- Choose which model generates the image from your text
+- **Image Model Settings** -- Per-model parameters declared by the provider (aspect ratio, resolution, seed, and so on), shown as sliders, checkboxes, and dropdowns. Values persist per provider and model.
 - **3D Model** -- Choose which model converts the image to 3D
+- **3D Model Settings** -- The same, for the image-to-3D model (topology, polycount, PBR, texture resolution, and so on)
+- **Image only (skip 3D)** -- Stop after the image; no GLB or FBX is written
+- **Export FBX** -- Convert the GLB to FBX (requires Blender)
 - **Generate** -- Start the generation pipeline
 
 ### Using an Existing Image
@@ -53,17 +57,19 @@ After the image is generated, Asset Tap shows you a preview so you can decide wh
 
 Once generation completes, the 3D model loads in the built-in viewer. You can interact with the model directly:
 
+Controls follow Blender's conventions.
+
 **Mouse:**
 
-- **Rotate** -- Drag (left-click) to orbit around the model
-- **Pan** -- Shift+Drag or middle-click drag to move the view
-- **Zoom** -- Ctrl+Scroll (Cmd+Scroll on macOS) to zoom in and out
+- **Rotate** -- Left-drag, or middle-click drag, to orbit around the model
+- **Pan** -- Shift + left-drag, or Shift + middle-click drag
+- **Zoom** -- Scroll wheel (no modifier)
 
 **Trackpad:**
 
 - **Rotate** -- Two-finger scroll to orbit
-- **Pan** -- Shift + two-finger scroll to move the view
-- **Zoom** -- Pinch to zoom in and out
+- **Pan** -- Shift + two-finger scroll
+- **Zoom** -- Pinch, or Ctrl/Cmd + two-finger scroll
 
 A **Reset View** button in the viewer toolbar restores the default camera position.
 
@@ -96,13 +102,6 @@ If you have Blender installed, Asset Tap can automatically convert GLB models to
 The exported FBX file is saved alongside the GLB in the same bundle directory.
 
 You can also convert existing bundles to FBX after generation. In the GUI, open a bundle that has a GLB and click **Convert to FBX**. From the CLI, use `asset-tap --convert-fbx <path>` with a bundle directory or GLB file.
-
-## Keyboard Shortcuts
-
-| Action   | Shortcut                       |
-| -------- | ------------------------------ |
-| Generate | Enter (when prompt is focused) |
-| Settings | Gear icon in sidebar           |
 
 ## What's Next
 

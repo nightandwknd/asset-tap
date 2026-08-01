@@ -51,17 +51,20 @@ The `bundle.json` file contains complete information about the generation:
 ```json
 {
   "version": 1,
-  "name": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+  "name": "My Robot",
   "created_at": "2024-12-29T15:30:45Z",
 
   "config": {
-    "prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+    "prompt": "a cowboy ninja with a leather duster and dual katanas",
+    "template": null,
+    "existing_image": null,
     "image_model": "fal-ai/nano-banana-2",
     "model_3d": "fal-ai/trellis-2",
     "export_fbx": true,
     "image_model_params": {
-      "guidance_scale": 4.5,
-      "num_inference_steps": 32
+      "aspect_ratio": "auto",
+      "resolution": "1K",
+      "num_images": 1
     },
     "model_3d_params": {
       "topology": "quad",
@@ -74,20 +77,36 @@ The `bundle.json` file contains complete information about the generation:
     "format": "GLB",
     "vertex_count": 27398,
     "triangle_count": 9132
-  }
+  },
+
+  "duration_ms": 184223,
+  "tags": [],
+  "favorite": false,
+  "notes": null,
+  "generator": "asset-tap/26.7.3"
 }
 ```
 
 ### Fields
 
+**Top level:**
+
+- `version` -- Bundle format version
+- `name` -- Bundle name; `null` until set with `-n/--name` or from the GUI
+- `created_at` -- UTC timestamp
+- `duration_ms` -- Generation time in milliseconds, when recorded
+- `tags`, `favorite`, `notes` -- User-editable metadata from the GUI
+- `generator` -- The Asset Tap version that produced the bundle
+
 **config** -- The generation settings used:
 
-- `prompt` -- Text prompt
+- `prompt` -- Text prompt (after template expansion, if one was used)
+- `template` -- Template name, or `null`
+- `existing_image` -- Source image when `--image` was used, or `null` (see [Privacy](#privacy))
 - `image_model` -- Image generation model
 - `model_3d` -- 3D generation model
 - `export_fbx` -- Whether FBX export was requested
-- `image_model_params` -- User-tuned parameter overrides applied to the image model (omitted when empty)
-- `model_3d_params` -- User-tuned parameter overrides applied to the 3D model (omitted when empty)
+- `image_model_params` / `model_3d_params` -- The **effective** parameters for each model: the model's declared defaults with any overrides applied. These record the full set, not just what you overrode, so a bundle can be reproduced later even if a default changes.
 
 **model_info** -- 3D model statistics:
 

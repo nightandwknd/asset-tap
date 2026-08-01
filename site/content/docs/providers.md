@@ -49,21 +49,27 @@ Native Meshy API -- bypasses fal's proxy markup and unlocks the full Meshy featu
 
 #### Text-to-Image Models
 
-| Model                                                         | Description                                     |
-| ------------------------------------------------------------- | ----------------------------------------------- |
-| [Nano Banana](https://docs.meshy.ai/en/api/text-to-image)     | Meshy's standard text-to-image tier _(default)_ |
-| [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | Higher-quality text-to-image tier               |
+| Model                                                         | `--image-model`         | Description                                        |
+| ------------------------------------------------------------- | ----------------------- | -------------------------------------------------- |
+| [Nano Banana](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/nano-banana`     | Standard tier, 3 credits/image _(default)_         |
+| [Nano Banana 2](https://docs.meshy.ai/en/api/text-to-image)   | `meshy/nano-banana-2`   | Mid tier, 6 credits/image                          |
+| [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | `meshy/nano-banana-pro` | Higher quality, 9 credits/image                    |
+| [GPT Image 2](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/gpt-image-2`     | 9 credits/image; the only Meshy model offering 2:3 |
 
-Tunable parameters: `aspect_ratio` (1:1, 16:9, 9:16, 4:3, 3:4), `generate_multi_view`.
+Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`.
+
+**Aspect ratios differ per model.** The Nano Banana family accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`; GPT Image 2 accepts `1:1`, `3:2`, `2:3` only. `generate_multi_view` cannot be combined with `aspect_ratio` — clear it with `--param aspect_ratio=` (or the `(unset)` entry in the GUI dropdown) when enabling multi-view.
 
 #### Image-to-3D Models
 
-| Model                                                | Description                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------ |
-| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | Meshy 6 -- production-ready 3D with PBR textures _(default)_ |
-| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | Previous generation, lower credit cost                       |
+| Model                                                | `--3d-model`           | Description                                                  |
+| ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
+| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures _(default)_ |
+| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v5/image-to-3d` | Previous generation, lower credit cost                       |
 
-Tunable parameters: `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`.
+Tunable parameters: `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `symmetry_mode`, `pose_mode`, `texture_prompt`.
+
+Meshy v6 additionally exposes `texture_resolution` (2k/4k/8k), `remove_lighting`, and `image_enhancement`, which Meshy documents as v6-only.
 
 > **Why two ways to reach Meshy?** The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a `FAL_KEY`. The Meshy provider's entry uses Meshy's subscription credits and requires a `MESHY_API_KEY`. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.
 
@@ -270,7 +276,7 @@ make mock ARGS='-p my-provider -y "test prompt"'
 asset-tap -p my-provider -y "a red cube"
 ```
 
-**Note:** Mock mode is a development feature (not available in release builds). It verifies that your provider **loads and configures correctly** (YAML parsing, model registration, endpoint routing), but returns generic synthetic responses. To validate that response field extraction works with your provider's actual API, test against the real API.
+**Note:** Mock mode is a development feature (not available in release builds). Handlers are synthesized from your provider's own `polling` configuration, so a new provider works in mock mode with no additional code. It verifies that your provider **loads and configures correctly** (YAML parsing, model registration, endpoint routing, request bodies, the polling loop), but because the mock is derived from the same YAML that drives the client, it cannot catch a config that misdescribes the real API. Test against the real API to validate response field extraction.
 
 ---
 
@@ -325,7 +331,50 @@ text_to_image: # or image_to_3d
         max_attempts: integer
         cancel_method: string # Optional: HTTP method for cancel (default PUT)
         cancel_url_template: string # Optional: template using ${status_url}
+    parameters: [] # Optional: user-tunable fields (see below)
 ```
+
+### Tunable Parameters
+
+A model can declare parameters that users adjust per generation. They appear in the GUI as sliders, checkboxes, and dropdowns, and on the CLI via `--param KEY=VALUE`.
+
+```yaml
+parameters:
+  - name: 'guidance_scale' # Must match a key in request.body
+    label: 'Guidance Scale' # GUI label
+    description: 'Higher = stricter prompt adherence'
+    type: float # float, integer, boolean, string, select
+    default: 3.5
+    min: 1.0
+    max: 20.0
+    step: 0.5
+  - name: 'topology'
+    label: 'Topology'
+    type: select
+    default: 'triangle'
+    options: ['triangle', 'quad'] # Required for select; strings or numbers
+  - name: 'seed'
+    label: 'Seed'
+    type: integer
+    widget: input # Typed field instead of a slider
+    default: null # Omitted from the request unless the user sets it
+```
+
+| Field                  | Required         | Applies to             | Purpose                                           |
+| ---------------------- | ---------------- | ---------------------- | ------------------------------------------------- |
+| `name`                 | yes              | all                    | Must match a request-body key                     |
+| `label`                | yes              | all                    | GUI display name                                  |
+| `description`          | no               | all                    | Tooltip text                                      |
+| `type`                 | yes              | all                    | `float`, `integer`, `boolean`, `string`, `select` |
+| `default`              | yes              | all                    | Used when no override exists                      |
+| `min` / `max` / `step` | no               | float, integer         | Slider bounds and increment                       |
+| `options`              | yes for `select` | select                 | Allowed values (strings or numbers)               |
+| `widget`               | no               | float, integer, string | `slider` (default) or `input`                     |
+| `allow_unset`          | no               | select                 | Adds an `(unset)` entry that clears to null       |
+
+**Null means "unset".** A `null` default, a cleared `input` widget, or `--param name=` on the CLI all drop the key from the request so the provider applies its own default. A literal null is never sent.
+
+**`allow_unset` for mutually exclusive parameters.** A dropdown can only write one of its `options`, so set `allow_unset: true` when a parameter must sometimes be absent — for example when the provider rejects it alongside another parameter.
 
 ### Variable Interpolation
 
