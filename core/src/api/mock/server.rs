@@ -64,6 +64,7 @@ pub enum SimulatedFailure {
 /// Provides simulated provider API endpoints for testing.
 pub struct MockApiServer {
     server: MockServer,
+    config: MockServerConfig,
 }
 
 impl MockApiServer {
@@ -77,7 +78,19 @@ impl MockApiServer {
         // Setup generic handlers that work with any provider
         super::generic_handlers::setup(&server, &config, &base_url).await;
 
-        Self { server }
+        Self { server, config }
+    }
+
+    /// Mount handlers shaped by a provider's own YAML contract.
+    ///
+    /// Called once per provider as the registry loads it. Providers are
+    /// discovered lazily and the server starts on the first one, so this can't
+    /// happen at `start()` — the configs don't exist yet. The handlers mount at
+    /// a higher priority than the generic fallbacks, so a provider whose shape
+    /// is declared always wins over the fal-shaped catch-alls.
+    pub async fn mount_provider(&self, config: &crate::providers::config::ProviderConfig) {
+        let base_url = self.server.uri();
+        super::config_driven::mount_provider(&self.server, config, &base_url, &self.config).await;
     }
 
     /// Get the base URL for this mock server.

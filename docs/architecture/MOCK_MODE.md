@@ -92,13 +92,19 @@ Model discovery is disabled in mock mode because:
 
 Only static models defined in provider YAML files are available in mock mode.
 
-### Provider Allowlist
+### Every Provider Is Mock-Runnable
 
-Not every provider's queue/poll/result shape is emulated by the shared mock server. Providers outside the allowlist are hidden at registry-load time when `MOCK_API=1` is set, so the GUI never offers a choice that would silently break at runtime.
+**Adding a provider YAML is all it takes — there is no mock code to write.**
 
-The allowlist lives in `core/src/providers/registry.rs` (`MOCK_SUPPORTED_PROVIDERS`). At the time of writing it contains only `fal.ai` — Meshy's polling response uses a different `result`/`status_url_template` shape that the mock doesn't speak. The GUI's startup-time provider reconciliation (`reconcile_provider_selection` in `gui/src/app.rs`) transparently swaps a persisted Meshy selection back to the default fal.ai when mock mode is on, so users with saved state don't see a broken dropdown.
+`core/src/api/mock/config_driven.rs` reads the same `PollingConfig` the HTTP client reads and builds the exact response the client is about to ask for: it populates the fields `status_url_template` interpolates, sets `status_check_field` to `success_value`, and writes the artifact URL at `result_field` — inside `response_envelope_field` and behind `response_url_field` when those are declared. Path expressions (`images[0].url`, `model_urls.glb`) are written by the inverse of the client's field extraction, so any shape the client can read is a shape the mock can produce.
 
-To add mock coverage for a new provider, extend `core/src/api/mock/generic_handlers.rs` and `fixtures.rs` to emit the shape the provider expects, then add the provider id to `MOCK_SUPPORTED_PROVIDERS`. When all providers have mock support we can drop the allowlist entirely.
+These handlers mount at wiremock priority 1, ahead of the fal-shaped catch-alls in `generic_handlers.rs`, which remain as a fallback for non-polling response types and for tests that POST to arbitrary paths.
+
+This supersedes the `MOCK_SUPPORTED_PROVIDERS` allowlist, which registered only `fal.ai` in mock mode because the fal-shaped handlers 404'd anything with a different contract — Meshy returns a bare `{"result": "<id>"}` task id, polls a URL from `status_url_template`, and puts results at `image_urls[0]` with no envelope.
+
+`test_every_provider_runs_in_mock_mode` in `core/tests/pipeline_execution_tests.rs` runs a full pipeline for every registered provider. A new provider whose shape the synthesizer can't build fails that test rather than silently vanishing from mock mode.
+
+**Scope.** The mock is derived from the same YAML that drives the client, so it cannot catch a YAML that misdescribes the real API — a wrong `result_field` is wrong in both halves and still passes. Mock mode verifies config parsing, model registration, request bodies and parameter injection, the polling loop, upload/data-URI selection, artifact download, and bundle writing. Confirm response-field extraction against the real API once per provider.
 
 ## Synthetic Responses
 

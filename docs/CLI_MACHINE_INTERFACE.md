@@ -142,7 +142,7 @@ Cancellation is typed end-to-end: user signals, image rejection, and provider-si
 | ---- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | Success                      | —                                                                                                                                           |
 | 1    | Internal/unexpected error    | `unknown`, `model_error`                                                                                                                    |
-| 2    | Usage error (bad args/flags) | — (clap default; may exit before `start`)                                                                                                   |
+| 2    | Usage error (bad args/flags) | — (clap default, plus invalid `--param`; exits before `start`, so no `result` is emitted)                                                   |
 | 3    | API key missing or rejected  | `missing_api_key`, `unauthorized`                                                                                                           |
 | 4    | Provider/API error           | `payment_required`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `server_error`                                            |
 | 5    | Canceled                     | — (`status: canceled`)                                                                                                                      |
@@ -200,6 +200,7 @@ Exit codes apply in `--json` mode and (where feasible) in human mode, with one d
 ```
 
 - `modality`: `text_to_image` | `image_to_3d`.
+- Catalog `parameters` are per-model. A given run only accepts the parameters of the models it will actually use — under `--image-only` no image-to-3D parameter is valid, and with `--image` no text-to-image parameter is. Passing one that doesn't apply is a usage error (exit 2) whose message lists the parameters that do.
 - `parameters` mirrors the provider-YAML parameter definitions: `name`, `label`, `description`, `type` (`float`|`integer`|`boolean`|`string`|`select`), `default`, `min`, `max`, `step`, `options`, `widget` (`slider`|`input`). Optional fields omitted when unset.
 - `description` (string): human-readable provider description (shared with the human `--list-providers` output — both render from one catalog).
 - `configured` (bool): whether the provider's API key is present — lets a consumer build its form _and_ its preflight warnings from one call. Key material itself must never appear in output.

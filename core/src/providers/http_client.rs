@@ -1811,6 +1811,7 @@ mod tests {
             step: None,
             options: None,
             widget: None,
+            allow_unset: false,
         }
     }
 

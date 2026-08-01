@@ -106,6 +106,8 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        # Null = unset: stripped unless the user supplies a seed.
+        seed: null
         aspect_ratio: 'auto'
         resolution: '1K'
         num_images: 1
@@ -149,6 +151,12 @@ text_to_image:
         type: select
         default: '1K'
         options: ['0.5K', '1K', '2K', '4K']
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Fixes the random draw so the same prompt reproduces the same image. Leave empty for a new result each run.'
+        type: integer
+        widget: input
+        default: null
       - name: 'num_images'
         label: 'Number of Images'
         description: 'How many images to generate per request.'
@@ -191,6 +199,8 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        # Null = unset: stripped unless the user supplies a seed.
+        seed: null
         aspect_ratio: '1:1'
         num_images: 1
         output_format: 'png'
@@ -221,6 +231,12 @@ text_to_image:
           '2:3',
           '9:16',
         ]
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Fixes the random draw so the same prompt reproduces the same image. Leave empty for a new result each run.'
+        type: integer
+        widget: input
+        default: null
       - name: 'num_images'
         label: 'Number of Images'
         description: 'How many images to generate per request.'
@@ -258,6 +274,8 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        # Null = unset: stripped unless the user supplies a seed.
+        seed: null
         aspect_ratio: '1:1'
         resolution: '1K'
         num_images: 1
@@ -297,6 +315,12 @@ text_to_image:
         type: select
         default: '1K'
         options: ['1K', '2K', '4K']
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Fixes the random draw so the same prompt reproduces the same image. Leave empty for a new result each run.'
+        type: integer
+        widget: input
+        default: null
       - name: 'num_images'
         label: 'Number of Images'
         description: 'How many images to generate per request.'

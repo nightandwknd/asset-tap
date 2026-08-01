@@ -340,6 +340,38 @@ echo "=== 5. PROVIDER & MODEL TESTS ===" | tee -a "$LOG_FILE"
 run_test "Specify provider" \
     "$CLI --mock -y --no-fbx -p fal.ai 'test'" 0
 
+# Meshy exercises the non-fal contract end to end: a bare task id, a poll URL
+# built from status_url_template, results outside a response envelope, and the
+# data-URI image handoff (no upload endpoint). It was invisible in mock mode
+# until the handlers became config-driven.
+run_test "Specify provider: meshy" \
+    "$CLI --mock -y --no-fbx -p meshy 'test'" 0
+
+run_test "Meshy image-only with provider param" \
+    "$CLI --mock -y --image-only -p meshy --param aspect_ratio=3:4 'test'" 0
+
+# Meshy's aspect_ratio set is per-model, not per-provider: gpt-image-2 takes
+# 1:1/3:2/2:3 and the nano-banana family takes 1:1/16:9/9:16/4:3/3:4. Sharing
+# one list would advertise ratios each model rejects.
+run_test "Meshy gpt-image-2 accepts 2:3" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/gpt-image-2 --param aspect_ratio=2:3 'test'" 0
+
+run_test "Meshy gpt-image-2 rejects 4:3" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/gpt-image-2 --param aspect_ratio=4:3 'test'" 2
+
+run_test "Meshy nano-banana-pro rejects 2:3" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-pro --param aspect_ratio=2:3 'test'" 2
+
+# texture_resolution/remove_lighting/image_enhancement are meshy-6-or-latest only.
+run_test "Meshy v6 accepts texture_resolution" \
+    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v6/image-to-3d --param texture_resolution=4k 'test'" 0
+
+run_test "Meshy v5 rejects v6-only texture_resolution" \
+    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v5/image-to-3d --param texture_resolution=4k 'test'" 2
+
+run_test "fal nano-banana-pro accepts seed" \
+    "$CLI --mock -y --image-only --image-model fal-ai/nano-banana-pro --param seed=42 'test'" 0
+
 run_test "Image model: nano-banana-2 (default)" \
     "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 'test'" 0
 
@@ -912,17 +944,23 @@ run_test "Param: 3D model boolean param (enable_pbr=false)" \
 run_test "Param: integer coerced to float for float param" \
     "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7 'test'" 0
 
+# Bad --param is a usage error: exit 2 (spec §2), not 1. Exit 1 would tell a
+# consumer "internal error, worth retrying" about an invocation that can't work.
 run_test "Param: invalid param name (should fail)" \
-    "$CLI --mock -y --no-fbx --param totally_fake=42 'test'" 1
+    "$CLI --mock -y --no-fbx --param totally_fake=42 'test'" 2
 
 run_test "Param: malformed format without equals (should fail)" \
-    "$CLI --mock -y --no-fbx --param 'no_equals_sign' 'test'" 1
+    "$CLI --mock -y --no-fbx --param 'no_equals_sign' 'test'" 2
 
 run_test "Param: type mismatch string for float param (should fail)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=high 'test'" 1
+    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=high 'test'" 2
 
 run_test "Param: NaN rejected (should fail)" \
-    "$CLI --mock -y --no-fbx --param guidance_scale=NaN 'test'" 1
+    "$CLI --mock -y --no-fbx --param guidance_scale=NaN 'test'" 2
+
+# --image-only must not accept (or advertise) image-to-3D parameters.
+run_test "Param: 3D param rejected under --image-only" \
+    "$CLI --mock -y --image-only --param topology=quad 'test'" 2
 
 # --- Audited 2026-04-22: every provider model has its full parameter surface.
 # Smoke-test one param per provider+model from each "class" (bool, int, float,
@@ -976,9 +1014,9 @@ assert_bundle_json "Bundle: trellis-2 full default set captured (19 params, seed
     "--3d-model fal-ai/trellis-2 'test'" \
     '(.config.model_3d_params | length) == 19 and .config.model_3d_params.decimation_target == 500000 and .config.model_3d_params.resolution == 1024 and .config.model_3d_params.seed == null'
 
-assert_bundle_json "Bundle: nano-banana-2 defaults (all 7 text-to-image params)" \
+assert_bundle_json "Bundle: nano-banana-2 defaults (all 8 text-to-image params, seed stripped)" \
     "--image-model fal-ai/nano-banana-2 'test'" \
-    '(.config.image_model_params | length) == 7 and .config.image_model_params.resolution == "1K" and .config.image_model_params.aspect_ratio == "auto"'
+    '(.config.image_model_params | length) == 8 and .config.image_model_params.resolution == "1K" and .config.image_model_params.aspect_ratio == "auto" and .config.image_model_params.seed == null'
 
 assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)" \
     "--image-model fal-ai/flux-2-pro 'test'" \

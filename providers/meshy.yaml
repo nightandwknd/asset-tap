@@ -40,16 +40,26 @@ x-meshy-i23d-polling: &meshy-i23d-polling
 
 # Shared parameter lists. YAML anchor+alias replaces the whole list, which is
 # exactly what we want here — every model in a family exposes the same knobs.
+#
+# aspect_ratio options are NOT shared across the whole provider: the
+# nano-banana family takes one set and gpt-image-2 takes a different one
+# (see its own block below). Only reuse this anchor for nano-banana models.
 x-meshy-t2i-params: &meshy-t2i-params
   - name: 'aspect_ratio'
     label: 'Aspect Ratio'
-    description: 'Output image aspect ratio. Ignored when Multi-View is enabled.'
+    # Meshy rejects the request if aspect_ratio is sent alongside
+    # generate_multi_view=true — it is not merely ignored. Clear it with
+    # `--param aspect_ratio=` (or an empty GUI field) when enabling Multi-View.
+    description: 'Output image aspect ratio. Cannot be combined with Multi-View — clear this field when Multi-View is on.'
     type: select
+    # Mutually exclusive with generate_multi_view, so the user needs a way to
+    # clear it: GUI dropdowns get an "(unset)" entry, CLI uses `--param aspect_ratio=`.
+    allow_unset: true
     default: '1:1'
     options: ['1:1', '16:9', '9:16', '4:3', '3:4']
   - name: 'generate_multi_view'
     label: 'Multi-View'
-    description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects.'
+    description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Requires Aspect Ratio to be cleared.'
     type: boolean
     default: false
   - name: 'pose_mode'
@@ -59,14 +69,17 @@ x-meshy-t2i-params: &meshy-t2i-params
     default: ''
     options: ['', 'a-pose', 't-pose']
 
-# NOTE: meshy-6 and meshy-5 share the same 7-param image-to-3D surface,
-# but YAML sequences can't be extended via merge keys, so the two lists
-# below (under `parameters:` in each model block) are intentionally
-# duplicated. Keep them in sync. Only delta:
-#   should_remesh default: false on meshy-6 (native clean topology),
-#                           true on meshy-5 (needs the remesh pass).
-# The param surface is also kept aligned with fal's fal-ai/meshy/v6/image-to-3d
-# so users see the same knobs regardless of which provider serves the model.
+# NOTE: YAML sequences can't be extended via merge keys, so the image-to-3D
+# parameter lists below (under `parameters:` in each model block) are
+# intentionally duplicated. Keep them in sync except for these deltas, which
+# `meshy_v6_parameter_surface_matches_across_providers` enforces:
+#   - should_remesh default: false on meshy-6 (native clean topology),
+#                            true on meshy-5 (needs the remesh pass).
+#   - texture_resolution / remove_lighting / image_enhancement are meshy-6
+#     (or latest) only per Meshy's docs, so v5 omits them entirely.
+# The surface is also aligned with fal's fal-ai/meshy/v6/image-to-3d so users
+# see the same knobs regardless of which provider serves the model — minus the
+# native-only params fal's wrapper hasn't been confirmed to pass through.
 
 # Shared image-to-3D request body. Per-version overrides (e.g. should_remesh)
 # go on each model block below.
@@ -79,6 +92,9 @@ x-meshy-i23d-body: &meshy-i23d-body
   symmetry_mode: 'auto'
   pose_mode: ''
   target_formats: ['glb']
+  # Null = unset: stripped from the request so Meshy applies its own default
+  # unless the user supplies one.
+  texture_prompt: null
 
 provider:
   id: 'meshy'
@@ -123,11 +139,33 @@ text_to_image:
         <<: *meshy-t2i-polling
     parameters: *meshy-t2i-params
 
+  # --- Nano Banana 2 ---
+  # Mid tier: 6 credits/image vs 3 for nano-banana, 9 for pro.
+  - id: 'meshy/nano-banana-2'
+    name: 'Nano Banana 2'
+    description: 'Meshy text-to-image — mid tier (6 credits)'
+    endpoint: '/openapi/v1/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        ai_model: 'nano-banana-2'
+        prompt: '${prompt}'
+        aspect_ratio: '1:1'
+        generate_multi_view: false
+        pose_mode: ''
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-t2i-polling
+    parameters: *meshy-t2i-params
+
   # --- Nano Banana Pro ---
   # Higher quality tier with the same parameter surface.
   - id: 'meshy/nano-banana-pro'
     name: 'Nano Banana Pro'
-    description: 'Meshy text-to-image — higher quality'
+    description: 'Meshy text-to-image — higher quality (9 credits)'
     endpoint: '/openapi/v1/text-to-image'
     method: POST
     request:
@@ -144,6 +182,49 @@ text_to_image:
       polling:
         <<: *meshy-t2i-polling
     parameters: *meshy-t2i-params
+
+  # --- GPT Image 2 ---
+  # Different architecture, and crucially a DIFFERENT aspect-ratio set:
+  # 1:1 / 3:2 / 2:3 only. It cannot reuse *meshy-t2i-params — doing so would
+  # advertise 16:9, 9:16, 4:3 and 3:4, which this model rejects. It is also the
+  # only Meshy text-to-image model that offers 2:3, the common tall-sprite ratio.
+  - id: 'meshy/gpt-image-2'
+    name: 'GPT Image 2'
+    description: 'Meshy text-to-image — GPT Image 2 (9 credits, supports 2:3)'
+    endpoint: '/openapi/v1/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        ai_model: 'gpt-image-2'
+        prompt: '${prompt}'
+        aspect_ratio: '1:1'
+        generate_multi_view: false
+        pose_mode: ''
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-t2i-polling
+    parameters:
+      - name: 'aspect_ratio'
+        label: 'Aspect Ratio'
+        description: 'Output image aspect ratio. Cannot be combined with Multi-View — clear this field when Multi-View is on.'
+        type: select
+        allow_unset: true
+        default: '1:1'
+        options: ['1:1', '3:2', '2:3']
+      - name: 'generate_multi_view'
+        label: 'Multi-View'
+        description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Requires Aspect Ratio to be cleared.'
+        type: boolean
+        default: false
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']
 
 # =============================================================================
 # Image-to-3D (verified 2026-04-15)
@@ -168,6 +249,10 @@ image_to_3d:
         ai_model: 'meshy-6'
         # v6 defaults should_remesh=false (clean topology is native).
         should_remesh: false
+        # v6-only knobs; values mirror Meshy's server-side defaults.
+        texture_resolution: '2k'
+        remove_lighting: true
+        image_enhancement: true
     response:
       response_type: polling
       polling:
@@ -214,6 +299,36 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      # --- v6-only production knobs ---
+      # Meshy documents these as meshy-6/latest only (and 4k/8k textures as
+      # unavailable on meshy-5), which is why the v5 block below repeats only
+      # texture_prompt. Defaults mirror Meshy's server-side defaults exactly,
+      # so sending them changes nothing until the user moves a control.
+      - name: 'texture_resolution'
+        label: 'Texture Resolution'
+        description: 'Base color texture size. 4K/8K cost more and are unavailable on Meshy v5.'
+        type: select
+        default: '2k'
+        options: ['2k', '4k', '8k']
+      - name: 'remove_lighting'
+        label: 'Remove Baked Lighting'
+        description: 'Strip highlights and shadows from the base color texture so the model lights correctly under your own scene lighting. Usually what you want for game assets.'
+        type: boolean
+        default: true
+      - name: 'image_enhancement'
+        label: 'Enhance Input Image'
+        description: 'Let Meshy pre-process the input image for better results. Turn off to preserve the original appearance exactly.'
+        type: boolean
+        default: true
+      # Not version-restricted — v5 declares this one too.
+      # Null default so the key is omitted entirely unless the user sets it;
+      # Meshy documents no empty-string sentinel for this field.
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        type: string
+        widget: input
+        default: null
 
   # --- Meshy v5 ---
   # Previous-generation model — roughly 4× cheaper on mesh generation
@@ -236,7 +351,11 @@ image_to_3d:
       response_type: polling
       polling:
         <<: *meshy-i23d-polling
-    # NOTE: kept in sync with meshy-6 above. Only delta is should_remesh's default.
+    # NOTE: kept in sync with meshy-6 above except where Meshy's API differs.
+    # Deltas: should_remesh's default, and the absence of texture_resolution /
+    # remove_lighting / image_enhancement, which Meshy documents as
+    # meshy-6-or-latest only. Advertising them here would offer knobs this
+    # model rejects.
     parameters:
       - name: 'topology'
         label: 'Topology'
@@ -279,3 +398,9 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        type: string
+        widget: input
+        default: null

@@ -141,6 +141,8 @@ Parameter overrides are validated against declared names before injection (undec
 
 **Null = "unset":** Anywhere a parameter value is null — template default (`seed: null` in YAML), user clearing a text input, or CLI `--param seed=` — the key is dropped from the request body so the provider applies its server-side default. Never send a literal null.
 
+**`allow_unset:` (select only):** A dropdown only writes one of its `options`, so a `select` parameter has no way to express "no value" — adding `''` to the options list sends `""` rather than omitting the field. Set `allow_unset: true` to add an explicit `(unset)` entry that writes null. Needed when two parameters are **mutually exclusive** and the schema can't say so: Meshy rejects `aspect_ratio` when `generate_multi_view` is on, so the GUI needs the same escape hatch the CLI has in `--param aspect_ratio=`. `input` widgets (including `type: string` with `widget: input`) already clear to null when emptied. `mutually_exclusive_select_params_are_clearable` in [core/tests/integration_tests.rs](core/tests/integration_tests.rs) enforces this for the Meshy pair.
+
 **CLI access:** Use `--param KEY=VALUE` (repeatable) to override parameters from the command line:
 
 ```bash
@@ -157,9 +159,22 @@ asset-tap -y "a robot" --3d-model fal-ai/meshy/v6/image-to-3d --param topology=q
 asset-tap -y "a robot" --param seed=
 ```
 
-Value types are auto-detected (`true`/`false` → bool, integers, floats, or strings) and coerced to match the declared parameter type (e.g., `--param guidance_scale=7` coerces integer to float). An empty value (`--param key=`) becomes JSON null and drops the key from the request. Parameters are auto-routed to the correct model (image vs 3D) based on which model declares them. Invalid parameter names error with a list of valid options.
+Value types are auto-detected (`true`/`false` → bool, integers, floats, or strings) and coerced to match the declared parameter type (e.g., `--param guidance_scale=7` coerces integer to float). An empty value (`--param key=`) becomes JSON null and drops the key from the request. Parameters are auto-routed to the correct model (image vs 3D) based on which model declares them.
 
-**Cross-provider parity:** When the same underlying model is served by multiple providers (e.g. Meshy v6 via `fal-ai/meshy/v6/image-to-3d` AND `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of routing. A drift-catcher test in [core/tests/integration_tests.rs](core/tests/integration_tests.rs) asserts this for Meshy v6/v5.
+**Validation is scoped to the stages the run will execute.** `resolve_active_models()` in [cli/src/main.rs](cli/src/main.rs) resolves each stage's model the same way core's `resolve_provider` does (explicit `--image-model`/`--3d-model` → the provider named by `-p` → registry default), and returns `None` for a skipped stage: no text-to-image model under `--image`, no image-to-3D model under `--image-only`. Only the active models' parameters are accepted, and only they are listed on error. Do not resolve via `get_default_*_model(registry)`: it ignores `-p` and reports a different provider's knobs.
+
+Parameter errors are **usage errors**: they exit 2 and are raised _before_ the `start` event, so a `--json` run emits nothing on stdout (spec §2). They carry `machine::UsageError` rather than a wire `kind`: no `result.kind` describes an invalid invocation, and `unknown` exits 1, which reads as a retryable internal failure.
+
+**Cross-provider parity:** When the same underlying model is served by multiple providers (e.g. Meshy v6 via `fal-ai/meshy/v6/image-to-3d` AND `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of routing. `meshy_v6_parameter_surface_matches_across_providers` in [core/tests/integration_tests.rs](core/tests/integration_tests.rs) is the drift-catcher.
+
+Parity is not blind equality — the test encodes two **verified** asymmetries, each as a named constant:
+
+- `NATIVE_ONLY` — params Meshy's API documents that fal's wrapper hasn't been confirmed to pass through. Adding one to the native YAML is allowed only by listing it here; a fal-only param always fails.
+- `V6_ONLY` — `texture_resolution`, `remove_lighting`, `image_enhancement`, which Meshy documents as meshy-6-or-latest. v5 must expose v6's surface minus exactly this set.
+
+**Per-model, not per-provider.** Aspect ratios are the trap: Meshy's `gpt-image-2` takes `1:1/3:2/2:3` while the nano-banana family takes `1:1/16:9/9:16/4:3/3:4`, so `gpt-image-2` deliberately does **not** reuse the `x-meshy-t2i-params` anchor. Before extending a shared anchor, confirm every model aliasing it supports the values.
+
+**Verify against provider docs, not against sibling YAML.** Check every parameter against the provider's own API reference. Copying a knob from a neighbouring model because it looks similar leads to advertising fields the API rejects.
 
 **Response types:**
 
@@ -256,6 +271,8 @@ output/YYYY-MM-DD_HHMMSS/
 
 **CRITICAL:** Filenames are ALWAYS standard (`bundle.json`, `image.png`, `model.glb`, `model.fbx`). Don't create custom names - breaks loading logic.
 
+**`image.png` always contains real PNG bytes.** Providers serve other formats (Meshy's text-to-image returns JPEG), so `png_reencode()` in [core/src/pipeline.rs](core/src/pipeline.rs) re-encodes non-PNG bytes before the write. Two things depend on this: the fixed `.png` filename, and the data-URI fallback that hardcodes `data:image/png;base64,` when feeding the 3D stage. A failed re-encode is non-fatal — the original bytes are kept and a warning logged, since a usable image beats discarding a paid generation.
+
 **Bundle naming & export:** Bundles require a custom name before export. In the GUI, the Export button is disabled until a name is set. In the CLI, use `--name`:
 
 ```bash
@@ -345,7 +362,11 @@ make mock-gui                    # GUI mock mode
 cargo run --features mock --bin asset-tap -- --mock -y "test"
 ```
 
-Mock mode redirects all requests to a local `wiremock` server returning generic synthetic data. It verifies that YAML parses, models register, and the pipeline runs — but does **not** validate provider-specific response parsing. To test response field extraction (`response.field`), use the real API.
+Mock mode redirects all requests to a local `wiremock` server. **Every provider is mock-runnable with no mock code** — handlers are synthesized from each provider's own `PollingConfig` (`core/src/api/mock/config_driven.rs`), so adding a `providers/*.yaml` is sufficient.
+
+It verifies that YAML parses, models register, request bodies and parameters are built, the polling loop runs, and bundles are written — but because the mock is derived from the same YAML that drives the client, it **cannot** validate provider-specific response parsing (a wrong `result_field` is wrong in both halves and still passes). To confirm response field extraction, use the real API once per provider.
+
+`test_every_provider_runs_in_mock_mode` in [core/tests/pipeline_execution_tests.rs](core/tests/pipeline_execution_tests.rs) runs a full pipeline for every registered provider, so a new provider whose shape can't be synthesized fails a test instead of silently disappearing.
 
 ### Code Style
 

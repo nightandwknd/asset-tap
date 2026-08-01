@@ -52,8 +52,8 @@ fn latest_run_image(output_dir: &std::path::Path) -> Option<std::path::PathBuf> 
 ///   provider's default model.
 /// - Provider missing → fall back to `default_provider` and its default model.
 ///
-/// Used at startup to recover from mock-mode provider hiding, removed YAMLs,
-/// etc. — anything that would otherwise leave the sidebar pointing at a dead
+/// Used at startup to recover from a removed provider YAML, a renamed model,
+/// or any other change that would leave the sidebar pointing at a dead
 /// reference until the user manually clicks a dropdown.
 fn reconcile_provider_selection(
     registry: &asset_tap_core::providers::ProviderRegistry,

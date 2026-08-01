@@ -153,6 +153,21 @@ pub struct ParameterDef {
     /// widgets omit the key from the request body instead of sending a zero.
     #[serde(default)]
     pub widget: Option<ParameterWidget>,
+
+    /// Whether the user may clear this parameter so the key is dropped from
+    /// the request entirely (JSON null — see "Null = unset").
+    ///
+    /// Only meaningful for `Select`, which otherwise offers no way to express
+    /// "no value": its dropdown is limited to `options`, and adding an empty
+    /// string there would send `""` rather than omit the field. `Input`
+    /// widgets already clear to null when emptied.
+    ///
+    /// Needed for parameters that are mutually exclusive with another —
+    /// Meshy rejects `aspect_ratio` when `generate_multi_view` is on, so the
+    /// GUI has to let you clear it, the way the CLI's `--param aspect_ratio=`
+    /// does.
+    #[serde(default)]
+    pub allow_unset: bool,
 }
 
 /// Preferred widget for a parameter, overriding the type's default widget.
@@ -939,6 +954,7 @@ mod tests {
             step: None,
             options: None,
             widget: None,
+            allow_unset: false,
         }
     }
 

@@ -184,6 +184,18 @@ async fn t2i_overrides_reach_the_body() {
                 let max = param.max.map(|m| m as i64).unwrap_or(n_i64 + 1);
                 Value::from((n_i64 + 1).min(max))
             }
+            // A null default means "unset" (e.g. `seed: null`) — there's no
+            // value to flip, and overriding *with* null would correctly strip
+            // the key rather than land in the body. Pick a concrete in-bounds
+            // value so these params are still covered instead of skipped.
+            Value::Null => match param.param_type {
+                asset_tap_core::providers::config::ParameterType::Boolean => Value::Bool(true),
+                _ => {
+                    let min = param.min.map(|m| m as i64).unwrap_or(1);
+                    let max = param.max.map(|m| m as i64).unwrap_or(i64::MAX);
+                    Value::from(min.max(1).min(max))
+                }
+            },
             other => other.clone(),
         };
 

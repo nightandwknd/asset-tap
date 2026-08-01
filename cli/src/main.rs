@@ -13,7 +13,7 @@ use asset_tap_core::{
     format_progress,
     pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
-    providers::{ParameterType, ProviderRegistry},
+    providers::{ModelInfo, ParameterType, ProviderCapability, ProviderRegistry},
     settings::{get_output_dir, is_dev_mode},
     templates::{apply_template, list_templates},
     types::Progress,
@@ -274,6 +274,13 @@ fn main() -> ExitCode {
         // Print the same "Error: ..." + cause chain anyhow's default handler
         // would, then map to the differentiated exit code (spec §2).
         Err(err) => {
+            // Usage errors (bad flags, bad --param) print clap-style and exit
+            // 2 without the anyhow cause chain: there is no internal failure to
+            // report, only an invocation to correct.
+            if let Some(usage) = machine::find_usage_error(&err) {
+                eprintln!("error: {usage}");
+                return ExitCode::from(machine::EXIT_USAGE);
+            }
             eprintln!("Error: {:?}", err);
             let code = if machine::is_cancellation(&err) {
                 // Spec §2 exit codes govern --json; interactive cancellation
@@ -425,6 +432,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // exit before reaching this point and already show per-provider state.
     registry.log_unconfigured_providers();
 
+    // Validate `--param` before anything is emitted or generated: a bad
+    // parameter name/value is a usage error (exit 2, no `start`/`result`), not
+    // a failed run a consumer might retry.
+    let params = resolve_param_overrides(&cli, &registry)?;
+
     if cli.json {
         // --json is non-interactive: a prompt (or --image) must come from the
         // args. This is a usage error, so it exits 2 before the start event.
@@ -440,7 +452,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         let run_started = std::time::Instant::now();
         let mut last_stage = None;
         return Ok(
-            match run_generation(&cli, &settings, &registry, &mut last_stage).await {
+            match run_generation(&cli, &settings, &registry, params, &mut last_stage).await {
                 Ok(output) => {
                     // bundle_dir is contractually absolute — refuse to emit a
                     // relative or missing path rather than silently violating
@@ -484,7 +496,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         );
     }
 
-    run_generation(&cli, &settings, &registry, &mut None).await?;
+    run_generation(&cli, &settings, &registry, params, &mut None).await?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -497,6 +509,7 @@ async fn run_generation(
     cli: &Cli,
     settings: &asset_tap_core::settings::Settings,
     registry: &ProviderRegistry,
+    params: ParamOverrides,
     last_stage: &mut Option<asset_tap_core::types::Stage>,
 ) -> anyhow::Result<asset_tap_core::PipelineOutput> {
     // Validate API keys before prompting the user for input — otherwise the user
@@ -509,34 +522,13 @@ async fn run_generation(
     // Validate remaining requirements (output dir, etc.)
     validate_requirements(&config)?;
 
-    // Parse and validate --param overrides
-    if !cli.params.is_empty() {
-        let parsed = parse_param_values(&cli.params)?;
-
-        // Resolve effective model IDs for validation
-        let effective_image_model = config
-            .image_model
-            .clone()
-            .or_else(|| get_default_text_to_image_model(registry));
-        let effective_3d_model = if config.model_3d.is_empty() {
-            get_default_image_to_3d_model(registry).unwrap_or_default()
-        } else {
-            config.model_3d.clone()
-        };
-
-        let (image_params, model_3d_params) = route_params(
-            &parsed,
-            registry,
-            effective_image_model.as_deref(),
-            &effective_3d_model,
-        )?;
-
-        if !image_params.is_empty() {
-            config = config.with_image_model_params(image_params);
-        }
-        if !model_3d_params.is_empty() {
-            config = config.with_3d_model_params(model_3d_params);
-        }
+    // `--param` overrides were already validated and routed by the caller,
+    // before any run started.
+    if !params.image.is_empty() {
+        config = config.with_image_model_params(params.image);
+    }
+    if !params.model_3d.is_empty() {
+        config = config.with_3d_model_params(params.model_3d);
     }
 
     // Enable approval if: --approve flag OR settings require it (but not in
@@ -795,46 +787,169 @@ fn json_scalar_to_string(v: &serde_json::Value) -> String {
     }
 }
 
-/// Validate, coerce, and route parsed parameters to image and/or 3D models.
+/// Human-readable stage names used in `--param` diagnostics. Kept as constants
+/// because the error text is asserted by tests and mirrored in two messages
+/// each — the parameter list heading and the "doesn't apply" note.
+const MODALITY_T2I: &str = "text-to-image";
+const MODALITY_I23D: &str = "image-to-3D";
+
+/// `--param` overrides after validation, split by the stage they belong to.
+#[derive(Debug, Default)]
+struct ParamOverrides {
+    image: HashMap<String, serde_json::Value>,
+    model_3d: HashMap<String, serde_json::Value>,
+}
+
+/// One pipeline stage's contribution to `--param` validation.
 ///
-/// Each parameter must be declared by at least one of the two active models.
-/// Values are coerced to match the declared type (e.g., integer → float).
-/// Returns `(image_params, model_3d_params)`.
-fn route_params(
-    params: &HashMap<String, serde_json::Value>,
+/// The two non-`Active` cases look identical to the validator — neither offers
+/// parameters — but they mean opposite things to the user, so they stay
+/// distinct: a skipped stage is expected, an unresolved one is a bad model id.
+enum StageModel {
+    /// The run will send requests to this model; its parameters are valid.
+    Active(Box<ModelInfo>),
+    /// Skipped by a flag: `--image` supplies the image, `--image-only` drops 3D.
+    Skipped,
+    /// No model resolved. Carries the id the user named, when they named one —
+    /// otherwise no provider is configured at all. Either way the run fails
+    /// later with a provider error; here it just contributes nothing.
+    Unresolved(Option<String>),
+}
+
+impl StageModel {
+    /// The model to validate against, if this stage has one.
+    fn model(&self) -> Option<&ModelInfo> {
+        match self {
+            StageModel::Active(model) => Some(model),
+            StageModel::Skipped | StageModel::Unresolved(_) => None,
+        }
+    }
+}
+
+/// The models a run will actually send requests to.
+///
+/// Only these contribute parameters. A stage the run skips has no say in what
+/// `--param` accepts or in what an error lists.
+struct ActiveModels {
+    image: StageModel,
+    model_3d: StageModel,
+}
+
+/// Resolve one stage's model the way the pipeline will.
+///
+/// Mirrors core's `resolve_provider` precedence — explicit `--image-model` /
+/// `--3d-model` wins, otherwise the provider named by `-p` (falling back to the
+/// registry default) picks its own default model for the capability. Resolving
+/// via `get_default_*_model(registry)` instead would ignore `-p` entirely and
+/// report another provider's parameters.
+fn resolve_stage_model(
     registry: &ProviderRegistry,
-    image_model_id: Option<&str>,
-    model_3d_id: &str,
-) -> anyhow::Result<(
-    HashMap<String, serde_json::Value>,
-    HashMap<String, serde_json::Value>,
-)> {
-    if params.is_empty() {
-        return Ok((HashMap::new(), HashMap::new()));
+    provider_id: Option<&str>,
+    model_id: Option<&str>,
+    capability: ProviderCapability,
+) -> Option<ModelInfo> {
+    if let Some(id) = model_id {
+        return registry
+            .find_provider_for_model(capability, id)
+            // `find_provider_for_model` only searches *available* providers, so
+            // fall back to the one named by `-p` when its key isn't configured.
+            .or_else(|| provider_id.and_then(|p| registry.get(p)))
+            // Match within the capability rather than via `get_model`, which
+            // searches all of them — a 3D model id belongs to the 3D stage even
+            // when it is passed to `--image-model`.
+            .and_then(|p| p.list_models(capability).into_iter().find(|m| m.id == id));
     }
 
-    let providers = registry.list_all();
+    let provider = match provider_id {
+        Some(id) => registry.get(id)?,
+        None => registry.get_default()?,
+    };
+    provider.get_default_model(capability).ok()
+}
 
-    // Look up full model info (with parameter defs) for each active model
-    let image_model =
-        image_model_id.and_then(|id| providers.iter().find_map(|p| p.get_model(id).ok()));
+/// Resolve the models for the stages this invocation will actually run.
+fn resolve_active_models(cli: &Cli, registry: &ProviderRegistry) -> ActiveModels {
+    let provider = cli.provider.as_deref();
 
-    let model_3d = if model_3d_id.is_empty() {
-        None
-    } else {
-        providers.iter().find_map(|p| p.get_model(model_3d_id).ok())
+    let resolve = |skipped: bool, model_id: Option<&str>, capability| {
+        if skipped {
+            return StageModel::Skipped;
+        }
+        match resolve_stage_model(registry, provider, model_id, capability) {
+            Some(model) => StageModel::Active(Box::new(model)),
+            None => StageModel::Unresolved(model_id.map(str::to_string)),
+        }
     };
 
-    // Build name → ParameterDef lookup for each model
-    let image_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = image_model
-        .as_ref()
-        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
-        .unwrap_or_default();
+    ActiveModels {
+        image: resolve(
+            cli.image.is_some(),
+            cli.image_model.as_deref(),
+            ProviderCapability::TextToImage,
+        ),
+        model_3d: resolve(
+            cli.image_only,
+            cli.model_3d.as_deref(),
+            ProviderCapability::ImageTo3D,
+        ),
+    }
+}
 
-    let model_3d_param_defs: HashMap<&str, &asset_tap_core::providers::ParameterDef> = model_3d
-        .as_ref()
-        .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
-        .unwrap_or_default();
+/// Parse, validate, coerce, and route `--param` overrides.
+///
+/// Runs before any pipeline work so a bad parameter is a usage error (exit 2,
+/// no `start`/`result` events) rather than a failed run.
+fn resolve_param_overrides(
+    cli: &Cli,
+    registry: &ProviderRegistry,
+) -> anyhow::Result<ParamOverrides> {
+    if cli.params.is_empty() {
+        return Ok(ParamOverrides::default());
+    }
+    let active = resolve_active_models(cli, registry);
+
+    // Nothing to validate against — no provider configured, or every named
+    // model is unresolvable. Defer so the missing-key or invalid-model error
+    // reports the actual problem instead of an unknown-parameter message.
+    if active.image.model().is_none() && active.model_3d.model().is_none() {
+        return Ok(ParamOverrides::default());
+    }
+
+    let resolved =
+        parse_param_values(&cli.params).and_then(|parsed| route_params(&parsed, &active));
+
+    // Every failure here is a mistyped invocation rather than a runtime fault,
+    // so they all exit 2 — including the parse and coercion messages, which are
+    // plain bails.
+    resolved.map_err(|e| match machine::find_usage_error(&e) {
+        Some(_) => e,
+        None => usage_error(format!("{e:#}")),
+    })
+}
+
+/// Validate, coerce, and route parsed parameters to the active models.
+///
+/// Each parameter must be declared by at least one model that this run will
+/// actually use. Values are coerced to match the declared type (e.g., integer
+/// → float).
+fn route_params(
+    params: &HashMap<String, serde_json::Value>,
+    active: &ActiveModels,
+) -> anyhow::Result<ParamOverrides> {
+    if params.is_empty() {
+        return Ok(ParamOverrides::default());
+    }
+
+    // Build name → ParameterDef lookup for each active model. A `fn` rather
+    // than a closure so the borrow of `stage` outlives the call.
+    fn param_defs(stage: &StageModel) -> HashMap<&str, &asset_tap_core::providers::ParameterDef> {
+        stage
+            .model()
+            .map(|m| m.parameters.iter().map(|p| (p.name.as_str(), p)).collect())
+            .unwrap_or_default()
+    }
+    let image_param_defs = param_defs(&active.image);
+    let model_3d_param_defs = param_defs(&active.model_3d);
 
     let mut image_params = HashMap::new();
     let mut model_3d_params = HashMap::new();
@@ -874,45 +989,104 @@ fn route_params(
                         model_3d_params.insert(key.clone(), v);
                     }
                     (Err(e_image), Err(e_3d)) => {
-                        anyhow::bail!(
+                        return Err(usage_error(format!(
                             "Parameter '{}' is declared by both image and 3D models but doesn't fit either:\n  image: {}\n  3D: {}",
-                            key,
-                            e_image,
-                            e_3d
-                        );
+                            key, e_image, e_3d
+                        )));
                     }
                 }
             }
-            (None, None) => {
-                let mut valid: Vec<&str> = image_param_defs
-                    .keys()
-                    .chain(model_3d_param_defs.keys())
-                    .copied()
-                    .collect();
-                valid.sort();
-                valid.dedup();
-
-                let valid_list = if valid.is_empty() {
-                    "  (none — selected models have no tunable parameters)".to_string()
-                } else {
-                    valid
-                        .iter()
-                        .map(|p| format!("  - {}", p))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
-
-                anyhow::bail!(
-                    "Unknown parameter '{}' for the selected models.\n\n\
-                     Valid parameters:\n{}",
-                    key,
-                    valid_list
-                );
-            }
+            (None, None) => return Err(unknown_param_error(key, active)),
         }
     }
 
-    Ok((image_params, model_3d_params))
+    Ok(ParamOverrides {
+        image: image_params,
+        model_3d: model_3d_params,
+    })
+}
+
+/// Build a usage error (exit 2, no run events).
+fn usage_error(message: String) -> anyhow::Error {
+    anyhow::Error::new(machine::UsageError { message })
+}
+
+/// Report an unknown `--param` name against the models this run will actually
+/// use, one section per active stage.
+///
+/// Skipped stages appear only in the closing note, never in the list of
+/// parameters to try.
+fn unknown_param_error(key: &str, active: &ActiveModels) -> anyhow::Error {
+    fn section(stage: &StageModel, modality: &str) -> Option<String> {
+        let model = stage.model()?;
+        let mut names: Vec<&str> = model.parameters.iter().map(|p| p.name.as_str()).collect();
+        names.sort_unstable();
+        let body = if names.is_empty() {
+            "  (this model declares no tunable parameters)".to_string()
+        } else {
+            names
+                .iter()
+                .map(|p| format!("  - {p}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        Some(format!(
+            "Valid parameters for {} ({}):\n{}",
+            model.id, modality, body
+        ))
+    }
+
+    /// Why a stage offers nothing — stated only when we actually know.
+    fn note(stage: &StageModel, skipped: &str, modality: &str) -> Option<String> {
+        match stage {
+            StageModel::Active(_) => None,
+            StageModel::Skipped => Some(skipped.to_string()),
+            StageModel::Unresolved(Some(id)) => Some(format!(
+                "No provider exposes the {modality} model '{id}', so its parameters can't be checked."
+            )),
+            StageModel::Unresolved(None) => None,
+        }
+    }
+
+    let sections: Vec<String> = [
+        section(&active.image, MODALITY_T2I),
+        section(&active.model_3d, MODALITY_I23D),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    let body = if sections.is_empty() {
+        "No model is active for this run, so there are no parameters to set.".to_string()
+    } else {
+        sections.join("\n\n")
+    };
+
+    // Name the reason a stage offers nothing, so a parameter that belongs to a
+    // skipped stage doesn't just look unsupported.
+    let notes: Vec<String> = [
+        note(
+            &active.image,
+            "This run uses a supplied image, so text-to-image parameters don't apply.",
+            MODALITY_T2I,
+        ),
+        note(
+            &active.model_3d,
+            "This run is image-only, so image-to-3D parameters don't apply.",
+            MODALITY_I23D,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    let hint = if notes.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nNote: {}", notes.join(" "))
+    };
+
+    usage_error(format!("Unknown parameter '{key}'.\n\n{body}{hint}"))
 }
 
 fn build_config(
@@ -1827,6 +2001,7 @@ mod tests {
             step: None,
             options,
             widget: None,
+            allow_unset: false,
         }
     }
 
@@ -1887,5 +2062,128 @@ mod tests {
             Some(vec![serde_json::json!("a"), serde_json::json!("b")]),
         );
         assert!(coerce_param_value("x", &serde_json::json!("c"), &def).is_err());
+    }
+
+    fn mk_model(id: &str, params: &[&str]) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            is_default: false,
+            endpoint: String::new(),
+            metadata: None,
+            parameters: params
+                .iter()
+                .map(|name| asset_tap_core::providers::ParameterDef {
+                    name: (*name).into(),
+                    ..mk_def(ParameterType::String, None)
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn image_only_run_ignores_3d_parameters() {
+        // The 3D stage is skipped, so its knobs are neither accepted nor
+        // advertised.
+        let active = ActiveModels {
+            image: StageModel::Active(Box::new(mk_model(
+                "meshy/nano-banana-pro",
+                &["aspect_ratio"],
+            ))),
+            model_3d: StageModel::Skipped,
+        };
+
+        let ok = route_params(
+            &HashMap::from([("aspect_ratio".to_string(), serde_json::json!("1:1"))]),
+            &active,
+        )
+        .expect("image param must be accepted under --image-only");
+        assert_eq!(
+            ok.image.get("aspect_ratio"),
+            Some(&serde_json::json!("1:1"))
+        );
+        assert!(ok.model_3d.is_empty());
+
+        let err = route_params(
+            &HashMap::from([("topology".to_string(), serde_json::json!("quad"))]),
+            &active,
+        )
+        .expect_err("3D param must not be accepted under --image-only");
+        let msg = err.to_string();
+        assert!(msg.contains("meshy/nano-banana-pro"), "{msg}");
+        assert!(msg.contains("aspect_ratio"), "{msg}");
+        assert!(msg.contains("image-only"), "{msg}");
+    }
+
+    #[test]
+    fn unknown_param_lists_only_active_models() {
+        let active = ActiveModels {
+            image: StageModel::Active(Box::new(mk_model("img-model", &["aspect_ratio"]))),
+            model_3d: StageModel::Active(Box::new(mk_model("3d-model", &["topology"]))),
+        };
+        let err = route_params(
+            &HashMap::from([("output_format".to_string(), serde_json::json!("png"))]),
+            &active,
+        )
+        .expect_err("unknown param must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("img-model (text-to-image)"), "{msg}");
+        assert!(msg.contains("3d-model (image-to-3D)"), "{msg}");
+    }
+
+    #[test]
+    fn param_failures_are_usage_errors() {
+        // Spec §2: a mistyped invocation exits 2, not 1, so a consumer can
+        // tell an invalid command from a failed run.
+        let active = ActiveModels {
+            image: StageModel::Active(Box::new(mk_model("img-model", &["aspect_ratio"]))),
+            model_3d: StageModel::Skipped,
+        };
+        let err = route_params(
+            &HashMap::from([("nope".to_string(), serde_json::json!(1))]),
+            &active,
+        )
+        .unwrap_err();
+        assert!(machine::find_usage_error(&err).is_some());
+    }
+
+    #[test]
+    fn unresolved_model_is_not_reported_as_a_skipped_stage() {
+        // An unresolved 3D model leaves the same "no model here" hole as
+        // --image-only but means something different, so the note must not
+        // report a flag the user never passed.
+        let active = ActiveModels {
+            image: StageModel::Active(Box::new(mk_model("img-model", &["aspect_ratio"]))),
+            model_3d: StageModel::Unresolved(Some("does-not-exist".into())),
+        };
+        let err = route_params(
+            &HashMap::from([("topology".to_string(), serde_json::json!("quad"))]),
+            &active,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("image-only"),
+            "unresolvable model must not be reported as --image-only: {msg}"
+        );
+        assert!(msg.contains("does-not-exist"), "{msg}");
+    }
+
+    #[test]
+    fn no_provider_configured_produces_no_misleading_note() {
+        // Nothing named and nothing resolved: the cause is unknown, so the
+        // message states no cause.
+        let active = ActiveModels {
+            image: StageModel::Active(Box::new(mk_model("img-model", &["aspect_ratio"]))),
+            model_3d: StageModel::Unresolved(None),
+        };
+        let err = route_params(
+            &HashMap::from([("topology".to_string(), serde_json::json!("quad"))]),
+            &active,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(!msg.contains("Note:"), "unexpected note: {msg}");
     }
 }

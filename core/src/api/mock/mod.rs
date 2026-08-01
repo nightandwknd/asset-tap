@@ -26,6 +26,7 @@
 //! MOCK_API=1 cargo run --bin asset-tap-gui
 //! ```
 
+mod config_driven;
 mod fixtures;
 mod generic_handlers;
 mod server;

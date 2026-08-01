@@ -127,16 +127,17 @@ image_to_3d:
 
 ### Field Reference
 
-| Field                  | Required         | Applies to     | Purpose                                           |
-| ---------------------- | ---------------- | -------------- | ------------------------------------------------- |
-| `name`                 | yes              | all            | Must match a request-body key                     |
-| `label`                | yes              | all            | GUI display name                                  |
-| `description`          | no               | all            | Tooltip text                                      |
-| `type`                 | yes              | all            | `float`, `integer`, `boolean`, `string`, `select` |
-| `default`              | yes              | all            | Used when no user override exists                 |
-| `min` / `max` / `step` | no               | float, integer | Slider bounds + increment                         |
-| `options`              | yes for `select` | select         | Enum values (strings or numbers)                  |
-| `widget`               | no               | float, integer | `slider` (default) or `input`                     |
+| Field                  | Required         | Applies to             | Purpose                                              |
+| ---------------------- | ---------------- | ---------------------- | ---------------------------------------------------- |
+| `name`                 | yes              | all                    | Must match a request-body key                        |
+| `label`                | yes              | all                    | GUI display name                                     |
+| `description`          | no               | all                    | Tooltip text                                         |
+| `type`                 | yes              | all                    | `float`, `integer`, `boolean`, `string`, `select`    |
+| `default`              | yes              | all                    | Used when no user override exists                    |
+| `min` / `max` / `step` | no               | float, integer         | Slider bounds + increment                            |
+| `options`              | yes for `select` | select                 | Enum values (strings or numbers)                     |
+| `widget`               | no               | float, integer, string | `slider` (default) or `input`                        |
+| `allow_unset`          | no               | select                 | Adds an explicit `(unset)` entry that clears to null |
 
 ### Widget Selection (`widget:`)
 
@@ -148,6 +149,24 @@ Optional hint that overrides the default widget for a given type:
   - The field accepts "unset" — clearing the input serializes to JSON null, which drops the key from the request so the provider applies its server-side default.
 
 `min`/`max` still apply to `widget: input` — values submitted outside the range are clamped.
+
+On `type: string`, `widget: input` changes only the clearing behaviour: an emptied field stores null (key omitted) instead of `""`. Use it for optional free-text fields the provider documents no empty-string value for.
+
+### Clearing a Select (`allow_unset:`)
+
+A dropdown can only ever write one of its `options`, so a `select` has no natural way to say "no value" — and putting `''` in `options` sends an empty string rather than omitting the field.
+
+Set `allow_unset: true` to add an explicit `(unset)` entry that stores null, dropping the key from the request:
+
+```yaml
+- name: 'aspect_ratio'
+  type: select
+  allow_unset: true # user can clear it; CLI equivalent is `--param aspect_ratio=`
+  default: '1:1'
+  options: ['1:1', '16:9', '9:16', '4:3', '3:4']
+```
+
+This exists for **mutually exclusive parameters**, which the schema can't otherwise express. Meshy rejects `aspect_ratio` when `generate_multi_view` is `true`, so the GUI needs a way to clear it — the CLI equivalent is `--param aspect_ratio=`.
 
 ### Null Semantics
 

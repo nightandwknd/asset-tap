@@ -10,7 +10,7 @@
 use asset_tap_core::{
     constants::{files::bundle as bundle_files, http::env},
     pipeline::{PipelineConfig, run_pipeline},
-    providers::ProviderRegistry,
+    providers::{ProviderCapability, ProviderRegistry},
 };
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -527,6 +527,82 @@ async fn test_pipeline_cancel_before_3d() {
             err_str
         );
     }
+
+    cleanup_mock_env();
+}
+
+// =============================================================================
+// Mock coverage guarantee
+// =============================================================================
+
+/// Every registered provider must complete a full pipeline in mock mode.
+///
+/// Mock handlers are synthesized from each provider's own YAML polling contract
+/// (see `api::mock::config_driven`). Add a provider whose shape the synthesizer
+/// can't build and this test fails, rather than the provider silently
+/// disappearing from mock mode or breaking at runtime.
+#[tokio::test]
+async fn test_every_provider_runs_in_mock_mode() {
+    let (_env, temp_dir) = setup_mock_env();
+
+    let registry = ProviderRegistry::new();
+    let providers = registry.list_all();
+    assert!(!providers.is_empty(), "No providers registered");
+
+    let mut exercised = Vec::new();
+
+    for provider in &providers {
+        let id = provider.id().to_string();
+        let image_model = provider.get_default_model(ProviderCapability::TextToImage);
+        let model_3d = provider.get_default_model(ProviderCapability::ImageTo3D);
+
+        // A provider need not offer both capabilities; run whatever it declares.
+        let (Ok(image_model), Ok(model_3d)) = (image_model, model_3d) else {
+            continue;
+        };
+
+        let out_dir = temp_dir.path().join(id.replace('.', "_"));
+        let config = PipelineConfig::new()
+            .with_prompt("a test asset")
+            .with_image_provider(&id)
+            .with_3d_provider(&id)
+            .with_image_model(&image_model.id)
+            .with_3d_model(&model_3d.id)
+            .with_output_dir(out_dir)
+            .without_fbx();
+
+        let (mut progress_rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry)
+            .await
+            .unwrap_or_else(|e| panic!("Pipeline should start for provider '{id}': {e}"));
+
+        while progress_rx.recv().await.is_some() {}
+
+        let output = handle
+            .await
+            .expect("Task should complete")
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Provider '{id}' failed in mock mode ({} / {}): {e}",
+                    image_model.id, model_3d.id
+                )
+            });
+
+        assert!(
+            output.image_path.is_some_and(|p| p.exists()),
+            "Provider '{id}' produced no image"
+        );
+        assert!(
+            output.model_path.is_some_and(|p| p.exists()),
+            "Provider '{id}' produced no 3D model"
+        );
+
+        exercised.push(id);
+    }
+
+    assert!(
+        exercised.len() >= 2,
+        "Expected at least fal.ai and meshy to run in mock mode, got {exercised:?}"
+    );
 
     cleanup_mock_env();
 }
