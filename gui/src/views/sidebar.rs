@@ -40,6 +40,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
         // Template selector with view button
         let has_existing_image = app.existing_image.is_some();
+
         let template_row = ui.add_enabled_ui(!has_existing_image, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Template:");
@@ -286,9 +287,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         .small_button(icons::FOLDER_OPEN)
                         .on_hover_text("Show in folder")
                         .clicked()
-                        && let Some(parent) = path_buf.parent() {
-                            should_show_in_folder = Some(parent.to_path_buf());
-                        }
+                        && let Some(parent) = path_buf.parent()
+                    {
+                        should_show_in_folder = Some(parent.to_path_buf());
+                    }
                 });
             });
         } else {
@@ -517,87 +519,89 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         // text-to-image. Mirrors the 3D section's behavior when skip_3d is on.
         let image_gen_enabled = !has_existing_image;
         ui.add_enabled_ui(image_gen_enabled, |ui| {
-        ui.label(egui::RichText::new("Image Generation").size(13.0).strong());
-        ui.add_space(2.0);
+            ui.label(egui::RichText::new("Image Generation").size(13.0).strong());
+            ui.add_space(2.0);
 
-        let image_provider_list: Vec<_> = available_providers
-            .iter()
-            .filter(|p| p.supports(ProviderCapability::TextToImage))
-            .collect();
+            let image_provider_list: Vec<_> = available_providers
+                .iter()
+                .filter(|p| p.supports(ProviderCapability::TextToImage))
+                .collect();
 
-        egui::Grid::new("image_generation_selectors")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                // Image provider selector
-                let current_image_provider = image_provider_list
-                    .iter()
-                    .find(|p| p.id() == app.image_provider.as_str())
-                    .map(|p| p.name())
-                    .unwrap_or(&app.image_provider);
+            egui::Grid::new("image_generation_selectors")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    // Image provider selector
+                    let current_image_provider = image_provider_list
+                        .iter()
+                        .find(|p| p.id() == app.image_provider.as_str())
+                        .map(|p| p.name())
+                        .unwrap_or(&app.image_provider);
 
-                ui.label("Provider:");
-                egui::ComboBox::from_id_salt("image_provider_selector")
-                    .selected_text(current_image_provider)
-                    .show_ui(ui, |ui| {
-                        for provider in &image_provider_list {
-                            let provider_id = provider.id();
-                            if ui
-                                .add(egui::Button::selectable(
-                                    app.image_provider == provider_id,
-                                    provider.name(),
-                                ))
-                                .on_hover_text(provider.metadata().description.clone())
-                                .clicked()
-                            {
-                                app.image_provider = provider_id.to_string();
-                            }
-                        }
-                    });
-                ui.end_row();
-
-                // Image model selector
-                if let Some(img_provider) = app.provider_registry.get(&app.image_provider) {
-                    // If provider changed, update model to default
-                    if old_image_provider != app.image_provider
-                        && let Ok(default_img) =
-                            img_provider.get_default_model(ProviderCapability::TextToImage)
-                    {
-                        app.image_model = default_img.id;
-                    }
-
-                    let image_models = img_provider.list_models(ProviderCapability::TextToImage);
-                    let current_image_model = image_models.iter().find(|m| m.id == app.image_model);
-
-                    ui.label("Model:");
-                    egui::ComboBox::from_id_salt("image_model_selector")
-                        .selected_text(
-                            current_image_model
-                                .map(|m| format_model_display_name(&m.name, &m.id))
-                                .unwrap_or_else(|| app.image_model.clone()),
-                        )
+                    ui.label("Provider:");
+                    egui::ComboBox::from_id_salt("image_provider_selector")
+                        .selected_text(current_image_provider)
                         .show_ui(ui, |ui| {
-                            for model in &image_models {
-                                let display_name =
-                                    format_model_display_name(&model.name, &model.id);
+                            for provider in &image_provider_list {
+                                let provider_id = provider.id();
                                 if ui
                                     .add(egui::Button::selectable(
-                                        app.image_model == model.id,
-                                        display_name,
+                                        app.image_provider == provider_id,
+                                        provider.name(),
                                     ))
-                                    .on_hover_text(model.description.as_deref().unwrap_or(""))
+                                    .on_hover_text(provider.metadata().description.clone())
                                     .clicked()
                                 {
-                                    app.image_model = model.id.clone();
+                                    app.image_provider = provider_id.to_string();
                                 }
                             }
                         });
                     ui.end_row();
-                }
-            });
 
-        // Image model settings (directly under image model selector)
-        render_image_model_settings(ui, app, &old_image_provider);
+                    // Image model selector
+                    if let Some(img_provider) = app.provider_registry.get(&app.image_provider) {
+                        // If provider changed, update model to default
+                        if old_image_provider != app.image_provider
+                            && let Ok(default_img) =
+                                img_provider.get_default_model(ProviderCapability::TextToImage)
+                        {
+                            app.image_model = default_img.id;
+                        }
+
+                        let image_models =
+                            img_provider.list_models(ProviderCapability::TextToImage);
+                        let current_image_model =
+                            image_models.iter().find(|m| m.id == app.image_model);
+
+                        ui.label("Model:");
+                        egui::ComboBox::from_id_salt("image_model_selector")
+                            .selected_text(
+                                current_image_model
+                                    .map(|m| format_model_display_name(&m.name, &m.id))
+                                    .unwrap_or_else(|| app.image_model.clone()),
+                            )
+                            .show_ui(ui, |ui| {
+                                for model in &image_models {
+                                    let display_name =
+                                        format_model_display_name(&model.name, &model.id);
+                                    if ui
+                                        .add(egui::Button::selectable(
+                                            app.image_model == model.id,
+                                            display_name,
+                                        ))
+                                        .on_hover_text(model.description.as_deref().unwrap_or(""))
+                                        .clicked()
+                                    {
+                                        app.image_model = model.id.clone();
+                                    }
+                                }
+                            });
+                        ui.end_row();
+                    }
+                });
+
+            // Image model settings (directly under image model selector)
+            render_image_model_settings(ui, app, &old_image_provider);
         }); // end Image Generation add_enabled_ui
 
         ui.add_space(8.0);
@@ -605,11 +609,48 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         // 3D Generation Section — fully disabled (but visible) when image-only.
         // Keeping the controls visible with a grayed-out appearance makes the
         // mode change feel intentional rather than hiding UI.
+        //
+        // The image-only toggle lives here rather than under Post-Processing:
+        // it decides whether this stage runs at all, which is pipeline scope,
+        // not something applied to a finished model. It also has to stay
+        // outside the add_enabled_ui below, or turning it on would disable the
+        // control needed to turn it back off.
+        ui.label(egui::RichText::new("3D Generation").size(13.0).strong());
+        ui.add_space(2.0);
+
+        // Stays interactive even when it conflicts with an input image. It was
+        // previously disabled in that case, which trapped anyone who ticked it
+        // before choosing the image: the box stayed checked with no way to
+        // clear it. Both selections are the user's; the app reports the
+        // conflict below instead of resolving it for them.
+        ui.checkbox(&mut app.skip_3d, "Image only (skip 3D)")
+            .on_hover_text("Stop after image generation. No GLB or FBX will be produced.");
+
+        // An input image replaces image generation and this skips 3D, so
+        // together they leave no stage to run. Say so where the choice was
+        // made — the Generate button is disabled, but a grayed-out button at
+        // the bottom of the sidebar doesn't explain itself.
+        if app.skip_3d && has_existing_image {
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 180, 100),
+                    format!("{} Nothing to generate", icons::WARNING),
+                );
+            });
+            ui.label(
+                egui::RichText::new(
+                    "The input image already replaces image generation. Clear the image \
+                     or uncheck this to continue.",
+                )
+                .size(11.0)
+                .weak(),
+            );
+        }
+        ui.add_space(4.0);
+
         let three_d_enabled = !app.skip_3d;
         ui.add_enabled_ui(three_d_enabled, |ui| {
-            ui.label(egui::RichText::new("3D Generation").size(13.0).strong());
-            ui.add_space(2.0);
-
             let model_3d_provider_list: Vec<_> = available_providers
                 .iter()
                 .filter(|p| p.supports(ProviderCapability::ImageTo3D))
@@ -725,20 +766,6 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         // =================================================================
         ui.label(egui::RichText::new("Post-Processing").strong());
         ui.add_space(4.0);
-
-        // Image-only toggle — stop after text-to-image (no 3D model produced).
-        // Disables FBX implicitly since FBX needs a GLB.
-        // Hidden affordance: when the user supplied an existing image, there's
-        // no image stage at all, so "image only" would mean "do nothing" — gray
-        // it out rather than let the user pick a no-op.
-        ui.add_enabled_ui(!has_existing_image, |ui| {
-            ui.checkbox(&mut app.skip_3d, "Image only (skip 3D)")
-                .on_hover_text(if has_existing_image {
-                    "Not available when using an existing image — there's no generation stage to stop after."
-                } else {
-                    "Stop after image generation. No GLB or FBX will be produced."
-                });
-        });
 
         // FBX toggle with Blender availability check
         let prev_fbx = app.export_fbx;
