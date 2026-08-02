@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.2 — 2026-08-02
+
+### Bug Fixes
+
+- report conflicting generation settings instead of running anyway ([#45](https://github.com/nightandwknd/asset-tap/pull/45)) _(gui)_
+
+### Documentation
+
+- correct inaccurate reference material and document tunable parameters _(site)_
+
 ## v26.8.1 — 2026-08-01
 
 ### Bug Fixes
