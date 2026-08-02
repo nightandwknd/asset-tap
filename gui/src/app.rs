@@ -86,6 +86,27 @@ fn reconcile_provider_selection(
     (default_provider_id, fallback_model)
 }
 
+/// Whether an image reference points at a remote URL rather than a local file.
+///
+/// Mirrors the CLI's check so both surfaces agree on which inputs are validated
+/// against the filesystem.
+fn is_remote_url(image: &str) -> bool {
+    image.starts_with("http://") || image.starts_with("https://")
+}
+
+/// Whether the current selections describe a run with no work in it.
+///
+/// An input image replaces the image-generation stage and "image only" removes
+/// the 3D stage, so together they leave nothing to execute. The CLI rejects the
+/// same pair outright (`--image` with `--image-only`).
+///
+/// Neither selection is silently undone — both are the user's, and quietly
+/// clearing one hides the mistake rather than surfacing it. The sidebar reports
+/// the conflict and Generate stays disabled until the user resolves it.
+pub(crate) fn is_no_op_run(skip_3d: bool, has_existing_image: bool) -> bool {
+    skip_3d && has_existing_image
+}
+
 /// Embedded logo image for in-app branding (512x512 with "ASSET TAP" text).
 const LOGO_BYTES: &[u8] = include_bytes!("../../assets/logo.png");
 
@@ -889,14 +910,16 @@ impl App {
         let running = self.state.lock().unwrap().running;
         let has_image_model = self.existing_image.is_some()
             || (!self.image_provider.is_empty() && !self.image_model.is_empty());
+        let nothing_to_do = is_no_op_run(self.skip_3d, self.existing_image.is_some());
+
         !running
+            && !nothing_to_do
             && (!self.prompt.is_empty() || self.existing_image.is_some())
             && self.effective_prompt_len()
                 <= asset_tap_core::constants::validation::MAX_PROMPT_LENGTH
             && self.settings.has_required_api_keys(&self.provider_registry)
             && has_image_model
-            && !self.model_3d_provider.is_empty()
-            && !self.model_3d.is_empty()
+            && (self.skip_3d || (!self.model_3d_provider.is_empty() && !self.model_3d.is_empty()))
     }
 
     /// Get the reason why generation is disabled (if applicable).
@@ -932,7 +955,14 @@ impl App {
         if !has_image_model {
             return Some("Select an image model to generate with.".to_string());
         }
-        if self.model_3d_provider.is_empty() || self.model_3d.is_empty() {
+        if is_no_op_run(self.skip_3d, self.existing_image.is_some()) {
+            return Some(
+                "Nothing to generate: the input image replaces image generation, and \
+                 image-only skips 3D. Clear one of them."
+                    .to_string(),
+            );
+        }
+        if !self.skip_3d && (self.model_3d_provider.is_empty() || self.model_3d.is_empty()) {
             return Some("Select a 3D model to generate with.".to_string());
         }
         None
@@ -962,6 +992,25 @@ impl App {
             .with_output_dir(self.settings.output_dir.clone())
             .with_image_model_params(self.image_model_params.clone())
             .with_3d_model_params(self.model_3d_params.clone());
+
+        // A picked file can be moved or deleted before Generate is pressed.
+        // Without this the path falls through to the pipeline's remote-URL
+        // branch and fails as a download error, which says nothing about the
+        // real problem. The CLI rejects the same case up front.
+        if let Some(ref image) = self.existing_image
+            && !is_remote_url(image)
+            && !std::path::Path::new(image).exists()
+        {
+            let name = std::path::Path::new(image)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| image.clone());
+            self.toasts.push(Toast::error(format!(
+                "Input image no longer exists: {name}. Choose another image."
+            )));
+            self.existing_image = None;
+            return;
+        }
 
         let prompt = if let Some(ref image) = self.existing_image {
             // Using a reference image — skip prompt/template since image generation is bypassed
@@ -1006,11 +1055,10 @@ impl App {
             config = config.without_fbx();
         }
 
-        // Only honor skip_3d when there's actually an image stage to stop after.
-        // With an existing image supplied, image-only would mean "do nothing" —
-        // the sidebar checkbox is already disabled in that case; this guards
-        // against a stale `skip_3d=true` from before the image was supplied.
-        if self.skip_3d && self.existing_image.is_none() {
+        // Honored as selected. `can_generate` blocks the one combination that
+        // would produce nothing (image-only plus an input image), so there is
+        // no contradictory state left to reconcile here.
+        if self.skip_3d {
             config = config.with_skip_3d();
         }
 
@@ -2709,7 +2757,10 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod tests {
-    use super::{PreviewTab, ToastType, build_startup_toasts, pick_preview_tab_for_output};
+    use super::{
+        PreviewTab, ToastType, build_startup_toasts, is_no_op_run, is_remote_url,
+        pick_preview_tab_for_output,
+    };
     use asset_tap_core::settings::LoadStatus;
     use asset_tap_core::types::PipelineOutput;
     use std::path::PathBuf;
@@ -3044,5 +3095,28 @@ mod tests {
         );
         assert_eq!(p, "fal.ai");
         assert_eq!(m, "flux-2");
+    }
+
+    /// "Image only" plus an input image removes both stages, so the run is
+    /// blocked rather than started. Neither selection is cleared for the user.
+    #[test]
+    fn image_only_with_input_image_is_a_no_op_run() {
+        assert!(is_no_op_run(true, true));
+    }
+
+    #[test]
+    fn remote_urls_are_not_checked_against_the_filesystem() {
+        // A URL has no local path to stat; only picked files are validated.
+        assert!(is_remote_url("https://example.com/a.png"));
+        assert!(is_remote_url("http://example.com/a.png"));
+        assert!(!is_remote_url("/Users/me/a.png"));
+        assert!(!is_remote_url("relative/a.png"));
+    }
+
+    #[test]
+    fn either_selection_alone_is_runnable() {
+        assert!(!is_no_op_run(true, false), "image-only alone is valid");
+        assert!(!is_no_op_run(false, true), "an input image alone is valid");
+        assert!(!is_no_op_run(false, false));
     }
 }
