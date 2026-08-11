@@ -362,12 +362,22 @@ run_test "Meshy gpt-image-2 rejects 4:3" \
 run_test "Meshy nano-banana-pro rejects 2:3" \
     "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-pro --param aspect_ratio=2:3 'test'" 2
 
-# texture_resolution/remove_lighting/image_enhancement are meshy-6-or-latest only.
+# texture_resolution/image_enhancement are meshy-6-or-later only.
 run_test "Meshy v6 accepts texture_resolution" \
     "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v6/image-to-3d --param texture_resolution=4k 'test'" 0
 
 run_test "Meshy v5 rejects v6-only texture_resolution" \
     "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v5/image-to-3d --param texture_resolution=4k 'test'" 2
+
+# ultra_mode is meshy-7 only; remove_lighting is meshy-6 only.
+run_test "Meshy v7 accepts ultra_mode" \
+    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v7/image-to-3d --param ultra_mode=true 'test'" 0
+
+run_test "Meshy v6 rejects v7-only ultra_mode" \
+    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v6/image-to-3d --param ultra_mode=true 'test'" 2
+
+run_test "Meshy v7 rejects v6-only remove_lighting" \
+    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v7/image-to-3d --param remove_lighting=false 'test'" 2
 
 run_test "fal nano-banana-pro accepts seed" \
     "$CLI --mock -y --image-only --image-model fal-ai/nano-banana-pro --param seed=42 'test'" 0

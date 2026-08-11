@@ -167,10 +167,11 @@ Parameter errors are **usage errors**: they exit 2 and are raised _before_ the `
 
 **Cross-provider parity:** When the same underlying model is served by multiple providers (e.g. Meshy v6 via `fal-ai/meshy/v6/image-to-3d` AND `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of routing. `meshy_v6_parameter_surface_matches_across_providers` in [core/tests/integration_tests.rs](core/tests/integration_tests.rs) is the drift-catcher.
 
-Parity is not blind equality — the test encodes two **verified** asymmetries, each as a named constant:
+Parity is not blind equality — the test encodes **verified** asymmetries, each as a named constant:
 
 - `NATIVE_ONLY` — params Meshy's API documents that fal's wrapper hasn't been confirmed to pass through. Adding one to the native YAML is allowed only by listing it here; a fal-only param always fails.
-- `V6_ONLY` — `texture_resolution`, `remove_lighting`, `image_enhancement`, which Meshy documents as meshy-6-or-latest. v5 must expose v6's surface minus exactly this set.
+- `V6_ONLY` — `texture_resolution`, `remove_lighting`, `image_enhancement`, which Meshy documents as meshy-6-or-later. v5 must expose v6's surface minus exactly this set.
+- `NOT_IN_V7` / `V7_ONLY` — v7 (native only; fal has no v7 wrapper) is v6's surface minus `remove_lighting` (documented "meshy-6 only") and `symmetry_mode` (deprecated API-wide, not advertised on new models), plus `ultra_mode` (documented "meshy-7 or latest" only).
 
 **Per-model, not per-provider.** Aspect ratios are the trap: Meshy's `gpt-image-2` takes `1:1/3:2/2:3` while the nano-banana family takes `1:1/16:9/9:16/4:3/3:4`, so `gpt-image-2` deliberately does **not** reuse the `x-meshy-t2i-params` anchor. Before extending a shared anchor, confirm every model aliasing it supports the values.
 
