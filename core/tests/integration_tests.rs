@@ -289,8 +289,10 @@ fn test_embedded_config_sync_flow() {
 /// be merged. This test is the drift-catcher: if someone adds a param to one
 /// copy without the other, CI fails.
 ///
-/// meshy-5 is included because it shares the same surface minus version-specific
-/// deltas (none currently — just defaults differ).
+/// meshy-5 and meshy-7 are included because they share the same surface minus
+/// version-specific deltas that Meshy's docs spell out per `ai_model`; each
+/// delta is encoded below as a named constant so an unexplained divergence
+/// still fails.
 #[test]
 fn meshy_v6_parameter_surface_matches_across_providers() {
     use asset_tap_core::providers::config::ProviderConfig;
@@ -321,6 +323,7 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     let fal_v6 = param_names(&fal, "fal-ai/meshy/v6/image-to-3d");
     let native_v6 = param_names(&meshy, "meshy/v6/image-to-3d");
     let native_v5 = param_names(&meshy, "meshy/v5/image-to-3d");
+    let native_v7 = param_names(&meshy, "meshy/v7/image-to-3d");
 
     // Params the native Meshy API documents but fal's wrapper hasn't been
     // confirmed to pass through. They stay native-only until someone checks
@@ -369,6 +372,30 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
          ({V6_ONLY:?}). Mismatch: only-in-v5={:?}, missing-from-v5={:?}",
         native_v5.difference(&expected_v5).collect::<Vec<_>>(),
         expected_v5.difference(&native_v5).collect::<Vec<_>>()
+    );
+
+    // Meshy v7 (native only — fal has no v7 wrapper as of 2026-08) is v6's
+    // surface plus/minus the documented per-version deltas:
+    //   - remove_lighting: "Only supported when ai_model is meshy-6".
+    //   - symmetry_mode: deprecated API-wide ("no longer affects output");
+    //     kept on v5/v6 for continuity, not advertised on new models.
+    //   + ultra_mode: "Only supported when ai_model is meshy-7 (or latest)".
+    const NOT_IN_V7: &[&str] = &["remove_lighting", "symmetry_mode"];
+    const V7_ONLY: &[&str] = &["ultra_mode"];
+
+    let expected_v7: BTreeSet<String> = native_v6
+        .iter()
+        .filter(|name| !NOT_IN_V7.contains(&name.as_str()))
+        .cloned()
+        .chain(V7_ONLY.iter().map(|s| s.to_string()))
+        .collect();
+    assert_eq!(
+        native_v7,
+        expected_v7,
+        "Meshy v7 should expose v6's surface minus {NOT_IN_V7:?} plus {V7_ONLY:?}. \
+         Mismatch: only-in-v7={:?}, missing-from-v7={:?}",
+        native_v7.difference(&expected_v7).collect::<Vec<_>>(),
+        expected_v7.difference(&native_v7).collect::<Vec<_>>()
     );
 }
 

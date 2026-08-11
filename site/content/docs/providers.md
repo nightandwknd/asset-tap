@@ -62,14 +62,15 @@ Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`.
 
 #### Image-to-3D Models
 
-| Model                                                | `--3d-model`           | Description                                                  |
-| ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
-| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures _(default)_ |
-| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v5/image-to-3d` | Previous generation, lower credit cost                       |
+| Model                                                | `--3d-model`           | Description                                                   |
+| ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------- |
+| [Meshy v7](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v7/image-to-3d` | Meshy 7 -- newest generation, supports Ultra mode _(default)_ |
+| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures              |
+| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v5/image-to-3d` | Previous generation, lower credit cost                        |
 
-Tunable parameters: `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `symmetry_mode`, `pose_mode`, `texture_prompt`.
+Tunable parameters (all versions): `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `pose_mode`, `texture_prompt`.
 
-Meshy v6 additionally exposes `texture_resolution` (2k/4k/8k), `remove_lighting`, and `image_enhancement`, which Meshy documents as v6-only.
+Version-specific knobs, per Meshy's own docs: v6 and v7 add `texture_resolution` (2k/4k/8k) and `image_enhancement`; `remove_lighting` is v6-only; `ultra_mode` (higher-fidelity geometry) is v7-only. `symmetry_mode` remains on v5/v6 but is deprecated by Meshy and no longer affects output.
 
 > **Why two ways to reach Meshy?** The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a `FAL_KEY`. The Meshy provider's entry uses Meshy's subscription credits and requires a `MESHY_API_KEY`. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.
 
@@ -80,7 +81,7 @@ Meshy v6 additionally exposes `texture_resolution` (2k/4k/8k), `remove_lighting`
 | fal.ai   | Pay-per-call | Charged per generation at the model's listed cost; no monthly minimum.      |
 | Meshy AI | Subscription | Monthly plan grants a credit pool; each generation deducts credits from it. |
 
-Meshy credit costs (verified 2026-04): v5 image-to-3D is 5 credits (15 with textures); v6 is 20 credits (30 with textures). See the [Meshy pricing page](https://www.meshy.ai/pricing) for plan details.
+Meshy credit costs: v5 image-to-3D is 5 credits (15 with textures); v6 is 20 credits (30 with textures) (verified 2026-04); v7 is 30 credits with textures -- same as v6 (verified 2026-08). Meshy has not published the Ultra mode surcharge -- check your task's `consumed_credits` or the [Meshy pricing page](https://www.meshy.ai/pricing) for current numbers.
 
 ---
 
