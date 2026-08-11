@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.3 — 2026-08-11
+
+### Chores
+
+- bump open in the rust-dependencies group ([#46](https://github.com/nightandwknd/asset-tap/pull/46)) _(deps)_
+
+### Features
+
+- add Meshy v7 image-to-3D with ultra_mode support ([#47](https://github.com/nightandwknd/asset-tap/pull/47)) _(providers)_
+
 ## v26.8.2 — 2026-08-02
 
 ### Bug Fixes
