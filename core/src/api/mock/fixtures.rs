@@ -198,9 +198,10 @@ impl MockFixtures {
 ///    which is baked in at compile time; in released binaries it points at the
 ///    build machine's workspace and never exists on user machines. Dev-checkout
 ///    mock runs get the real app icon and 3D model.
-/// 2. **Downloaded demo bundle** — the newest bundle in the user's output
-///    directory whose `bundle.json` carries a `demo_version`. Release users who
-///    grabbed the demo via the welcome modal get the same real assets in mock.
+/// 2. **Downloaded demo bundle** — the newest bundle carrying a `demo_version`
+///    in its `bundle.json`, searched first in [`MOCK_DEMO_DIR_ENV`] (when set),
+///    then in the user's configured output directory. Users who grabbed the
+///    demo via the welcome modal get the same real assets in mock.
 /// 3. **Embedded placeholders** — a solid-color PNG and a unit-cube GLB
 ///    (~1 KB combined), so `--mock` works anywhere instead of panicking.
 pub struct SampleFiles;
@@ -211,10 +212,15 @@ const PLACEHOLDER_PNG: &[u8] = include_bytes!("assets/placeholder.png");
 /// Embedded fallback model: minimal valid glTF 2.0 binary, a unit cube (~772 bytes).
 const PLACEHOLDER_GLB: &[u8] = include_bytes!("assets/placeholder.glb");
 
-/// When set, skip both on-disk tiers and serve the embedded placeholders.
+/// When set, skip every on-disk tier and serve the embedded placeholders.
 /// Test-only knob: lets CI exercise the released-binary fallback path from a
 /// repo checkout, where the disk assets would otherwise always win.
 pub const MOCK_EMBEDDED_ENV: &str = "ASSET_TAP_MOCK_EMBEDDED";
+
+/// Optional extra directory searched for downloaded demo bundles, taking
+/// precedence over the configured output directory. Lets external consumers
+/// that keep their demo bundle somewhere else point mock mode at it.
+pub const MOCK_DEMO_DIR_ENV: &str = "ASSET_TAP_MOCK_DEMO_DIR";
 
 impl SampleFiles {
     /// Path to a file in the repo's demo bundle directory (build-machine path;
@@ -242,6 +248,10 @@ impl SampleFiles {
         }
         std::fs::read(Self::bundle_path(filename))
             .ok()
+            .or_else(|| {
+                std::env::var_os(MOCK_DEMO_DIR_ENV)
+                    .and_then(|dir| Self::demo_bundle_asset(std::path::Path::new(&dir), filename))
+            })
             .or_else(|| Self::demo_bundle_asset(&crate::settings::get_output_dir(), filename))
     }
 

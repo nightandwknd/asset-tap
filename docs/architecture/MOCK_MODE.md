@@ -119,9 +119,12 @@ available copy wins:
 1. **Repo checkout** — `bundles/asset-tap/` via a path baked in at compile time
    (`env!("CARGO_MANIFEST_DIR")`), which resolves only on the machine that
    built the binary. Dev mock runs serve the real assets from here.
-2. **Downloaded demo bundle** — the newest bundle in the user's output
-   directory whose `bundle.json` carries a `demo_version`. Release users who
-   downloaded the demo via the welcome modal get the same real assets in mock.
+2. **Downloaded demo bundle** — the newest bundle whose `bundle.json` carries
+   a `demo_version`, searched first in `ASSET_TAP_MOCK_DEMO_DIR` (when set),
+   then in the user's configured output directory. Release users who
+   downloaded the demo via the welcome modal get the same real assets in mock;
+   external consumers that keep their demo bundle elsewhere point mock at it
+   via the environment variable.
 3. **Embedded placeholders** — a solid-color PNG and a unit-cube GLB (~1 KB
    combined) compiled into the binary, so `--mock` works anywhere instead of
    panicking.
