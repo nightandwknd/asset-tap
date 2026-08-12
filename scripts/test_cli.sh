@@ -1127,6 +1127,14 @@ run_test "JSON: --json with no prompt (exit 2)" \
 run_test "JSON: --json + auth subcommand is a usage error (exit 2)" \
     "$CLI --mock --json auth list" 2
 
+# --json is rejected alongside the demo subcommand.
+run_test "JSON: --json + demo subcommand is a usage error (exit 2)" \
+    "$CLI --json demo download" 2
+
+# Demo subcommand help works (no network touched).
+run_test "Demo download help" \
+    "$CLI demo download --help" 0
+
 # Catalog document: single valid JSON object with interface + providers.
 run_test "JSON: --list-providers --json is a single JSON document" \
     "$CLI --mock --list-providers --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"interface\"]==\"1.0\" and isinstance(d[\"providers\"],list)'" 0
