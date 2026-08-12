@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.4 — 2026-08-12
+
+### Bug Fixes
+
+- mock mode panics in released binaries (missing demo assets) ([#48](https://github.com/nightandwknd/asset-tap/pull/48))
+
 ## v26.8.3 — 2026-08-11
 
 ### Chores
