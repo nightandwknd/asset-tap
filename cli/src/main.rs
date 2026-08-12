@@ -41,6 +41,7 @@ EXAMPLES:
   asset-tap --list --json                      machine-readable model/template catalog
   asset-tap \"test\" --mock --json               zero-cost pipeline test (no API calls)
   echo $KEY | asset-tap auth set fal.ai        store a provider API key
+  asset-tap demo download                      fetch the showcase demo bundle
 
 AUTHENTICATION:
   Provider keys resolve from stored settings first, then environment variables
@@ -178,6 +179,25 @@ enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Manage the showcase demo bundle
+    Demo {
+        #[command(subcommand)]
+        action: DemoAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum DemoAction {
+    /// Download the demo bundle from the latest release.
+    ///
+    /// Fetches a small manifest first and skips the download when the current
+    /// demo version already exists in the target directory. The archive's
+    /// SHA-256 is verified against the manifest before extraction.
+    Download {
+        /// Target directory (defaults to the configured output directory)
+        #[arg(short, long, value_name = "DIR")]
+        output: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -303,7 +323,10 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // Auth subcommands run an interactive prompt, so suppress INFO logs on
     // stderr — they'd drown out the "API key for ...:" prompt. File logging
     // still captures INFO for debugging.
-    let quiet_console = matches!(cli.command, Some(Command::Auth { .. }));
+    let quiet_console = matches!(
+        cli.command,
+        Some(Command::Auth { .. }) | Some(Command::Demo { .. })
+    );
     let _guard = asset_tap_core::error_log::init_tracing(quiet_console);
 
     // Handle subcommands before any banner/pipeline setup. Auth commands
@@ -315,6 +338,16 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
             return Ok(ExitCode::from(machine::EXIT_USAGE));
         }
         return handle_auth(action).map(|_| ExitCode::SUCCESS);
+    }
+
+    // Demo subcommands fetch product artifacts from the latest release and
+    // don't need the generation pipeline either.
+    if let Some(Command::Demo { action }) = cli.command {
+        if cli.json {
+            eprintln!("error: '--json' cannot be used with the 'demo' subcommand");
+            return Ok(ExitCode::from(machine::EXIT_USAGE));
+        }
+        return handle_demo(action).await;
     }
 
     // Show banner for main commands (not for --list, --inspect, or --json,
@@ -1269,6 +1302,36 @@ fn validate_api_keys(
     }
 
     Ok(())
+}
+
+/// Handle `demo` subcommands.
+///
+/// Network failures map to the network exit code rather than the generic
+/// error code, matching the exit-code table in the top-level help.
+async fn handle_demo(action: DemoAction) -> anyhow::Result<ExitCode> {
+    let DemoAction::Download { output } = action;
+    let output_dir = output.unwrap_or_else(get_output_dir);
+    fs::create_dir_all(&output_dir)?;
+
+    println!("Checking demo bundle version...");
+    match asset_tap_core::download_demo_bundle(output_dir.clone(), |_progress| {}).await {
+        Ok(asset_tap_core::DemoDownloadResult::Downloaded(path)) => {
+            println!("✅ Demo bundle downloaded to {}", path.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        Ok(asset_tap_core::DemoDownloadResult::AlreadyExists(version)) => {
+            println!(
+                "✅ Demo bundle v{} already present in {}",
+                version,
+                output_dir.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            eprintln!("error: demo download failed: {e:#}");
+            Ok(ExitCode::from(machine::EXIT_NETWORK))
+        }
+    }
 }
 
 fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
