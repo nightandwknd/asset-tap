@@ -2,6 +2,15 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.5 — 2026-08-12
+
+### Features
+
+- serve downloaded demo bundle assets when repo checkout is absent _(mock)_
+- ASSET_TAP_MOCK_DEMO_DIR points mock at an external demo bundle dir _(mock)_
+- `demo download` subcommand _(cli)_
+- ship `atap` alias alongside the CLI in all release archives _(packaging)_
+
 ## v26.8.4 — 2026-08-12
 
 ### Bug Fixes
