@@ -192,13 +192,17 @@ impl MockFixtures {
 
 /// Sample binary files for mock downloads.
 ///
-/// Prefers the real demo bundle assets from `bundles/asset-tap/` on disk so
-/// dev-checkout mock runs show the actual app icon and 3D model. The disk path
-/// is resolved via `env!("CARGO_MANIFEST_DIR")`, which is baked in at compile
-/// time — in released binaries it points at the build machine's workspace and
-/// never exists on user machines. Since releases ship with `--features mock`,
-/// missing disk assets fall back to small embedded placeholders (a solid-color
-/// PNG and a unit-cube GLB) instead of panicking, so `--mock` works anywhere.
+/// Resolved through a three-tier chain, best asset wins:
+///
+/// 1. **Repo checkout** — `bundles/asset-tap/` via `env!("CARGO_MANIFEST_DIR")`,
+///    which is baked in at compile time; in released binaries it points at the
+///    build machine's workspace and never exists on user machines. Dev-checkout
+///    mock runs get the real app icon and 3D model.
+/// 2. **Downloaded demo bundle** — the newest bundle in the user's output
+///    directory whose `bundle.json` carries a `demo_version`. Release users who
+///    grabbed the demo via the welcome modal get the same real assets in mock.
+/// 3. **Embedded placeholders** — a solid-color PNG and a unit-cube GLB
+///    (~1 KB combined), so `--mock` works anywhere instead of panicking.
 pub struct SampleFiles;
 
 /// Embedded fallback image: 64×64 solid-color PNG (~136 bytes).
@@ -207,38 +211,50 @@ const PLACEHOLDER_PNG: &[u8] = include_bytes!("assets/placeholder.png");
 /// Embedded fallback model: minimal valid glTF 2.0 binary, a unit cube (~772 bytes).
 const PLACEHOLDER_GLB: &[u8] = include_bytes!("assets/placeholder.glb");
 
-/// When set, skip the on-disk demo assets and serve the embedded placeholders.
+/// When set, skip both on-disk tiers and serve the embedded placeholders.
 /// Test-only knob: lets CI exercise the released-binary fallback path from a
 /// repo checkout, where the disk assets would otherwise always win.
 pub const MOCK_EMBEDDED_ENV: &str = "ASSET_TAP_MOCK_EMBEDDED";
 
 impl SampleFiles {
-    /// Path to a file in the demo bundle directory (build-machine path; see
-    /// the struct docs for why this can be absent at runtime).
+    /// Path to a file in the repo's demo bundle directory (build-machine path;
+    /// see the struct docs for why this can be absent at runtime).
     fn bundle_path(filename: &str) -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../bundles/asset-tap")
             .join(filename)
     }
 
-    /// Demo bundle asset from disk, unless absent or overridden.
+    /// Asset from the newest downloaded demo bundle in `output_dir`, if any.
+    fn demo_bundle_asset(output_dir: &std::path::Path, filename: &str) -> Option<Vec<u8>> {
+        let bundles = crate::bundle::discover_bundles(output_dir);
+        let demo = bundles
+            .iter()
+            .filter(|b| b.metadata.demo_version.is_some())
+            .max_by_key(|b| b.metadata.demo_version)?;
+        std::fs::read(demo.path.join(filename)).ok()
+    }
+
+    /// Real demo asset from either on-disk tier, unless absent or overridden.
     fn disk_asset(filename: &str) -> Option<Vec<u8>> {
         if std::env::var_os(MOCK_EMBEDDED_ENV).is_some() {
             return None;
         }
-        std::fs::read(Self::bundle_path(filename)).ok()
+        std::fs::read(Self::bundle_path(filename))
+            .ok()
+            .or_else(|| Self::demo_bundle_asset(&crate::settings::get_output_dir(), filename))
     }
 
-    /// Sample image: the demo bundle's PNG (~410KB) when the repo checkout is
-    /// present, else the embedded placeholder.
+    /// Sample image: the demo bundle's PNG (~410KB) when a real copy is
+    /// available, else the embedded placeholder.
     pub fn minimal_png() -> Vec<u8> {
-        Self::disk_asset("image.png").unwrap_or_else(|| PLACEHOLDER_PNG.to_vec())
+        Self::disk_asset(bundle_files::IMAGE).unwrap_or_else(|| PLACEHOLDER_PNG.to_vec())
     }
 
     /// Sample model: the demo bundle's GLB (~34MB, generated with TRELLIS 2)
-    /// when the repo checkout is present, else the embedded placeholder.
+    /// when a real copy is available, else the embedded placeholder.
     pub fn minimal_glb() -> Vec<u8> {
-        Self::disk_asset("model.glb").unwrap_or_else(|| PLACEHOLDER_GLB.to_vec())
+        Self::disk_asset(bundle_files::MODEL_GLB).unwrap_or_else(|| PLACEHOLDER_GLB.to_vec())
     }
 }
 
@@ -327,5 +343,53 @@ mod tests {
         unsafe { std::env::remove_var(MOCK_EMBEDDED_ENV) };
         assert_eq!(png, PLACEHOLDER_PNG);
         assert_eq!(glb, PLACEHOLDER_GLB);
+    }
+
+    /// Write a bundle directory with the given metadata JSON and an image.png.
+    fn write_bundle(output_dir: &std::path::Path, name: &str, metadata: &Value, image: &[u8]) {
+        let dir = output_dir.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("bundle.json"), metadata.to_string()).unwrap();
+        std::fs::write(dir.join("image.png"), image).unwrap();
+    }
+
+    #[test]
+    fn test_demo_bundle_asset_prefers_newest_demo_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_bundle(
+            tmp.path(),
+            "2026-01-01_000000",
+            &json!({}),
+            b"plain generation",
+        );
+        write_bundle(
+            tmp.path(),
+            "2026-01-02_000000",
+            &json!({"demo_version": 1}),
+            b"demo v1",
+        );
+        write_bundle(
+            tmp.path(),
+            "2026-01-03_000000",
+            &json!({"demo_version": 2}),
+            b"demo v2",
+        );
+
+        let asset = SampleFiles::demo_bundle_asset(tmp.path(), "image.png").unwrap();
+        assert_eq!(asset, b"demo v2");
+    }
+
+    #[test]
+    fn test_demo_bundle_asset_none_without_demo_bundles() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_bundle(
+            tmp.path(),
+            "2026-01-01_000000",
+            &json!({}),
+            b"plain generation",
+        );
+        assert!(SampleFiles::demo_bundle_asset(tmp.path(), "image.png").is_none());
+        // Missing output dir entirely is also a clean miss, not an error
+        assert!(SampleFiles::demo_bundle_asset(&tmp.path().join("nope"), "image.png").is_none());
     }
 }
