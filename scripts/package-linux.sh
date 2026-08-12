@@ -13,8 +13,9 @@ if [ -n "$DEB_FILE" ]; then
   WORK_DIR=$(mktemp -d)
   dpkg-deb -R "$DEB_FILE" "$WORK_DIR"
 
-  # Inject CLI binary
+  # Inject CLI binary (+ short alias)
   cp target/release/asset-tap "$WORK_DIR/usr/bin/"
+  ln -sf asset-tap "$WORK_DIR/usr/bin/atap"
 
   # Install app icon to standard hicolor theme (cargo-packager misses this)
   ICON_DIR="$WORK_DIR/usr/share/icons/hicolor/512x512/apps"
@@ -40,6 +41,8 @@ fi
 echo "=== Creating CLI archive ==="
 mkdir -p cli-dist
 cp target/release/asset-tap cli-dist/
+# `atap` ships as a relative symlink alias; tar preserves it as such
+ln -sf asset-tap cli-dist/atap
 (cd cli-dist && tar -czvf ../asset-tap-cli-linux.tar.gz *)
 rm -rf cli-dist
 echo "  -> asset-tap-cli-linux.tar.gz"

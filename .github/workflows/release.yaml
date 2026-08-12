@@ -174,6 +174,9 @@ jobs:
         run: |
           mkdir -p cli-dist
           cp target/release/asset-tap cli-dist/
+          # `atap` ships as a relative symlink alias; the signature (and
+          # notarization) attach to the target binary, so the link needs neither.
+          ln -sf asset-tap cli-dist/atap
           if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
             codesign --sign "$APPLE_SIGNING_IDENTITY" --force --timestamp \
               --options runtime --entitlements gui/entitlements.plist \

@@ -81,6 +81,8 @@ runs:
       run: |
         mkdir -p cli-dist
         cp target/release/asset-tap cli-dist/
+        # `atap` ships as a relative symlink alias; tar preserves it as such
+        ln -sf asset-tap cli-dist/atap
         (cd cli-dist && tar -czvf ../asset-tap-cli-macos.tar.gz *)
         rm -rf cli-dist
 
@@ -106,6 +108,9 @@ runs:
       run: |
         New-Item -ItemType Directory -Force -Path cli-dist
         Copy-Item target/release/asset-tap.exe cli-dist/
+        # Zip archives can't carry symlinks, so the `atap` alias is a tiny
+        # cmd shim that forwards all arguments to asset-tap.exe next to it.
+        Set-Content -Path cli-dist/atap.cmd -Value "@echo off`r`n`"%~dp0asset-tap.exe`" %*" -NoNewline
         Compress-Archive -Path cli-dist/* -DestinationPath asset-tap-cli-windows.zip
 
     # ── Upload: Binaries ──────────────────────────────────────────────
