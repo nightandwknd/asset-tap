@@ -1088,6 +1088,33 @@ assert_json_stream "JSON: successful generation stream" \
 assert_json_stream "JSON: image-only stream" \
     "--image-only 'a wooden chest'" 0 success
 
+# Released binaries have no repo checkout: the demo assets SampleFiles prefers
+# are resolved via a compile-time path that only exists on the build machine.
+# Force the embedded-placeholder fallback and prove a full mock run still
+# succeeds — from a checkout the disk assets always win, so without this
+# override CI can never exercise the code path users actually hit.
+embedded_tmpdir=$(mktemp -d)
+embedded_cmd="ASSET_TAP_MOCK_EMBEDDED=1 $CLI --mock --json --no-fbx -o '$embedded_tmpdir' 'embedded fallback'"
+test_begin "Mock succeeds without repo assets (embedded fallback)" "$embedded_cmd"
+set +e
+bash -c "$embedded_cmd" < /dev/null >> "$LOG_FILE" 2>&1
+embedded_exit=$?
+set -e
+embedded_glb=$(find "$embedded_tmpdir" -name model.glb | head -1)
+embedded_glb_size=$(wc -c < "${embedded_glb:-/dev/null}" | tr -d ' ')
+if [ $embedded_exit -ne 0 ]; then
+    test_fail "CLI exit $embedded_exit"
+elif [ -z "$embedded_glb" ]; then
+    test_fail "no model.glb in bundle"
+elif [ "$embedded_glb_size" -gt 10000 ]; then
+    # A large GLB means the disk assets were served — the override didn't take
+    # and the fallback path went untested.
+    test_fail "model.glb is $embedded_glb_size bytes; expected small embedded placeholder"
+else
+    test_pass
+fi
+rm -rf "$embedded_tmpdir"
+
 # --json implies --yes: an approve-requiring flag combination is a usage error.
 run_test "JSON: --json + --approve is a usage error (exit 2)" \
     "$CLI --mock --json --approve 'x'" 2

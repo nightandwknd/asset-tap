@@ -192,30 +192,53 @@ impl MockFixtures {
 
 /// Sample binary files for mock downloads.
 ///
-/// Reads the real demo bundle assets from `bundles/asset-tap/` on disk so mock
-/// mode shows the actual app icon and 3D model instead of placeholder triangles.
-/// These files are never compiled into the binary — they are read at runtime
-/// from the repo checkout (dev/CI only, since mock mode requires `--features mock`).
+/// Prefers the real demo bundle assets from `bundles/asset-tap/` on disk so
+/// dev-checkout mock runs show the actual app icon and 3D model. The disk path
+/// is resolved via `env!("CARGO_MANIFEST_DIR")`, which is baked in at compile
+/// time — in released binaries it points at the build machine's workspace and
+/// never exists on user machines. Since releases ship with `--features mock`,
+/// missing disk assets fall back to small embedded placeholders (a solid-color
+/// PNG and a unit-cube GLB) instead of panicking, so `--mock` works anywhere.
 pub struct SampleFiles;
 
+/// Embedded fallback image: 64×64 solid-color PNG (~136 bytes).
+const PLACEHOLDER_PNG: &[u8] = include_bytes!("assets/placeholder.png");
+
+/// Embedded fallback model: minimal valid glTF 2.0 binary, a unit cube (~772 bytes).
+const PLACEHOLDER_GLB: &[u8] = include_bytes!("assets/placeholder.glb");
+
+/// When set, skip the on-disk demo assets and serve the embedded placeholders.
+/// Test-only knob: lets CI exercise the released-binary fallback path from a
+/// repo checkout, where the disk assets would otherwise always win.
+pub const MOCK_EMBEDDED_ENV: &str = "ASSET_TAP_MOCK_EMBEDDED";
+
 impl SampleFiles {
-    /// Path to a file in the demo bundle directory.
+    /// Path to a file in the demo bundle directory (build-machine path; see
+    /// the struct docs for why this can be absent at runtime).
     fn bundle_path(filename: &str) -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../bundles/asset-tap")
             .join(filename)
     }
 
-    /// App icon PNG from the demo bundle (410KB).
-    pub fn minimal_png() -> Vec<u8> {
-        std::fs::read(Self::bundle_path("image.png"))
-            .expect("bundles/asset-tap/image.png not found — is the repo intact?")
+    /// Demo bundle asset from disk, unless absent or overridden.
+    fn disk_asset(filename: &str) -> Option<Vec<u8>> {
+        if std::env::var_os(MOCK_EMBEDDED_ENV).is_some() {
+            return None;
+        }
+        std::fs::read(Self::bundle_path(filename)).ok()
     }
 
-    /// GLB from the demo bundle (~34MB, generated with TRELLIS 2).
+    /// Sample image: the demo bundle's PNG (~410KB) when the repo checkout is
+    /// present, else the embedded placeholder.
+    pub fn minimal_png() -> Vec<u8> {
+        Self::disk_asset("image.png").unwrap_or_else(|| PLACEHOLDER_PNG.to_vec())
+    }
+
+    /// Sample model: the demo bundle's GLB (~34MB, generated with TRELLIS 2)
+    /// when the repo checkout is present, else the embedded placeholder.
     pub fn minimal_glb() -> Vec<u8> {
-        std::fs::read(Self::bundle_path("model.glb"))
-            .expect("bundles/asset-tap/model.glb not found — is the repo intact?")
+        Self::disk_asset("model.glb").unwrap_or_else(|| PLACEHOLDER_GLB.to_vec())
     }
 }
 
@@ -238,6 +261,8 @@ mod tests {
 
     #[test]
     fn test_minimal_png_valid() {
+        // SampleFiles observes MOCK_EMBEDDED_ENV, so hold the env lock
+        let _env = crate::test_support::env_lock();
         let png = SampleFiles::minimal_png();
         // PNG files start with these magic bytes
         assert_eq!(
@@ -254,6 +279,8 @@ mod tests {
 
     #[test]
     fn test_minimal_glb_valid() {
+        // SampleFiles observes MOCK_EMBEDDED_ENV, so hold the env lock
+        let _env = crate::test_support::env_lock();
         let glb = SampleFiles::minimal_glb();
         // GLB files start with "glTF" magic
         assert_eq!(&glb[0..4], b"glTF");
@@ -265,5 +292,40 @@ mod tests {
             "GLB should be at least 12 bytes, got {}",
             glb.len()
         );
+    }
+
+    #[test]
+    fn test_placeholder_png_valid() {
+        assert_eq!(
+            &PLACEHOLDER_PNG[0..8],
+            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        );
+        // Trailing IEND chunk: type tag sits 8 bytes from the end (before the CRC)
+        assert_eq!(&PLACEHOLDER_PNG[PLACEHOLDER_PNG.len() - 8..][..4], b"IEND");
+    }
+
+    #[test]
+    fn test_placeholder_glb_valid() {
+        assert_eq!(&PLACEHOLDER_GLB[0..4], b"glTF");
+        let version = u32::from_le_bytes(PLACEHOLDER_GLB[4..8].try_into().unwrap());
+        assert_eq!(version, 2);
+        // Declared total length must match the actual byte count
+        let total = u32::from_le_bytes(PLACEHOLDER_GLB[8..12].try_into().unwrap());
+        assert_eq!(total as usize, PLACEHOLDER_GLB.len());
+        // JSON chunk must parse and declare glTF 2.0
+        let json_len = u32::from_le_bytes(PLACEHOLDER_GLB[12..16].try_into().unwrap()) as usize;
+        let doc: Value = serde_json::from_slice(&PLACEHOLDER_GLB[20..20 + json_len]).unwrap();
+        assert_eq!(doc["asset"]["version"], "2.0");
+    }
+
+    #[test]
+    fn test_embedded_env_forces_placeholders() {
+        let _env = crate::test_support::env_lock();
+        unsafe { std::env::set_var(MOCK_EMBEDDED_ENV, "1") };
+        let png = SampleFiles::minimal_png();
+        let glb = SampleFiles::minimal_glb();
+        unsafe { std::env::remove_var(MOCK_EMBEDDED_ENV) };
+        assert_eq!(png, PLACEHOLDER_PNG);
+        assert_eq!(glb, PLACEHOLDER_GLB);
     }
 }
