@@ -88,6 +88,11 @@ For advanced users who want just the CLI tool:
 | Windows  | `asset-tap-cli-windows.zip`  | x86_64                     | ZIP archive |
 | Linux    | `asset-tap-cli-linux.tar.gz` | x86_64                     | Tarball     |
 
+Every CLI archive also carries **`atap`**, a short alias for `asset-tap` — a
+relative symlink in the tarballs (and in the `.deb`'s `usr/bin/`), and a tiny
+`atap.cmd` forwarding shim in the Windows zip. `asset-tap` remains the
+canonical name; the alias is a typing convenience only.
+
 ## CLI Bundling Strategy
 
 Every installer includes the CLI alongside the GUI. Users get both tools in one download.
