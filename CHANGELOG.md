@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.6 — 2026-08-13
+
+### CI/CD
+
+- lock-consistency guard + Dependabot grouping fixes _(ci)_
+
+### Chores
+
+- update webbrowser to 1.2.4 (RUSTSEC-2026-0257) _(deps)_
+
 ## v26.8.5 — 2026-08-12
 
 ### Features
