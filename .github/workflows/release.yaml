@@ -290,6 +290,16 @@ jobs:
         with:
           tool: git-cliff,dprint
 
+      # A rerun executes against its original SHA; if main has moved, the newer
+      # push's release supersedes this one.
+      - name: Abort stale rerun
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "${{ github.sha }}" ]; then
+            echo "::error::main has moved past ${{ github.sha }}; superseded by the newer push's release"
+            exit 1
+          fi
+
       - name: Create release commit and tag
         run: |
           NEW_VERSION="${{ needs.version.outputs.new_version }}"
@@ -308,9 +318,9 @@ jobs:
           git add Cargo.toml Cargo.lock CHANGELOG.md
           git commit -m "release: v${NEW_VERSION} [skip ci]"
 
-          # Tag the release commit and push both
+          # Tag the release commit and push both atomically (all-or-nothing)
           git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
-          git push origin main --follow-tags
+          git push --atomic origin main "refs/tags/v${NEW_VERSION}"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
