@@ -31,7 +31,8 @@ jobs:
         if: github.event.action != 'closed'
         uses: taiki-e/install-action@v2
         with:
-          tool: zola@0.19.2
+          # Keep in sync with the zola-deploy-action version in `publish` below.
+          tool: zola@0.22.1
       - name: Build site
         if: github.event.action != 'closed'
         run: cd site && zola build --base-url "/pr-preview/pr-${{ github.event.number }}"
@@ -48,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build and push to gh-pages
-        uses: shalzz/zola-deploy-action@v0.23.2
+        uses: shalzz/zola-deploy-action@v0.22.1
         env:
           BUILD_DIR: site
           PAGES_BRANCH: gh-pages

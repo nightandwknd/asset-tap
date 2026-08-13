@@ -50,6 +50,9 @@ updates:
       # Rust releases as "updates" — must be bumped manually with
       # rust-toolchain.toml when upgrading the Rust version.
       - dependency-name: 'dtolnay/rust-toolchain'
+      # Zola 0.23 dropped Tera template syntax; the vendored zap theme
+      # (site/themes/zap) must be ported before bumping past v0.22.x.
+      - dependency-name: 'shalzz/zola-deploy-action'
     groups:
       # No update-types filter: action majors (checkout v6→v7 etc.) are
       # routine and belong in the weekly group, not individual PRs.
