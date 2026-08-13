@@ -2,6 +2,21 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.7 — 2026-08-13
+
+### Bug Fixes
+
+- pin zola-deploy-action to v0.22.1 until zap theme supports Zola 0.23 _(site)_
+
+### CI/CD
+
+- harden release publish against stale reruns _(ci)_
+
+### Chores
+
+- bump the rust-dependencies group across 1 directory with 2 updates ([#53](https://github.com/nightandwknd/asset-tap/pull/53)) _(deps)_
+- bump shalzz/zola-deploy-action ([#52](https://github.com/nightandwknd/asset-tap/pull/52)) _(deps)_
+
 ## v26.8.6 — 2026-08-13
 
 ### CI/CD
