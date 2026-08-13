@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build and push to gh-pages
-        uses: shalzz/zola-deploy-action@v0.22.1
+        uses: shalzz/zola-deploy-action@v0.23.2
         env:
           BUILD_DIR: site
           PAGES_BRANCH: gh-pages
