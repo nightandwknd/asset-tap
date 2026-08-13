@@ -30,6 +30,12 @@ updates:
         patterns:
           - '*'
         update-types: ['minor', 'patch']
+      # Security updates bypass version-update groups unless they have their
+      # own group — without this they arrive as individual PRs.
+      rust-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
 
   # ─── GitHub Actions ─────────────────────────────────────────────────
   - package-ecosystem: 'github-actions'
@@ -45,7 +51,8 @@ updates:
       # rust-toolchain.toml when upgrading the Rust version.
       - dependency-name: 'dtolnay/rust-toolchain'
     groups:
-      actions-minor-patch:
+      # No update-types filter: action majors (checkout v6→v7 etc.) are
+      # routine and belong in the weekly group, not individual PRs.
+      actions:
         patterns:
           - '*'
-        update-types: ['minor', 'patch']

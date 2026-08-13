@@ -1,4 +1,4 @@
-.PHONY: help build build-debug build-cli \
+.PHONY: help lock-check build build-debug build-cli \
 	cli gui dev mock mock-delay mock-gui mock-gui-delay refresh-models \
 	test test-core test-cli test-gui test-unit test-integration test-mock test-cli-comprehensive bench \
 	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps udeps-ci \
@@ -139,6 +139,14 @@ endif
 check: ## Check code (fast compile check)
 	cargo check --workspace --all-targets --all-features
 
+lock-check: ## Verify Cargo.lock matches Cargo.toml (catches inert lockfile-only majors)
+	@# Without this, a Dependabot major bump under versioning-strategy
+	@# lockfile-only rewrites the lock while the manifest still forbids the
+	@# new version — cargo silently re-resolves and CI stays green while the
+	@# "upgrade" does nothing.
+	@cargo metadata --locked --format-version 1 >/dev/null 2>&1 || \
+		(echo "Cargo.lock is out of sync with Cargo.toml — run 'cargo update <crate>' and commit." && exit 1)
+
 clippy: ## Run linter (clippy)
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -243,7 +251,7 @@ clippy-fix: ## Auto-fix clippy warnings where possible
 
 verify: fmt clippy-fix lint-workflows lint-shell check test ## Run all quality checks with auto-fixes
 
-ci: fmt-check clippy lint-workflows lint-shell check doc audit udeps-ci test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
+ci: lock-check fmt-check clippy lint-workflows lint-shell check doc audit udeps-ci test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
 
 # =============================================================================
 # Utilities
