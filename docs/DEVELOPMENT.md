@@ -16,7 +16,7 @@ This guide covers local development setup, testing, code standards, and contribu
 
 ### Prerequisites
 
-- **Rust 1.94.1** - Install via [rustup](https://rustup.rs). The exact toolchain is pinned in [`rust-toolchain.toml`](../rust-toolchain.toml), so rustup selects it automatically in this repo.
+- **Rust 1.97.1** - Install via [rustup](https://rustup.rs). The exact toolchain is pinned in [`rust-toolchain.toml`](../rust-toolchain.toml), so rustup selects it automatically in this repo.
 - **Git** - For version control
 - **cargo-nextest** - Test runner (auto-installed by `make test` if missing, or `cargo install cargo-nextest --locked`)
 - **Blender** (optional) - For testing FBX conversion

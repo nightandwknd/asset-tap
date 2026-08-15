@@ -362,7 +362,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         egui::pos2(x, border_rect.top()),
                         egui::pos2(end_x, border_rect.top()),
                     ],
-                    egui::Stroke::new(2.0, stroke_color),
+                    egui::Stroke::new(2.0_f32, stroke_color),
                 );
                 x += dash_len + gap_len;
             }
@@ -376,7 +376,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         egui::pos2(x, border_rect.bottom()),
                         egui::pos2(end_x, border_rect.bottom()),
                     ],
-                    egui::Stroke::new(2.0, stroke_color),
+                    egui::Stroke::new(2.0_f32, stroke_color),
                 );
                 x += dash_len + gap_len;
             }
@@ -390,7 +390,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         egui::pos2(border_rect.left(), y),
                         egui::pos2(border_rect.left(), end_y),
                     ],
-                    egui::Stroke::new(2.0, stroke_color),
+                    egui::Stroke::new(2.0_f32, stroke_color),
                 );
                 y += dash_len + gap_len;
             }
@@ -404,7 +404,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         egui::pos2(border_rect.right(), y),
                         egui::pos2(border_rect.right(), end_y),
                     ],
-                    egui::Stroke::new(2.0, stroke_color),
+                    egui::Stroke::new(2.0_f32, stroke_color),
                 );
                 y += dash_len + gap_len;
             }
