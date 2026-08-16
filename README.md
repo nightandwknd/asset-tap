@@ -159,6 +159,11 @@ JSON events on stdout (all human logs go to stderr), ends with a single
 authoritative `result` event, and uses differentiated exit codes. The full
 contract is in [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md).
 
+**Driving asset-tap from an AI coding agent** (Claude Code, Cursor, Codex, …)?
+The CLI is built to be agent-legible — `--help`, `--machine-help`, `--list --json`,
+`auth list --json`, and stable exit codes are the whole interface. Start with
+[AGENTS.md](AGENTS.md).
+
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.
 
 ## Output
