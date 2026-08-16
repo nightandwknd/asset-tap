@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.9 — 2026-08-16
+
+### Features
+
+- agent-ergonomics pass — auth list --json, feature-gated --mock example, AGENTS.md ([#55](https://github.com/nightandwknd/asset-tap/pull/55)) _(cli)_
+
 ## v26.8.8 — 2026-08-16
 
 ### Chores
