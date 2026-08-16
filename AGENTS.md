@@ -57,8 +57,11 @@ Rules an agent should follow:
   short description into a well-formed prompt; `--inspect-template NAME`
   shows exactly what it will send.
 - **Idempotency**: each run creates a new timestamped bundle directory under
-  `-o` (or `--name` for a fixed name). Re-running with the same prompt does
-  not overwrite; check for an existing bundle first if you want to reuse.
+  `-o` (`YYYY-MM-DD_HHMMSS`, with `-1`, `-2`… suffixes on collision) — a run
+  never overwrites an earlier one, so re-running the same prompt costs a
+  second generation. Check for an existing bundle first if you want to
+  reuse. `--name` sets the bundle's `name` in `bundle.json` (needed later
+  for `--export-bundle`); it does not change the directory name.
 - **Long-running**: a generation takes tens of seconds to a few minutes.
   Stream the NDJSON rather than waiting silently; `progress` events include
   queue position, retries, and download bytes.

@@ -1400,45 +1400,36 @@ fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
         }
         AuthAction::List { json } => {
             let settings = Settings::load();
+            // One resolution for both renderings (spec §3): the JSON document
+            // and the human listing are views of the same collected catalog.
+            let doc = machine::AuthCatalog::collect(&registry, &settings);
             if json {
-                let doc = machine::AuthCatalog::collect(&registry, &settings);
                 println!("{}", serde_json::to_string(&doc)?);
                 return Ok(());
             }
             println!();
             println!("Provider API Keys");
             println!("{}", "=".repeat(60));
-
-            let providers = registry.list_all();
-            if providers.is_empty() {
+            if doc.providers.is_empty() {
                 println!("No providers registered.");
                 return Ok(());
             }
-
-            for provider in &providers {
-                let meta = provider.metadata();
-                let stored = settings
-                    .provider_api_keys
-                    .get(&meta.id)
-                    .filter(|k| !k.is_empty());
-                let env_hit = meta.required_env_vars.iter().find_map(|var| {
-                    std::env::var(var)
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .map(|_| var.clone())
-                });
-
-                let (status, source) = match (stored, env_hit.as_ref()) {
-                    (Some(_), _) => ("configured", "stored".to_string()),
-                    (None, Some(var)) => ("configured", format!("env: {}", var)),
-                    (None, None) => ("missing", "—".to_string()),
+            for p in &doc.providers {
+                let status = if p.configured {
+                    "configured"
+                } else {
+                    "missing"
                 };
-
-                println!("\n{} ({})", meta.name, meta.id);
-                println!("  Status: {}", status);
-                println!("  Source: {}", source);
-                if !meta.required_env_vars.is_empty() {
-                    println!("  Env var(s): {}", meta.required_env_vars.join(", "));
+                let source = match (p.source, &p.env_var) {
+                    (machine::KeySource::ENV, Some(var)) => format!("env: {var}"),
+                    (machine::KeySource::STORED, _) => "stored".to_string(),
+                    _ => "—".to_string(),
+                };
+                println!("\n{} ({})", p.name, p.id);
+                println!("  Status: {status}");
+                println!("  Source: {source}");
+                if !p.required_env_vars.is_empty() {
+                    println!("  Env var(s): {}", p.required_env_vars.join(", "));
                 }
             }
             println!();

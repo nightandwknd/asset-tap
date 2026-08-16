@@ -454,6 +454,58 @@ pub struct VersionDoc {
 // Catalog output (`--list-providers --json`, `--list --json`)
 // ---------------------------------------------------------------------------
 
+/// Where a provider's effective API key comes from. One resolution, used by
+/// both the human `auth list` and `auth list --json` (spec §3) — the two
+/// must never disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeySource {
+    /// Stored in settings (`asset-tap auth set`). Wins over env.
+    Stored,
+    /// Present in the named environment variable.
+    Env(String),
+    Missing,
+}
+
+impl KeySource {
+    pub const STORED: &'static str = "stored";
+    pub const ENV: &'static str = "env";
+    pub const MISSING: &'static str = "missing";
+
+    /// Wire string for the `source` field.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KeySource::Stored => Self::STORED,
+            KeySource::Env(_) => Self::ENV,
+            KeySource::Missing => Self::MISSING,
+        }
+    }
+
+    pub fn is_configured(&self) -> bool {
+        !matches!(self, KeySource::Missing)
+    }
+
+    /// Resolve for one provider: stored key first, then the first non-empty
+    /// required env var. Key *values* are never retained.
+    pub fn resolve(
+        provider_id: &str,
+        required_env_vars: &[String],
+        settings: &asset_tap_core::settings::Settings,
+    ) -> Self {
+        if settings
+            .provider_api_keys
+            .get(provider_id)
+            .is_some_and(|k| !k.is_empty())
+        {
+            return KeySource::Stored;
+        }
+        required_env_vars
+            .iter()
+            .find(|var| std::env::var(var).is_ok_and(|v| !v.is_empty()))
+            .map(|var| KeySource::Env(var.clone()))
+            .unwrap_or(KeySource::Missing)
+    }
+}
+
 /// `asset-tap auth list --json` (spec §3): which providers have an effective
 /// API key and where it comes from. Never carries key material.
 #[derive(Debug, Serialize)]
@@ -467,16 +519,38 @@ pub struct AuthCatalogProvider {
     pub id: String,
     pub name: String,
     pub configured: bool,
-    /// `stored` (settings) | `env` (see `env_var`) | `missing`.
+    /// `stored` | `env` (see `env_var`) | `missing` — `KeySource::as_str`.
     pub source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_var: Option<String>,
     pub required_env_vars: Vec<String>,
 }
 
+impl AuthCatalogProvider {
+    fn from_source(
+        id: String,
+        name: String,
+        required_env_vars: Vec<String>,
+        source: KeySource,
+    ) -> Self {
+        let env_var = match &source {
+            KeySource::Env(var) => Some(var.clone()),
+            _ => None,
+        };
+        AuthCatalogProvider {
+            id,
+            name,
+            configured: source.is_configured(),
+            source: source.as_str(),
+            env_var,
+            required_env_vars,
+        }
+    }
+}
+
 impl AuthCatalog {
     pub fn collect(
-        registry: &asset_tap_core::providers::ProviderRegistry,
+        registry: &ProviderRegistry,
         settings: &asset_tap_core::settings::Settings,
     ) -> Self {
         let providers = registry
@@ -484,30 +558,13 @@ impl AuthCatalog {
             .iter()
             .map(|p| {
                 let meta = p.metadata();
-                let stored = settings
-                    .provider_api_keys
-                    .get(&meta.id)
-                    .filter(|k| !k.is_empty())
-                    .is_some();
-                let env_hit = meta.required_env_vars.iter().find_map(|var| {
-                    std::env::var(var)
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .map(|_| var.clone())
-                });
-                let (source, env_var) = match (stored, env_hit) {
-                    (true, _) => ("stored", None),
-                    (false, Some(var)) => ("env", Some(var)),
-                    (false, None) => ("missing", None),
-                };
-                AuthCatalogProvider {
-                    id: meta.id.clone(),
-                    name: meta.name.clone(),
-                    configured: source != "missing",
+                let source = KeySource::resolve(&meta.id, &meta.required_env_vars, settings);
+                AuthCatalogProvider::from_source(
+                    meta.id.clone(),
+                    meta.name.clone(),
+                    meta.required_env_vars.clone(),
                     source,
-                    env_var,
-                    required_env_vars: meta.required_env_vars.clone(),
-                }
+                )
             })
             .collect();
         AuthCatalog {

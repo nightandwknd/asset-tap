@@ -721,14 +721,14 @@ fn auth_catalog_reports_source_without_key_material() {
     );
     let stored = doc.providers.iter().find(|p| p.id == stored_id).unwrap();
     assert!(stored.configured);
-    assert_eq!(stored.source, "stored");
+    assert_eq!(stored.source, machine::KeySource::STORED);
     assert!(stored.env_var.is_none());
     if let Some(id) = env_id {
         let p = doc.providers.iter().find(|p| p.id == id).unwrap();
         if p.required_env_vars.is_empty() {
-            assert_eq!(p.source, "missing");
+            assert_eq!(p.source, machine::KeySource::MISSING);
         } else {
-            assert_eq!(p.source, "env", "{p:?}");
+            assert_eq!(p.source, machine::KeySource::ENV, "{p:?}");
             assert_eq!(
                 p.env_var.as_deref(),
                 p.required_env_vars.first().map(String::as_str)
@@ -737,8 +737,11 @@ fn auth_catalog_reports_source_without_key_material() {
         }
     }
     for p in &doc.providers {
-        assert!(matches!(p.source, "stored" | "env" | "missing"));
-        assert_eq!(p.configured, p.source != "missing");
+        assert!(matches!(
+            p.source,
+            machine::KeySource::STORED | machine::KeySource::ENV | machine::KeySource::MISSING
+        ));
+        assert_eq!(p.configured, p.source != machine::KeySource::MISSING);
     }
 }
 
@@ -752,7 +755,7 @@ fn auth_catalog_fixture_matches_serialization() {
                 id: "fal.ai".into(),
                 name: "fal.ai".into(),
                 configured: true,
-                source: "stored",
+                source: machine::KeySource::STORED,
                 env_var: None,
                 required_env_vars: vec!["FAL_KEY".into()],
             },
@@ -760,7 +763,7 @@ fn auth_catalog_fixture_matches_serialization() {
                 id: "example".into(),
                 name: "Example Provider".into(),
                 configured: true,
-                source: "env",
+                source: machine::KeySource::ENV,
                 env_var: Some("EXAMPLE_KEY".into()),
                 required_env_vars: vec!["EXAMPLE_KEY".into()],
             },
@@ -768,7 +771,7 @@ fn auth_catalog_fixture_matches_serialization() {
                 id: "unconfigured".into(),
                 name: "Unconfigured".into(),
                 configured: false,
-                source: "missing",
+                source: machine::KeySource::MISSING,
                 env_var: None,
                 required_env_vars: vec!["UNCONFIGURED_KEY".into()],
             },
@@ -780,4 +783,44 @@ fn auth_catalog_fixture_matches_serialization() {
         ours, fixture,
         "auth_catalog.json fixture drifted from the serializer"
     );
+}
+
+#[test]
+fn key_source_resolution_precedence() {
+    use asset_tap_core::settings::Settings;
+    use machine::KeySource;
+    let _guard = asset_tap_core::test_support::env_lock();
+    let var = "ASSET_TAP_TEST_KEYSOURCE_VAR".to_string();
+    // SAFETY: serialized by env_lock().
+    unsafe { std::env::remove_var(&var) };
+    let mut settings = Settings::default();
+
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Missing
+    );
+    unsafe { std::env::set_var(&var, "x") };
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Env(var.clone())
+    );
+    // Stored beats env; an empty stored value counts as absent.
+    settings.provider_api_keys.insert("p".into(), String::new());
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Env(var.clone())
+    );
+    settings.provider_api_keys.insert("p".into(), "k".into());
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Stored
+    );
+    unsafe { std::env::remove_var(&var) };
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Stored
+    );
+    assert!(KeySource::Stored.is_configured());
+    assert!(!KeySource::Missing.is_configured());
+    assert_eq!(KeySource::Env(var).as_str(), KeySource::ENV);
 }
