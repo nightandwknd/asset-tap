@@ -1,0 +1,33 @@
+name: Setup Rust
+description: Install the toolchain pinned in rust-toolchain.toml
+
+inputs:
+  components:
+    description: Extra rustup components (comma-separated)
+    required: false
+    default: ''
+  targets:
+    description: Extra rustup targets (comma-separated)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      run: |
+        channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+        if [ -z "$channel" ]; then
+          echo "could not read toolchain.channel from rust-toolchain.toml" >&2
+          exit 1
+        fi
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+    # @master is required when the toolchain comes from an input rather than the
+    # action ref. The compiler version lives only in rust-toolchain.toml.
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.pin.outputs.channel }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
