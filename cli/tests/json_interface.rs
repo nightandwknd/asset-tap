@@ -645,3 +645,182 @@ fn parameter_serialization_omits_unset_optionals() {
     let v = serde_json::to_value(machine::parameter_wire(&def)).unwrap();
     assert_eq!(v["widget"], "input");
 }
+
+// ---------------------------------------------------------------------------
+// `auth list --json` (spec §3): preflight key status, never key material.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auth_catalog_reports_source_without_key_material() {
+    use asset_tap_core::providers::ProviderRegistry;
+    use asset_tap_core::settings::Settings;
+
+    let _guard = asset_tap_core::test_support::env_lock();
+    let registry = ProviderRegistry::new();
+
+    // A stored key wins over env; env is reported with its variable name;
+    // nothing configured is `missing`. Use a synthetic settings object so
+    // the test never touches the developer's real key store.
+    let mut settings = Settings::default();
+    let ids: Vec<String> = registry
+        .list_all()
+        .iter()
+        .map(|p| p.metadata().id.clone())
+        .collect();
+    assert!(!ids.is_empty(), "registry has providers");
+    let stored_id = ids[0].clone();
+    settings
+        .provider_api_keys
+        .insert(stored_id.clone(), "sk-super-secret-value".to_string());
+    // Clear every provider env var so `env` detection is deterministic.
+    let all_env: Vec<String> = registry
+        .list_all()
+        .iter()
+        .flat_map(|p| p.metadata().required_env_vars.clone())
+        .collect();
+    let saved: Vec<(String, Option<String>)> = all_env
+        .iter()
+        .map(|v| (v.clone(), std::env::var(v).ok()))
+        .collect();
+    for v in &all_env {
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::remove_var(v) };
+    }
+    // Give the second provider (if any) an env key.
+    let env_id = ids.get(1).cloned();
+    if let Some(id) = &env_id {
+        let var = registry
+            .list_all()
+            .iter()
+            .find(|p| &p.metadata().id == id)
+            .and_then(|p| p.metadata().required_env_vars.first().cloned());
+        if let Some(var) = var {
+            unsafe { std::env::set_var(&var, "env-secret-value") };
+        }
+    }
+
+    let doc = machine::AuthCatalog::collect(&registry, &settings);
+    let json = serde_json::to_string(&doc).unwrap();
+
+    // Restore env before asserting (so a failed assert doesn't leak state).
+    for (v, old) in saved {
+        match old {
+            Some(val) => unsafe { std::env::set_var(&v, val) },
+            None => unsafe { std::env::remove_var(&v) },
+        }
+    }
+
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        value["interface"].as_str(),
+        Some(machine::INTERFACE_VERSION)
+    );
+    assert!(
+        !json.contains("secret-value"),
+        "auth catalog must never carry key material: {json}"
+    );
+    let stored = doc.providers.iter().find(|p| p.id == stored_id).unwrap();
+    assert!(stored.configured);
+    assert_eq!(stored.source, machine::KeySource::STORED);
+    assert!(stored.env_var.is_none());
+    if let Some(id) = env_id {
+        let p = doc.providers.iter().find(|p| p.id == id).unwrap();
+        if p.required_env_vars.is_empty() {
+            assert_eq!(p.source, machine::KeySource::MISSING);
+        } else {
+            assert_eq!(p.source, machine::KeySource::ENV, "{p:?}");
+            assert_eq!(
+                p.env_var.as_deref(),
+                p.required_env_vars.first().map(String::as_str)
+            );
+            assert!(p.configured);
+        }
+    }
+    for p in &doc.providers {
+        assert!(matches!(
+            p.source,
+            machine::KeySource::STORED | machine::KeySource::ENV | machine::KeySource::MISSING
+        ));
+        assert_eq!(p.configured, p.source != machine::KeySource::MISSING);
+    }
+}
+
+#[test]
+fn auth_catalog_fixture_matches_serialization() {
+    use machine::{AuthCatalog, AuthCatalogProvider};
+    let doc = AuthCatalog {
+        interface: machine::INTERFACE_VERSION,
+        providers: vec![
+            AuthCatalogProvider {
+                id: "fal.ai".into(),
+                name: "fal.ai".into(),
+                configured: true,
+                source: machine::KeySource::STORED,
+                env_var: None,
+                required_env_vars: vec!["FAL_KEY".into()],
+            },
+            AuthCatalogProvider {
+                id: "example".into(),
+                name: "Example Provider".into(),
+                configured: true,
+                source: machine::KeySource::ENV,
+                env_var: Some("EXAMPLE_KEY".into()),
+                required_env_vars: vec!["EXAMPLE_KEY".into()],
+            },
+            AuthCatalogProvider {
+                id: "unconfigured".into(),
+                name: "Unconfigured".into(),
+                configured: false,
+                source: machine::KeySource::MISSING,
+                env_var: None,
+                required_env_vars: vec!["UNCONFIGURED_KEY".into()],
+            },
+        ],
+    };
+    let ours: Value = serde_json::to_value(&doc).unwrap();
+    let fixture: Value = serde_json::from_str(&read_fixture("auth_catalog.json")).unwrap();
+    assert_eq!(
+        ours, fixture,
+        "auth_catalog.json fixture drifted from the serializer"
+    );
+}
+
+#[test]
+fn key_source_resolution_precedence() {
+    use asset_tap_core::settings::Settings;
+    use machine::KeySource;
+    let _guard = asset_tap_core::test_support::env_lock();
+    let var = "ASSET_TAP_TEST_KEYSOURCE_VAR".to_string();
+    // SAFETY: serialized by env_lock().
+    unsafe { std::env::remove_var(&var) };
+    let mut settings = Settings::default();
+
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Missing
+    );
+    unsafe { std::env::set_var(&var, "x") };
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Env(var.clone())
+    );
+    // Stored beats env; an empty stored value counts as absent.
+    settings.provider_api_keys.insert("p".into(), String::new());
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Env(var.clone())
+    );
+    settings.provider_api_keys.insert("p".into(), "k".into());
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Stored
+    );
+    unsafe { std::env::remove_var(&var) };
+    assert_eq!(
+        KeySource::resolve("p", std::slice::from_ref(&var), &settings),
+        KeySource::Stored
+    );
+    assert!(KeySource::Stored.is_configured());
+    assert!(!KeySource::Missing.is_configured());
+    assert_eq!(KeySource::Env(var).as_str(), KeySource::ENV);
+}

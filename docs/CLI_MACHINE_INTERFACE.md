@@ -1,6 +1,6 @@
 # Asset Tap CLI Machine Interface — Spec v1
 
-Status: **implemented in asset-tap** (`--json`, interface version 1.0) · Last updated: 2026-07-11
+Status: **implemented in asset-tap** (`--json`, interface version 1.0) · Last updated: 2026-08-17
 Consumers: first-party editor integrations, and any future external tooling.
 
 Implementation: the wire format lives in [cli/src/machine.rs](../cli/src/machine.rs);
@@ -206,6 +206,52 @@ Exit codes apply in `--json` mode and (where feasible) in human mode, with one d
 - `configured` (bool): whether the provider's API key is present — lets a consumer build its form _and_ its preflight warnings from one call. Key material itself must never appear in output.
 - `asset-tap --list --json` additionally includes a `templates` array: `{id, name, description, category, variables: [{name, description, required}], examples}`.
 
+### `auth list --json` — key preflight
+
+`asset-tap auth list --json` emits a single JSON document (not NDJSON) telling
+a consumer which providers have an effective API key and where it comes from,
+so it can preflight a run (or prompt the user to `auth set`) without scraping
+the human listing:
+
+```json
+{
+  "interface": "1.0",
+  "providers": [
+    {
+      "id": "fal.ai",
+      "name": "fal.ai",
+      "configured": true,
+      "source": "stored",
+      "required_env_vars": ["FAL_KEY"]
+    },
+    {
+      "id": "example",
+      "name": "Example Provider",
+      "configured": true,
+      "source": "env",
+      "env_var": "EXAMPLE_KEY",
+      "required_env_vars": ["EXAMPLE_KEY"]
+    },
+    {
+      "id": "unconfigured",
+      "name": "Unconfigured",
+      "configured": false,
+      "source": "missing",
+      "required_env_vars": ["UNCONFIGURED_KEY"]
+    }
+  ]
+}
+```
+
+- `source`: `stored` (settings) | `env` (the variable named in `env_var`) |
+  `missing`. `configured` is `source != "missing"` — the same boolean the
+  provider catalog carries.
+- **Key material never appears** in this document (nor anywhere on stdout).
+- Added 2026-08-17 as a new document under interface `1.0`: a new command's
+  output doesn't change any existing document's shape, so consumers built
+  against 1.0 are unaffected. (Adding a field to an _existing_ document
+  would be a MINOR bump.)
+
 ## 4. Cancellation
 
 - On SIGINT/SIGTERM, the CLI should attempt graceful cancel (the core pipeline already has a cancel channel), emit `{"event":"result","status":"canceled",...}`, and exit 5. Best-effort cleanup of the partial bundle dir is desirable but not required — the `bundle.json`-last invariant covers consumers.
@@ -246,7 +292,11 @@ and exit codes — they can't read the repo. The binary must be self-describing:
   - `asset-tap --image ref.png --no-fbx` — image-to-3D, GLB only
   - `asset-tap "a crate" --json --no-fbx -o ./out` — programmatic use (parse NDJSON)
   - `asset-tap --list --json` — machine-readable model/template catalog
-  - `asset-tap "test" --mock --json` — zero-cost pipeline test
+  - `asset-tap auth list --json` — key preflight (§3)
+  - `asset-tap "test" --mock --json` — zero-cost pipeline test (**only in
+    builds with the `mock` feature** — release binaries don't have the flag,
+    and the example is compiled out with it so `--help` never advertises an
+    argument the binary rejects)
   - `echo $KEY | asset-tap auth set fal.ai` — key setup (or env var, e.g. `FAL_KEY`)
 - **Exit codes** summarized in `--json`'s long help (`--help`, not `-h`) and in the
   examples block footer: `0 ok · 2 usage · 3 auth · 4 provider · 5 canceled ·

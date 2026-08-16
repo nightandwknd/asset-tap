@@ -14,13 +14,14 @@ consumers in the same change.
 
 ## Files
 
-| File                        | What it exercises                                                               |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| `success.ndjson`            | A full successful run: `start` → progress across all stages → `result` success. |
-| `provider_error.ndjson`     | A non-retryable provider error (invalid API key) surfaced as a `result` error.  |
-| `rate_limited_retry.ndjson` | A `retrying` progress event (rate limit) followed by eventual success.          |
-| `canceled.ndjson`           | A run interrupted mid-3D-generation, ending in a `result` canceled.             |
-| `catalog.json`              | A representative `--list --json` document (single JSON object, not NDJSON).     |
+| File                        | What it exercises                                                                |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `success.ndjson`            | A full successful run: `start` → progress across all stages → `result` success.  |
+| `provider_error.ndjson`     | A non-retryable provider error (invalid API key) surfaced as a `result` error.   |
+| `rate_limited_retry.ndjson` | A `retrying` progress event (rate limit) followed by eventual success.           |
+| `canceled.ndjson`           | A run interrupted mid-3D-generation, ending in a `result` canceled.              |
+| `catalog.json`              | A representative `--list --json` document (single JSON object, not NDJSON).      |
+| `auth_catalog.json`         | A representative `auth list --json` document: `stored`/`env`/`missing`, no keys. |
 
 The `.ndjson` files are newline-delimited JSON: one event object per line.
 `catalog.json` is a single pretty-printed JSON document.

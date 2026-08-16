@@ -1,0 +1,33 @@
+{
+  "interface": "1.0",
+  "providers": [
+    {
+      "id": "fal.ai",
+      "name": "fal.ai",
+      "configured": true,
+      "source": "stored",
+      "required_env_vars": [
+        "FAL_KEY"
+      ]
+    },
+    {
+      "id": "example",
+      "name": "Example Provider",
+      "configured": true,
+      "source": "env",
+      "env_var": "EXAMPLE_KEY",
+      "required_env_vars": [
+        "EXAMPLE_KEY"
+      ]
+    },
+    {
+      "id": "unconfigured",
+      "name": "Unconfigured",
+      "configured": false,
+      "source": "missing",
+      "required_env_vars": [
+        "UNCONFIGURED_KEY"
+      ]
+    }
+  ]
+}

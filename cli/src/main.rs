@@ -28,31 +28,51 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use walkdir::WalkDir;
 
+#[cfg(feature = "mock")]
+macro_rules! mock_example {
+    () => {
+        "  asset-tap \"test\" --mock --json               zero-cost pipeline test (no API calls)\n"
+    };
+}
+#[cfg(not(feature = "mock"))]
+macro_rules! mock_example {
+    () => {
+        ""
+    };
+}
+
+/// Trailing help block (spec §7 Agent ergonomics). The `--mock` example is
+/// only shown in builds that have the flag: an agent reading release `--help`
+/// must never be pointed at an argument the binary rejects.
+const AFTER_HELP: &str = concat!(
+    "EXAMPLES:\n",
+    "  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation\n",
+    "  asset-tap --image ref.png --no-fbx           image-to-3D, GLB only (no Blender)\n",
+    "  asset-tap \"a crate\" --json --no-fbx -o ./out programmatic use: parse NDJSON events\n",
+    "  asset-tap --list --json                      machine-readable model/template catalog\n",
+    "  asset-tap auth list --json                   which providers have a key (preflight)\n",
+    mock_example!(),
+    "  echo $KEY | asset-tap auth set fal.ai        store a provider API key\n",
+    "  asset-tap demo download                      fetch the showcase demo bundle\n",
+    "\n",
+    "AUTHENTICATION:\n",
+    "  Provider keys resolve from stored settings first, then environment variables\n",
+    "  (e.g. FAL_KEY). `asset-tap auth list` shows each provider's effective source.\n",
+    "\n",
+    "EXIT CODES:\n",
+    "  0 ok · 1 other error · 2 usage · 3 auth/key · 4 provider · 5 canceled ·\n",
+    "  6 network/timeout · 7 local environment (Blender, filesystem)\n",
+    "\n",
+    "For the full machine interface (NDJSON events, result contract, catalog schema),\n",
+    "run: asset-tap --machine-help",
+);
+
 /// Asset Tap - Generate 3D models from text prompts
 #[derive(Parser)]
 #[command(name = "asset-tap")]
 #[command(about = "Asset Tap - AI-powered text-to-3D generation")]
 #[command(version)]
-#[command(after_help = "\
-EXAMPLES:
-  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation
-  asset-tap --image ref.png --no-fbx           image-to-3D, GLB only (no Blender)
-  asset-tap \"a crate\" --json --no-fbx -o ./out programmatic use: parse NDJSON events
-  asset-tap --list --json                      machine-readable model/template catalog
-  asset-tap \"test\" --mock --json               zero-cost pipeline test (no API calls)
-  echo $KEY | asset-tap auth set fal.ai        store a provider API key
-  asset-tap demo download                      fetch the showcase demo bundle
-
-AUTHENTICATION:
-  Provider keys resolve from stored settings first, then environment variables
-  (e.g. FAL_KEY). `asset-tap auth list` shows each provider's effective source.
-
-EXIT CODES:
-  0 ok · 1 other error · 2 usage · 3 auth/key · 4 provider · 5 canceled ·
-  6 network/timeout · 7 local environment (Blender, filesystem)
-
-For the full machine interface (NDJSON events, result contract, catalog schema),
-run: asset-tap --machine-help")]
+#[command(after_help = AFTER_HELP)]
 struct Cli {
     /// Text prompt describing what to create (interactive if not provided)
     prompt: Option<String>,
@@ -218,7 +238,12 @@ enum AuthAction {
         provider: String,
     },
     /// List providers and the source of their currently-effective API key.
-    List,
+    List {
+        /// Emit a single JSON document instead of human text (see --machine-help §3).
+        /// Key material is never included — only whether a key is present and where it comes from.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Print ASCII art banner
@@ -1373,42 +1398,38 @@ fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
             println!("🗑️  Removed stored API key for `{}`", provider_id);
             Ok(())
         }
-        AuthAction::List => {
+        AuthAction::List { json } => {
             let settings = Settings::load();
+            // One resolution for both renderings (spec §3): the JSON document
+            // and the human listing are views of the same collected catalog.
+            let doc = machine::AuthCatalog::collect(&registry, &settings);
+            if json {
+                println!("{}", serde_json::to_string(&doc)?);
+                return Ok(());
+            }
             println!();
             println!("Provider API Keys");
             println!("{}", "=".repeat(60));
-
-            let providers = registry.list_all();
-            if providers.is_empty() {
+            if doc.providers.is_empty() {
                 println!("No providers registered.");
                 return Ok(());
             }
-
-            for provider in &providers {
-                let meta = provider.metadata();
-                let stored = settings
-                    .provider_api_keys
-                    .get(&meta.id)
-                    .filter(|k| !k.is_empty());
-                let env_hit = meta.required_env_vars.iter().find_map(|var| {
-                    std::env::var(var)
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .map(|_| var.clone())
-                });
-
-                let (status, source) = match (stored, env_hit.as_ref()) {
-                    (Some(_), _) => ("configured", "stored".to_string()),
-                    (None, Some(var)) => ("configured", format!("env: {}", var)),
-                    (None, None) => ("missing", "—".to_string()),
+            for p in &doc.providers {
+                let status = if p.configured {
+                    "configured"
+                } else {
+                    "missing"
                 };
-
-                println!("\n{} ({})", meta.name, meta.id);
-                println!("  Status: {}", status);
-                println!("  Source: {}", source);
-                if !meta.required_env_vars.is_empty() {
-                    println!("  Env var(s): {}", meta.required_env_vars.join(", "));
+                let source = match (p.source, &p.env_var) {
+                    (machine::KeySource::ENV, Some(var)) => format!("env: {var}"),
+                    (machine::KeySource::STORED, _) => "stored".to_string(),
+                    _ => "—".to_string(),
+                };
+                println!("\n{} ({})", p.name, p.id);
+                println!("  Status: {status}");
+                println!("  Source: {source}");
+                if !p.required_env_vars.is_empty() {
+                    println!("  Env var(s): {}", p.required_env_vars.join(", "));
                 }
             }
             println!();
