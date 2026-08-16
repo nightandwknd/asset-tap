@@ -18,7 +18,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@1.94.1
+    - uses: ./.github/actions/setup-rust
       with:
         components: llvm-tools-preview
 

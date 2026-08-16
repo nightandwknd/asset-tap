@@ -38,7 +38,7 @@ fn latest_run_image(output_dir: &std::path::Path) -> Option<std::path::PathBuf> 
         })
         .collect();
     // Newest timestamp first.
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.0));
     candidates
         .into_iter()
         .map(|(_, dir)| dir.join(bundle_files::IMAGE))

@@ -47,7 +47,7 @@ runs:
   using: composite
   steps:
     # ── Toolchain & Cache ──────────────────────────────────────────────
-    - uses: dtolnay/rust-toolchain@1.94.1
+    - uses: ./.github/actions/setup-rust
     - uses: Swatinem/rust-cache@v2
       with:
         key: build-${{ inputs.platform }}
