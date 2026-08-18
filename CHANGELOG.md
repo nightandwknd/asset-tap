@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.10 — 2026-08-18
+
+### Features
+
+- `asset-tap mcp` — Model Context Protocol server over stdio, a thin front door over the CLI's own code paths ([#56](https://github.com/nightandwknd/asset-tap/pull/56)) _(cli)_
+
 ## v26.8.9 — 2026-08-16
 
 ### Features
