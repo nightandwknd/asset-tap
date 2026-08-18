@@ -24,6 +24,10 @@ asset-tap "a low-poly wooden treasure chest" --json --no-fbx -o ./assets/generat
 # 5. Read the result: bundle_dir/bundle.json describes everything produced
 ```
 
+`atap` is a short alias for `asset-tap` in release installs (symlink on
+macOS/Linux, `atap.cmd` on Windows) — same binary, same flags; use whichever
+is on `PATH`. This file says `asset-tap` for clarity.
+
 Rules an agent should follow:
 
 - **Always pass `--json`.** stdout is then NDJSON only (`start`, `progress`,

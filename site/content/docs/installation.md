@@ -32,6 +32,7 @@ The CLI is bundled inside the app. To use it from the terminal, create a symlink
 
 ```bash
 sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
+sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/atap   # optional short alias
 ```
 
 Verify it works:
@@ -46,7 +47,7 @@ If you only need the CLI without the GUI:
 
 ```bash
 tar -xzf asset-tap-cli-macos.tar.gz
-sudo mv asset-tap /usr/local/bin/
+sudo mv asset-tap atap /usr/local/bin/   # atap = short alias, shipped in the archive
 ```
 
 ## Windows
@@ -62,6 +63,8 @@ sudo mv asset-tap /usr/local/bin/
 Expand-Archive asset-tap-cli-windows.zip -DestinationPath .
 ```
 
+The zip contains `asset-tap.exe` and `atap.cmd` (a short alias); add the extracted folder to your `PATH` and both work.
+
 ## Linux
 
 **Debian/Ubuntu (.deb)**
@@ -72,7 +75,7 @@ The `.deb` package installs both the GUI and CLI.
 sudo dpkg -i asset-tap-linux-amd64.deb
 ```
 
-After installation, both `asset-tap-gui` and `asset-tap` are available system-wide.
+After installation, `asset-tap-gui`, `asset-tap`, and the `atap` alias are available system-wide.
 
 **AppImage (Universal)**
 
@@ -85,7 +88,7 @@ Note: The AppImage contains only the GUI. For the CLI, download the standalone a
 
 ```bash
 tar -xzf asset-tap-cli-linux.tar.gz
-sudo mv asset-tap /usr/local/bin/
+sudo mv asset-tap atap /usr/local/bin/   # atap = short alias, shipped in the archive
 ```
 
 ## Blender (Optional)
