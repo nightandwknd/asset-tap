@@ -557,6 +557,7 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 - `docs/guides/BUNDLE_STRUCTURE.md` - Output format reference
 - `docs/guides/PROVIDER_SCHEMA.md` - Complete YAML schema
 - `docs/CLI_MACHINE_INTERFACE.md` - `--json` wire-format contract for external tooling
+- `docs/MCP.md` - `asset-tap mcp`: the Model Context Protocol server (stdio) — a thin front door over the same code paths as `--json`; implemented in [cli/src/mcp.rs](cli/src/mcp.rs). `generate` builds an argv and runs the CLI's own parser + `run_generation` (with `RunSink::Embedded`: progress → MCP notifications, cancellation from the request, nothing on stdout — stdout is the transport). Tested end-to-end by `cli/tests/mcp_server.rs` (real client, real child process, mock mode).
 
 ## CLI Machine Interface (`--json`)
 

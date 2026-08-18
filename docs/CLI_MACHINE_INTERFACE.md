@@ -309,6 +309,17 @@ and exit codes — they can't read the repo. The binary must be self-describing:
 - Existing strengths to preserve: `--list --json` as the self-describing capability
   catalog, and per-flag one-line help with behavioral notes (e.g. "implies --yes").
 
+## 8. MCP server (same shapes, different transport)
+
+`asset-tap mcp` (see [MCP.md](MCP.md)) exposes this interface's documents as
+MCP tools: `list_catalog` returns the §3 catalog, `auth_status` the §3 auth
+document, and `generate` returns the §1 `result` fields (`bundle_dir`,
+`duration_ms`; on error `kind`/`message`/`action`/`retryable`) as structured
+tool content, with §1 `progress` mapped to MCP progress notifications. It is
+implemented over the same code paths, so it follows this spec's versioning:
+a change here is a change there. No separate contract document exists on
+purpose.
+
 ## Implementation notes (non-normative)
 
 - Core's `Progress` enum currently derives only `Debug, Clone` — it is **not** serializable today. Recommended approach: define dedicated event structs in the CLI crate that map from `Progress`/`Stage`/`ApiErrorKind`, rather than deriving serde on core types. That keeps this wire format decoupled from core internals, which is the point of the spec.
