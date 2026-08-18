@@ -162,7 +162,8 @@ contract is in [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md).
 **Driving asset-tap from an AI coding agent** (Claude Code, Cursor, Codex, …)?
 The CLI is built to be agent-legible — `--help`, `--machine-help`, `--list --json`,
 `auth list --json`, and stable exit codes are the whole interface. Start with
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md). Hosts without a shell (Claude Desktop, Cursor) can add
+`asset-tap mcp` as an MCP server — see [docs/MCP.md](docs/MCP.md).
 
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.
 

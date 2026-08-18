@@ -74,6 +74,16 @@ accept `--mock`; **release binaries do not have this flag**, and their
 `--help` won't show it. Use `--list --json` and `auth list --json` as your
 no-cost calls against a release binary.
 
+## No shell? Use the MCP server
+
+Hosts without a shell (Claude Desktop, Cursor, IDE agents) can add
+`asset-tap mcp` as an MCP server — `claude mcp add asset-tap -- asset-tap mcp`
+or a `{"command": "asset-tap", "args": ["mcp"]}` entry. Its tools
+(`list_catalog`, `auth_status`, `inspect_bundle`, `generate`) return the same
+documents as `--list --json`, `auth list --json`, and the `--json` result;
+`generate` streams progress as MCP notifications. Details:
+[docs/MCP.md](docs/MCP.md). If you _do_ have a shell, prefer the CLI above.
+
 ## Working on this repository (contributor agents)
 
 - Start with [CLAUDE.md](CLAUDE.md) (architecture, commands, invariants) and

@@ -41,6 +41,8 @@ macro_rules! mock_example {
     };
 }
 
+mod mcp;
+
 /// Trailing help block (spec §7 Agent ergonomics). The `--mock` example is
 /// only shown in builds that have the flag: an agent reading release `--help`
 /// must never be pointed at an argument the binary rejects.
@@ -204,6 +206,11 @@ enum Command {
         #[command(subcommand)]
         action: DemoAction,
     },
+    /// Serve the Model Context Protocol over stdio (for agent hosts without a
+    /// shell: Claude Desktop, Cursor, IDEs). Same internals as the CLI: the
+    /// tools are `list_catalog`, `auth_status`, `inspect_bundle`, `generate`.
+    /// Add with e.g. `claude mcp add asset-tap -- asset-tap mcp`.
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -350,9 +357,19 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // still captures INFO for debugging.
     let quiet_console = matches!(
         cli.command,
-        Some(Command::Auth { .. }) | Some(Command::Demo { .. })
+        Some(Command::Auth { .. }) | Some(Command::Demo { .. }) | Some(Command::Mcp)
     );
     let _guard = asset_tap_core::error_log::init_tracing(quiet_console);
+
+    // MCP server: stdout is the JSON-RPC transport from here on — nothing else
+    // in this process may print to it (tracing already goes to stderr).
+    if let Some(Command::Mcp) = cli.command {
+        if cli.json {
+            eprintln!("error: '--json' cannot be used with the 'mcp' subcommand");
+            return Ok(ExitCode::from(machine::EXIT_USAGE));
+        }
+        return mcp::serve_stdio().await.map(|_| ExitCode::SUCCESS);
+    }
 
     // Handle subcommands before any banner/pipeline setup. Auth commands
     // mutate settings.json directly and don't need the generation pipeline.
@@ -498,11 +515,8 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     if cli.json {
         // --json is non-interactive: a prompt (or --image) must come from the
         // args. This is a usage error, so it exits 2 before the start event.
-        if cli.prompt.is_none() && cli.image.is_none() {
-            eprintln!(
-                "error: '--json' requires a prompt argument or '--image' \
-                 (interactive prompting is disabled)"
-            );
+        if let Err(msg) = non_interactive_input_check(&cli) {
+            eprintln!("error: {msg}");
             return Ok(ExitCode::from(machine::EXIT_USAGE));
         }
 
@@ -510,7 +524,16 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         let run_started = std::time::Instant::now();
         let mut last_stage = None;
         return Ok(
-            match run_generation(&cli, &settings, &registry, params, &mut last_stage).await {
+            match run_generation(
+                &cli,
+                &settings,
+                &registry,
+                params,
+                &mut last_stage,
+                RunSink::Cli,
+            )
+            .await
+            {
                 Ok(output) => {
                     // bundle_dir is contractually absolute — refuse to emit a
                     // relative or missing path rather than silently violating
@@ -554,7 +577,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         );
     }
 
-    run_generation(&cli, &settings, &registry, params, &mut None).await?;
+    run_generation(&cli, &settings, &registry, params, &mut None, RunSink::Cli).await?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -563,13 +586,42 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
 ///
 /// `last_stage` is updated as stages start so callers can attach stage
 /// context to error/cancel results.
+/// Non-interactive runs (`--json`, and embedded hosts) can't prompt for input:
+/// a prompt or `--image` must come from the arguments. Shared by the CLI's
+/// `--json` path and the MCP server so both report the same usage error.
+pub(crate) fn non_interactive_input_check(cli: &Cli) -> Result<(), &'static str> {
+    if cli.prompt.is_none() && cli.image.is_none() {
+        return Err(
+            "'--json' requires a prompt argument or '--image' (interactive prompting is disabled)",
+        );
+    }
+    Ok(())
+}
+
+/// Where a run's progress goes and who can cancel it.
+///
+/// `Cli` is the interactive/`--json` binary path (stdout events or human
+/// lines, SIGINT cancels). `Embedded` is for in-process hosts — the MCP
+/// server — where stdout belongs to a transport: progress is handed to a
+/// callback (the CLI's `--json` semantics apply: fully non-interactive, no
+/// approvals, no summary) and cancellation comes from a token, never a signal.
+pub(crate) enum RunSink<'a> {
+    Cli,
+    Embedded {
+        on_progress: &'a mut (dyn FnMut(&asset_tap_core::types::Progress) + Send),
+        cancel: tokio_util::sync::CancellationToken,
+    },
+}
+
 async fn run_generation(
     cli: &Cli,
     settings: &asset_tap_core::settings::Settings,
     registry: &ProviderRegistry,
     params: ParamOverrides,
     last_stage: &mut Option<asset_tap_core::types::Stage>,
+    mut sink: RunSink<'_>,
 ) -> anyhow::Result<asset_tap_core::PipelineOutput> {
+    let embedded = matches!(sink, RunSink::Embedded { .. });
     // Validate API keys before prompting the user for input — otherwise the user
     // types a prompt only to hit a missing-key error with no actionable hint.
     validate_api_keys(settings, registry)?;
@@ -592,7 +644,11 @@ async fn run_generation(
     // Enable approval if: --approve flag OR settings require it (but not in
     // auto-confirm mode, not in image-only mode where there's no 3D stage to
     // approve continuing to, and never under --json which implies --yes).
-    if (cli.approve || settings.require_image_approval) && !cli.yes && !cli.image_only && !cli.json
+    if (cli.approve || settings.require_image_approval)
+        && !cli.yes
+        && !cli.image_only
+        && !cli.json
+        && !embedded
     {
         config = config.with_image_approval();
     }
@@ -606,23 +662,38 @@ async fn run_generation(
     // --json; conventional 130 (128+SIGINT) for interactive users so wrappers
     // detecting signal interruption keep working.
     let cancel_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let force_exit_code = if cli.json {
-        machine::EXIT_CANCELED
-    } else {
-        machine::EXIT_SIGINT_HUMAN
-    };
-    {
-        let cancel_requested = cancel_requested.clone();
-        tokio::spawn(async move {
-            wait_for_shutdown_signal().await;
-            cancel_requested.store(true, std::sync::atomic::Ordering::SeqCst);
-            let _ = cancel_tx.send(());
-            wait_for_shutdown_signal().await;
-            // Force-quit skips destructors — flush stdout so already-emitted
-            // lines (NDJSON events, human summaries) aren't lost.
-            let _ = std::io::Write::flush(&mut std::io::stdout());
-            std::process::exit(force_exit_code as i32);
-        });
+    match &sink {
+        RunSink::Embedded { cancel, .. } => {
+            // Embedded: the host's cancellation token drives the pipeline's
+            // cancel channel; the process must NOT install signal handlers or
+            // exit — it's serving other requests.
+            let cancel = cancel.clone();
+            let cancel_requested = cancel_requested.clone();
+            let cancel_tx = cancel_tx.clone();
+            tokio::spawn(async move {
+                cancel.cancelled().await;
+                cancel_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = cancel_tx.send(());
+            });
+        }
+        RunSink::Cli => {
+            let force_exit_code = if cli.json {
+                machine::EXIT_CANCELED
+            } else {
+                machine::EXIT_SIGINT_HUMAN
+            };
+            let cancel_requested = cancel_requested.clone();
+            tokio::spawn(async move {
+                wait_for_shutdown_signal().await;
+                cancel_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = cancel_tx.send(());
+                wait_for_shutdown_signal().await;
+                // Force-quit skips destructors — flush stdout so already-emitted
+                // lines (NDJSON events, human summaries) aren't lost.
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                std::process::exit(force_exit_code as i32);
+            });
+        }
     }
 
     // Process progress updates
@@ -642,7 +713,9 @@ async fn run_generation(
             }
             _ => {}
         }
-        if cli.json {
+        if let RunSink::Embedded { on_progress, .. } = &mut sink {
+            on_progress(&progress);
+        } else if cli.json {
             if let Some(event) = machine::progress_event(&progress) {
                 machine::emit(&event);
             }
@@ -685,8 +758,9 @@ async fn run_generation(
         }
     }
 
-    // Print summary (human mode only — --json reports via the result event)
-    if !cli.json {
+    // Print summary (human mode only — --json reports via the result event,
+    // embedded hosts via the tool result)
+    if !cli.json && !embedded {
         print_summary(&output);
     }
 
