@@ -34,14 +34,16 @@ The CLI is bundled inside the app. To use it from the terminal:
 
 ```bash
 sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
+sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/atap   # optional short alias
 ```
 
-Or download the standalone CLI:
+Or download the standalone CLI (the archive also carries **`atap`**, a short
+alias for `asset-tap` — move both):
 
 ```bash
 curl -LO https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-macos.tar.gz
 tar -xzf asset-tap-cli-macos.tar.gz
-sudo mv asset-tap /usr/local/bin/
+sudo mv asset-tap atap /usr/local/bin/
 ```
 
 ### Windows
@@ -51,6 +53,7 @@ sudo mv asset-tap /usr/local/bin/
 3. Launch from the Start Menu
 
 Or download the standalone CLI: [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip)
+(contains `asset-tap.exe` and `atap.cmd`, a short alias — add the extracted folder to your `PATH` and both work).
 
 ### Linux
 
@@ -61,6 +64,8 @@ curl -LO https://github.com/nightandwknd/asset-tap/releases/latest/download/asse
 sudo dpkg -i asset-tap-linux-amd64.deb
 ```
 
+Installs `asset-tap-gui`, `asset-tap`, and the `atap` alias system-wide.
+
 **AppImage (Universal)**
 
 ```bash
@@ -70,6 +75,7 @@ chmod +x asset-tap-linux-x86_64.AppImage
 ```
 
 Or download the standalone CLI: [asset-tap-cli-linux.tar.gz](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-linux.tar.gz)
+(carries the `atap` alias too: `tar -xzf … && sudo mv asset-tap atap /usr/local/bin/`).
 
 ### Build from Source
 
@@ -118,6 +124,11 @@ Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. O
 - **Real-time Progress** - Watch generation stages in real-time
 
 ## CLI Usage
+
+Release archives also install **`atap`**, a short alias for `asset-tap` (a
+symlink on macOS/Linux, `atap.cmd` on Windows). Everything below works with
+either name; `asset-tap` is the canonical one. Source builds don't ship the
+alias — add your own (`alias atap=asset-tap`).
 
 For automation and scripting:
 
