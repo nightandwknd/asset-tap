@@ -48,3 +48,4 @@ test_results/
 
 # Zola site build output
 site/public/
+site/.bin/

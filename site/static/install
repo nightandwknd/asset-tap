@@ -7,7 +7,7 @@
 #
 #   curl -fsSL https://assettap.dev/install | bash -s -- v26.8.12
 #
-# Installs `asset-tap` and the `atap` alias into ~/.local/bin (no sudo).
+# Installs `asset-tap` and the `atap` alias into ~/.local/bin.
 # Override the destination with ASSET_TAP_INSTALL_DIR:
 #
 #   curl -fsSL https://assettap.dev/install | ASSET_TAP_INSTALL_DIR=/usr/local/bin bash

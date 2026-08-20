@@ -9,7 +9,7 @@ binary itself — `asset-tap --help`, `asset-tap --machine-help`, and
 ## Using the CLI (the 60-second version)
 
 ```bash
-# 0. Not installed? One line, no sudo (installs to ~/.local/bin, checksum-verified)
+# 0. Not installed? One line (installs to ~/.local/bin, checksum-verified)
 curl -fsSL https://assettap.dev/install | bash
 
 # 1. Preflight: which providers have a key? (JSON, never prints keys)
