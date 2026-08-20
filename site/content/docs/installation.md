@@ -12,7 +12,25 @@ images = []
 tags = ["guide"]
 +++
 
-First, grab the right package for your platform from the [Downloads](https://assettap.dev/download/) page.
+## CLI — one line (macOS / Linux)
+
+```bash
+curl -fsSL https://assettap.dev/install | bash
+```
+
+No sudo: this installs `asset-tap` and the `atap` alias to `~/.local/bin` and verifies the download against the release's `SHA256SUMS` before installing. Options:
+
+```bash
+# pin a specific release
+curl -fsSL https://assettap.dev/install | bash -s -- v26.8.12
+
+# install somewhere else
+curl -fsSL https://assettap.dev/install | ASSET_TAP_INSTALL_DIR=/usr/local/bin bash
+```
+
+Prefer to see what you're running first? The script lives at [assettap.dev/install](https://assettap.dev/install) — read it, then run it. Every command it performs can also be done by hand from the [Downloads](https://assettap.dev/download/) page.
+
+For the **desktop app** (or the Windows CLI), grab the right package for your platform from the [Downloads](https://assettap.dev/download/) page and follow your platform's section below.
 
 ## macOS
 

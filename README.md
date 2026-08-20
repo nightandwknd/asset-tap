@@ -15,7 +15,24 @@
 
 Text prompt → AI image → 3D model → FBX export
 
-## Download & Install
+## Install
+
+### CLI — one line (macOS / Linux)
+
+```bash
+curl -fsSL https://assettap.dev/install | bash
+```
+
+No sudo: installs `asset-tap` and the `atap` alias to `~/.local/bin`, checksum-verified against the release's `SHA256SUMS`. Pin a version with `... | bash -s -- v26.8.12`; change the destination with `ASSET_TAP_INSTALL_DIR=/some/bin`. Windows CLI: [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip).
+
+Then:
+
+```bash
+asset-tap auth set fal.ai        # or: asset-tap auth set meshy
+asset-tap "a stylized sci-fi crate"
+```
+
+### Desktop app & platform installers
 
 Download the latest release for your platform from [GitHub Releases](https://github.com/nightandwknd/asset-tap/releases/latest).
 

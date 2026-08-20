@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Asset Tap CLI installer — https://assettap.dev/install
+#
+#   curl -fsSL https://assettap.dev/install | bash
+#
+# Pin a version (any release tag):
+#
+#   curl -fsSL https://assettap.dev/install | bash -s -- v26.8.12
+#
+# Installs `asset-tap` and the `atap` alias into ~/.local/bin (no sudo).
+# Override the destination with ASSET_TAP_INSTALL_DIR:
+#
+#   curl -fsSL https://assettap.dev/install | ASSET_TAP_INSTALL_DIR=/usr/local/bin bash
+#
+# What it does, in order: detect OS/arch → download the CLI archive for the
+# requested release from GitHub Releases → verify it against the release's
+# SHA256SUMS → extract → move `asset-tap` + `atap` into the install dir →
+# print next steps. Everything happens in a temp dir that is cleaned up on
+# exit. The GUI apps (DMG / Windows installer / .deb / AppImage) are separate
+# downloads: https://github.com/nightandwknd/asset-tap/releases/latest
+set -euo pipefail
+
+REPO="nightandwknd/asset-tap"
+
+info() { printf '  \033[32m%s\033[0m %s\n' "${2:-•}" "$1"; }
+fail() {
+    printf '  \033[31mx\033[0m %s\n' "$1" >&2
+    exit 1
+}
+
+main() {
+    local tag="${1:-latest}"
+    local install_dir="${ASSET_TAP_INSTALL_DIR:-$HOME/.local/bin}"
+
+    # ── Platform detection ────────────────────────────────────────────
+    local platform asset
+    platform="$(uname -ms)"
+    case "$platform" in
+        Darwin\ arm64 | Darwin\ x86_64)
+            # One universal binary covers Apple Silicon and Intel.
+            asset="asset-tap-cli-macos.tar.gz"
+            ;;
+        Linux\ x86_64)
+            asset="asset-tap-cli-linux.tar.gz"
+            ;;
+        Linux\ aarch64 | Linux\ arm64)
+            fail "no prebuilt CLI for Linux arm64 yet — build from source: https://github.com/$REPO#building-from-source"
+            ;;
+        MINGW* | MSYS* | CYGWIN* | Windows*)
+            fail "this installer is for macOS/Linux — on Windows, use the zip: https://github.com/$REPO/releases/latest/download/asset-tap-cli-windows.zip"
+            ;;
+        *)
+            fail "unsupported platform: $platform — downloads: https://github.com/$REPO/releases/latest"
+            ;;
+    esac
+
+    for tool in curl tar; do
+        command -v "$tool" >/dev/null 2>&1 || fail "$tool is required but not found"
+    done
+
+    # `releases/latest/download/...` redirects without touching the GitHub
+    # API, so this works in CI and behind rate limits.
+    local base
+    if [ "$tag" = "latest" ]; then
+        base="https://github.com/$REPO/releases/latest/download"
+    else
+        base="https://github.com/$REPO/releases/download/$tag"
+    fi
+
+    local tmp
+    tmp="$(mktemp -d)"
+    # Expand $tmp now: 'local' vars are out of scope when the EXIT trap runs.
+    # shellcheck disable=SC2064
+    trap "rm -rf -- '$tmp'" EXIT
+
+    # ── Download + verify ─────────────────────────────────────────────
+    info "downloading $asset ($tag)"
+    curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp/$asset" "$base/$asset" ||
+        fail "download failed: $base/$asset (does the release exist?)"
+    curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp/SHA256SUMS.txt" "$base/SHA256SUMS.txt" ||
+        fail "checksum manifest download failed"
+
+    local sha_tool
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha_tool="sha256sum"
+    elif command -v shasum >/dev/null 2>&1; then
+        sha_tool="shasum -a 256"
+    else
+        fail "sha256sum or shasum is required to verify the download"
+    fi
+    (cd "$tmp" && grep " $asset\$" SHA256SUMS.txt | $sha_tool -c - >/dev/null 2>&1) ||
+        fail "checksum verification FAILED for $asset — refusing to install"
+    info "checksum verified"
+
+    # ── Install ───────────────────────────────────────────────────────
+    tar -xzf "$tmp/$asset" -C "$tmp"
+    mkdir -p "$install_dir" || fail "cannot create $install_dir"
+    [ -w "$install_dir" ] || fail "$install_dir is not writable — set ASSET_TAP_INSTALL_DIR to a directory you own"
+
+    # Remove-then-move: overwriting a running/signed binary in place can get
+    # the new file killed by macOS's signature cache.
+    rm -f "$install_dir/asset-tap" "$install_dir/atap"
+    mv "$tmp/asset-tap" "$tmp/atap" "$install_dir/"
+
+    local version
+    version="$("$install_dir/asset-tap" --version 2>/dev/null)" ||
+        fail "installed binary failed to run — please report: https://github.com/$REPO/issues"
+    info "installed $version → $install_dir (asset-tap + atap)"
+
+    # ── PATH hint (printed, never auto-edited) ────────────────────────
+    case ":$PATH:" in
+        *":$install_dir:"*) ;;
+        *)
+            printf '\n  %s is not on your PATH. Add it:\n\n' "$install_dir"
+            printf '    export PATH="%s:$PATH"\n\n' "$install_dir"
+            printf '  (put that line in ~/.zshrc or ~/.bashrc to make it permanent)\n'
+            ;;
+    esac
+
+    printf '\n  Next: store a provider key and generate your first asset\n\n'
+    printf '    asset-tap auth set fal.ai      # or: asset-tap auth set meshy\n'
+    printf '    asset-tap "a stylized sci-fi crate"\n\n'
+    printf '  Docs: https://assettap.dev/docs/getting-started/\n'
+}
+
+main "$@"
