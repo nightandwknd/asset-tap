@@ -432,6 +432,14 @@ run_test "Empty string prompt (should fail)" \
 run_test "Whitespace-only prompt (should fail)" \
     "$CLI --mock '   '" 4
 
+# FBX is opt-in (GLB-only default). --no-fbx is a deprecated no-op kept for
+# back-compat; combining it with --fbx is a contradiction clap rejects.
+run_test "FBX: --fbx and --no-fbx conflict (usage error)" \
+    "$CLI --mock -y --fbx --no-fbx 'test'" 2
+
+run_test "FBX: deprecated --no-fbx still accepted (no-op)" \
+    "$CLI --mock -y --no-fbx --image-only 'test'" 0
+
 # Regression guard: when no API key is configured, the CLI must fail BEFORE
 # prompting for a text prompt (it used to read stdin first, then emit a terse
 # "No providers available" error after the user had already typed).

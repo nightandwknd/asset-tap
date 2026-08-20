@@ -19,7 +19,7 @@ export FAL_KEY=...              # or: echo "$KEY" | asset-tap auth set fal.ai
 asset-tap --list --json
 
 # 4. Generate — NDJSON events on stdout, one `result` at the end
-asset-tap "a low-poly wooden treasure chest" --json --no-fbx -o ./assets/generated
+asset-tap "a low-poly wooden treasure chest" --json -o ./assets/generated
 
 # 5. Read the result: bundle_dir/bundle.json describes everything produced
 ```
@@ -48,7 +48,7 @@ Rules an agent should follow:
   stats, file list), the image, `model.glb`, optional `model.fbx`, and
   textures. `bundle.json` is written **last**, so a directory containing it
   is complete. Schema: [docs/guides/BUNDLE_STRUCTURE.md](docs/guides/BUNDLE_STRUCTURE.md).
-- **Prefer `--no-fbx` unless FBX is needed** — FBX conversion requires
+- **GLB-only is the default; pass `--fbx` only when FBX is needed** — FBX conversion requires
   Blender on the machine (exit 7 if missing). GLB is enough for three.js,
   Godot, Bevy, and most web/engine targets.
 - **Two-step pipeline, both steps optional**: text → image

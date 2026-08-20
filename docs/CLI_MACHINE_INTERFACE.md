@@ -289,8 +289,8 @@ and exit codes — they can't read the repo. The binary must be self-describing:
   probe for a conventional "describe yourself" flag.
 - **Examples block** in the main `--help` (clap `after_help`), covering at least:
   - `asset-tap "a stylized sci-fi crate"` — basic generation
-  - `asset-tap --image ref.png --no-fbx` — image-to-3D, GLB only
-  - `asset-tap "a crate" --json --no-fbx -o ./out` — programmatic use (parse NDJSON)
+  - `asset-tap --image ref.png` — image-to-3D (GLB by default)
+  - `asset-tap "a crate" --json -o ./out` — programmatic use (parse NDJSON)
   - `asset-tap --list --json` — machine-readable model/template catalog
   - `asset-tap auth list --json` — key preflight (§3)
   - `asset-tap "test" --mock --json` — zero-cost pipeline test (**only in

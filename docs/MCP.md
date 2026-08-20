@@ -37,12 +37,12 @@ doesn't inherit your shell's.
 
 ## Tools
 
-| Tool             | Arguments                                                                                                                                                | Backed by                               | Returns                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `list_catalog`   | —                                                                                                                                                        | `asset-tap --list --json`               | providers, models + parameter schemas, templates                                                 |
-| `auth_status`    | —                                                                                                                                                        | `asset-tap auth list --json`            | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` — never key material |
-| `inspect_bundle` | `bundle_dir`                                                                                                                                             | reads `bundle.json`                     | `{bundle_dir, files[], bundle}`                                                                  |
-| `generate`       | `prompt` or `image`; optional `template`, `provider`, `image_model`, `model_3d`, `params{}`, `no_fbx` (default true), `image_only`, `output_dir`, `name` | the generation run, exactly as `--json` | `{status: "success", bundle_dir, duration_ms, bundle}`                                           |
+| Tool             | Arguments                                                                                                                                              | Backed by                               | Returns                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `list_catalog`   | —                                                                                                                                                      | `asset-tap --list --json`               | providers, models + parameter schemas, templates                                                 |
+| `auth_status`    | —                                                                                                                                                      | `asset-tap auth list --json`            | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` — never key material |
+| `inspect_bundle` | `bundle_dir`                                                                                                                                           | reads `bundle.json`                     | `{bundle_dir, files[], bundle}`                                                                  |
+| `generate`       | `prompt` or `image`; optional `template`, `provider`, `image_model`, `model_3d`, `params{}`, `fbx` (default false), `image_only`, `output_dir`, `name` | the generation run, exactly as `--json` | `{status: "success", bundle_dir, duration_ms, bundle}`                                           |
 
 Every tool returns **structured content** (JSON) plus the same JSON as text, so
 hosts that read either work.
@@ -68,8 +68,10 @@ hosts that read either work.
   in flight. `kind: "usage"` for argument problems, `"canceled"` on
   cancellation. Retry only when `retryable` is true; on `unauthorized`, ask
   the human for a key instead of looping.
-- `no_fbx` defaults to **true**: FBX conversion needs Blender; GLB is enough
-  for three.js, Godot, Bevy, and most engines. Pass `no_fbx: false` to get FBX.
+- `fbx` defaults to **false**: FBX conversion needs Blender; GLB is enough
+  for three.js, Godot, Bevy, and most engines. Pass `fbx: true` to get FBX.
+  (Older clients passing `no_fbx: false` still opt in — the field is
+  deprecated but honored.)
 - Prefer a fresh `output_dir` per project; runs never overwrite (timestamped
   bundle directories). `name` sets `bundle.json`'s `name`, not the directory.
 

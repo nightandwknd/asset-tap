@@ -48,8 +48,9 @@ pub const INSTRUCTIONS: &str = "asset-tap generates game assets (image and 3D mo
     a reference image, on your own provider keys. Typical flow: `auth_status` (do I have a key?) → \
     `list_catalog` (models, templates, parameters) → `generate` (returns the bundle directory) → \
     `inspect_bundle` (what's in it). A generation takes tens of seconds to minutes; progress is \
-    reported via MCP progress notifications. Prefer `no_fbx: true` unless FBX is required (needs \
-    Blender). Errors carry `kind`, `retryable`, and an `action` — retry only when retryable.";
+    reported via MCP progress notifications. Output is GLB; pass `fbx: true` only when FBX is \
+    required (needs Blender). Errors carry `kind`, `retryable`, and an `action` — retry only when \
+    retryable.";
 
 /// The server is stateless; registry + settings are (re)loaded per call.
 /// Provider keys are pushed into the process environment ONCE, at startup
@@ -87,7 +88,11 @@ pub struct GenerateArgs {
     /// Only parameters of the models that will actually run are accepted.
     #[serde(default)]
     pub params: Option<std::collections::BTreeMap<String, Value>>,
-    /// Skip FBX conversion (GLB only; FBX requires Blender). Default true.
+    /// Also convert the model to FBX (requires Blender). Default false — GLB only.
+    #[serde(default)]
+    pub fbx: bool,
+    /// Deprecated: GLB-only is the default. Kept for older clients — passing
+    /// `no_fbx: false` still opts in to FBX, same as `fbx: true`.
     #[serde(default = "default_true")]
     pub no_fbx: bool,
     /// Stop after image generation: an image-only bundle, no 3D model.
@@ -145,8 +150,11 @@ impl GenerateArgs {
             argv.push("--name".into());
             argv.push(n.clone());
         }
-        if self.no_fbx {
-            argv.push("--no-fbx".into());
+        // FBX is opt-in. Old clients opted in by passing `no_fbx: false`;
+        // honor both spellings. `--no-fbx` is never emitted — GLB-only is
+        // the CLI default now.
+        if self.fbx || !self.no_fbx {
+            argv.push("--fbx".into());
         }
         if self.image_only {
             argv.push("--image-only".into());
