@@ -162,12 +162,21 @@ fn test_pipeline_config_builder() {
     assert_eq!(config.image_model, Some("fal-ai/nano-banana".to_string()));
     assert_eq!(config.model_3d, "fal-ai/trellis-2");
     assert_eq!(config.output_dir, Some(PathBuf::from("/tmp/test")));
-    assert!(config.export_fbx, "FBX export should be enabled by default");
+    assert!(
+        !config.export_fbx,
+        "FBX export is opt-in (requires Blender) — off by default on every surface"
+    );
+}
+
+#[test]
+fn test_pipeline_config_fbx_opt_in() {
+    let config = PipelineConfig::new().with_fbx();
+    assert!(config.export_fbx, "with_fbx() should enable FBX export");
 }
 
 #[test]
 fn test_pipeline_config_without_fbx() {
-    let config = PipelineConfig::new().without_fbx();
+    let config = PipelineConfig::new().with_fbx().without_fbx();
     assert!(!config.export_fbx, "FBX export should be disabled");
 }
 

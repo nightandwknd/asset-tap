@@ -48,9 +48,10 @@ mod mcp;
 /// must never be pointed at an argument the binary rejects.
 const AFTER_HELP: &str = concat!(
     "EXAMPLES:\n",
-    "  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation\n",
-    "  asset-tap --image ref.png --no-fbx           image-to-3D, GLB only (no Blender)\n",
-    "  asset-tap \"a crate\" --json --no-fbx -o ./out programmatic use: parse NDJSON events\n",
+    "  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation (GLB)\n",
+    "  asset-tap --image ref.png                    image-to-3D from an existing image\n",
+    "  asset-tap \"a crate\" --fbx                    also convert to FBX (requires Blender)\n",
+    "  asset-tap \"a crate\" --json -o ./out          programmatic use: parse NDJSON events\n",
     "  asset-tap --list --json                      machine-readable model/template catalog\n",
     "  asset-tap auth list --json                   which providers have a key (preflight)\n",
     mock_example!(),
@@ -83,8 +84,12 @@ struct Cli {
     #[arg(short = 'y', long)]
     yes: bool,
 
-    /// Skip FBX conversion (GLB only)
-    #[arg(long)]
+    /// Also convert the 3D model to FBX (requires Blender)
+    #[arg(long, conflicts_with = "no_fbx")]
+    fbx: bool,
+
+    /// Deprecated: GLB-only is now the default; this flag is a no-op
+    #[arg(long, hide = true)]
     no_fbx: bool,
 
     /// Stop after image generation — produce an image-only bundle with no 3D model
@@ -1299,7 +1304,13 @@ fn build_config(
         config = config.with_3d_model(model);
     }
 
+    if cli.fbx {
+        config = config.with_fbx();
+    }
     if cli.no_fbx {
+        // GLB-only has been the default since FBX became opt-in; keep the flag
+        // as a no-op so existing scripts and agent snippets don't break.
+        eprintln!("note: --no-fbx is deprecated (GLB-only is the default; use --fbx to opt in)");
         config = config.without_fbx();
     }
 

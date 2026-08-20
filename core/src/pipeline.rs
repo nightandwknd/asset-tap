@@ -172,11 +172,12 @@ impl PipelineConfig {
     }
 
     /// Create a new pipeline configuration with defaults.
+    ///
+    /// FBX export is OFF by default: it requires Blender on the machine, and
+    /// every surface treats it as opt-in (GUI checkbox backed by
+    /// `Settings::export_fbx_default = false`, CLI `--fbx`, MCP `fbx: true`).
     pub fn new() -> Self {
-        Self {
-            export_fbx: true,
-            ..Default::default()
-        }
+        Self::default()
     }
 
     /// Set the text prompt.
@@ -248,7 +249,14 @@ impl PipelineConfig {
         self
     }
 
-    /// Disable FBX export.
+    /// Enable FBX export (requires Blender; off by default).
+    pub fn with_fbx(mut self) -> Self {
+        self.export_fbx = true;
+        self
+    }
+
+    /// Disable FBX export (the default; kept for callers that need to force
+    /// it off after other builders, e.g. deprecated `--no-fbx`).
     pub fn without_fbx(mut self) -> Self {
         self.export_fbx = false;
         self

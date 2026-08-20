@@ -1051,8 +1051,10 @@ impl App {
             .as_ref()
             .is_some_and(|p| !p.is_empty());
 
-        if !self.export_fbx || (!self.blender_available && !has_custom_blender) {
-            config = config.without_fbx();
+        // FBX is opt-in (core default is off): enable it only when the user
+        // checked the box AND Blender is actually reachable.
+        if self.export_fbx && (self.blender_available || has_custom_blender) {
+            config = config.with_fbx();
         }
 
         // Honored as selected. `can_generate` blocks the one combination that

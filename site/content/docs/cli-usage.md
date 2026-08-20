@@ -202,7 +202,7 @@ By default, Asset Tap converts GLB models to FBX if Blender is installed.
 
 ```bash
 # Skip FBX conversion (GLB output only)
-asset-tap --no-fbx "a robot"
+asset-tap --fbx "a robot"
 
 # Convert a specific bundle or GLB file to FBX after generation
 asset-tap --convert-fbx output/2024-12-29_153045
@@ -271,7 +271,7 @@ Mock mode redirects all API requests to a local server that returns synthetic da
 | `--list`             |       | List available models and templates                                   |
 | `--list-providers`   |       | List available providers and their models                             |
 | `--inspect-template` |       | Inspect a template's syntax and preview                               |
-| `--no-fbx`           |       | Skip FBX conversion (GLB only)                                        |
+| `--fbx`              |       | Also convert the model to FBX (requires Blender; GLB-only is default) |
 | `--convert-fbx`      |       | Convert a specific GLB file or bundle directory to FBX                |
 | `--convert-only`     |       | Batch convert all existing GLB files to FBX (no API calls)            |
 | `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                             |
