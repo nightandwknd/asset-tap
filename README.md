@@ -197,14 +197,16 @@ output/
 
 ### Image-to-3D
 
-| Model             | Provider | Description                                                 |
-| ----------------- | -------- | ----------------------------------------------------------- |
-| **TRELLIS 2**     | fal.ai   | Native 3D generative model — fast and versatile _(default)_ |
-| **Hunyuan3D Pro** | fal.ai   | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
-| **Meshy v6**      | fal.ai   | Meshy 6 through fal — pay-per-call billing                  |
-| **Meshy v7**      | Meshy    | Meshy 7 — newest generation, supports Ultra mode            |
-| **Meshy v6**      | Meshy    | Meshy 6 — production-ready 3D with PBR textures             |
-| **Meshy v5**      | Meshy    | Previous generation, lower credit cost                      |
+| Model              | Provider | Description                                                 |
+| ------------------ | -------- | ----------------------------------------------------------- |
+| **TRELLIS 2**      | fal.ai   | Native 3D generative model — fast and versatile _(default)_ |
+| **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
+| **Meshy v7**       | fal.ai   | Meshy 7 through fal — pay-per-call billing                  |
+| **Meshy v6**       | fal.ai   | Meshy 6 through fal — pay-per-call billing                  |
+| **Meshy v7**       | Meshy    | Meshy 7 — newest generation, supports Ultra mode            |
+| **Smart Topology** | Meshy    | Meshy T2 — clean topology, game-ready face counts           |
+| **Meshy v6**       | Meshy    | Meshy 6 — production-ready 3D with PBR textures             |
+| **Meshy v5**       | Meshy    | Previous generation, lower credit cost                      |
 
 Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 

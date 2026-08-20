@@ -374,8 +374,9 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
         expected_v5.difference(&native_v5).collect::<Vec<_>>()
     );
 
-    // Meshy v7 (native only — fal has no v7 wrapper as of 2026-08) is v6's
-    // surface plus/minus the documented per-version deltas:
+    // Meshy v7 (served natively and, since 2026-08, via fal's partner-
+    // namespace wrapper `meshy/v7/image-to-3d`) is v6's surface plus/minus
+    // the documented per-version deltas:
     //   - remove_lighting: "Only supported when ai_model is meshy-6".
     //   - symmetry_mode: deprecated API-wide ("no longer affects output");
     //     kept on v5/v6 for continuity, not advertised on new models.
@@ -396,6 +397,32 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
          Mismatch: only-in-v7={:?}, missing-from-v7={:?}",
         native_v7.difference(&expected_v7).collect::<Vec<_>>(),
         expected_v7.difference(&native_v7).collect::<Vec<_>>()
+    );
+
+    // fal's v7 wrapper mirrors the native v7 surface, except two params fal's
+    // published schema genuinely lacks (unlike v6, texture_prompt DOES pass
+    // through on v7 — confirmed against fal's OpenAPI for
+    // `meshy/v7/image-to-3d`, 2026-08).
+    const V7_NATIVE_ONLY: &[&str] = &["texture_resolution", "image_enhancement"];
+
+    let fal_v7 = param_names(&fal, "fal-ai/meshy/v7/image-to-3d");
+
+    let only_in_fal_v7: Vec<_> = fal_v7.difference(&native_v7).collect();
+    assert!(
+        only_in_fal_v7.is_empty(),
+        "fal's Meshy v7 wrapper exposes parameters the native provider doesn't: {only_in_fal_v7:?}. \
+         Add them to providers/meshy.yaml so routing doesn't change the knobs."
+    );
+
+    let unexplained_v7: Vec<_> = native_v7
+        .difference(&fal_v7)
+        .filter(|name| !V7_NATIVE_ONLY.contains(&name.as_str()))
+        .collect();
+    assert!(
+        unexplained_v7.is_empty(),
+        "Native Meshy v7 gained parameters that fal's wrapper lacks: {unexplained_v7:?}. \
+         Either add them to fal-ai.yaml's meshy v7 block or, if fal's wrapper \
+         genuinely doesn't support them, add them to V7_NATIVE_ONLY with a note."
     );
 }
 

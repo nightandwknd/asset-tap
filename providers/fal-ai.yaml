@@ -722,6 +722,97 @@ image_to_3d:
         min: 40000
         max: 1500000
 
+  # --- Meshy v7 (fal wrapper) ---
+  # Newest Meshy generation via fal — same task shape as the v6 wrapper below
+  # plus v7's ultra_mode. fal publishes it under the partner namespace
+  # (endpoint id `meshy/v7/image-to-3d`, no `fal-ai/` prefix); our model id
+  # keeps the `fal-ai/` prefix so it can never collide with the meshy
+  # provider's native `meshy/v7/image-to-3d` id — find_provider_for_model
+  # routes by id across providers, so duplicate ids would shadow each other.
+  # Surface aligned with the native block (drift-checked by
+  # `meshy_v6_parameter_surface_matches_across_providers`); fal's v7 schema
+  # confirms texture_prompt passes through but has no texture_resolution /
+  # image_enhancement, so those two stay native-only. symmetry_mode exists in
+  # fal's schema but is deprecated API-wide — not advertised on new models.
+  # Rigging/animation and model_type knobs are deliberately omitted — out of
+  # scope for our "text → image → 3D model" pipeline.
+  - id: 'fal-ai/meshy/v7/image-to-3d'
+    name: 'Meshy v7'
+    description: 'Meshy 7 — newest generation, supports Ultra mode'
+    endpoint: '/meshy/v7/image-to-3d'
+    method: POST
+    request:
+      headers:
+        <<: *fal-request-headers
+      body:
+        image_url: '${image_url}'
+        topology: 'triangle'
+        target_polycount: 30000
+        # Match Meshy's documented v7 default (clean topology is native);
+        # note fal's wrapper defaults this to true — we send it explicitly.
+        should_remesh: false
+        should_texture: true
+        enable_pbr: false
+        pose_mode: ''
+        ultra_mode: false
+        # Null = unset: stripped from the request so Meshy applies its own
+        # default unless the user supplies one.
+        texture_prompt: null
+    response:
+      response_type: polling
+      polling:
+        <<: *fal-polling
+        result_field: 'model_glb.url'
+        interval_ms: 2000
+        max_attempts: 300
+    parameters:
+      - name: 'topology'
+        label: 'Topology'
+        description: 'Mesh topology. Quad is cleaner for hard-surface, triangle is default. Only applies when Remesh is on.'
+        type: select
+        default: 'triangle'
+        options: ['triangle', 'quad']
+      - name: 'target_polycount'
+        label: 'Target Polycount'
+        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on.'
+        type: integer
+        widget: input
+        default: 30000
+        min: 100
+        max: 300000
+      - name: 'should_remesh'
+        label: 'Remesh'
+        description: 'Decimate to Target Polycount and clean up topology for DCC tools. Off by default — turn on if you want Target Polycount to apply.'
+        type: boolean
+        default: false
+      - name: 'should_texture'
+        label: 'Generate Textures'
+        description: 'Generate texture maps. Disable for untextured geometry only.'
+        type: boolean
+        default: true
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Generate PBR maps (metallic, roughness, normal). Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        type: boolean
+        default: false
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']
+      - name: 'ultra_mode'
+        label: 'Ultra Mode'
+        description: 'Ultra generation — higher-fidelity geometry with finer surface detail.'
+        type: boolean
+        default: false
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        type: string
+        widget: input
+        default: null
+
   # --- Meshy v6 (fal wrapper) ---
   # Production-ready 3D models with PBR textures.
   # Highest quality tier — $0.80/gen, ~5-10 min processing.
