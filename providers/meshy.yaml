@@ -68,6 +68,11 @@ x-meshy-t2i-params: &meshy-t2i-params
     type: select
     default: ''
     options: ['', 'a-pose', 't-pose']
+  - name: 'remove_background'
+    label: 'Remove Background'
+    description: 'Return the image as a transparent RGBA PNG with the background removed. Ideal for sprites and image-to-3D inputs.'
+    type: boolean
+    default: false
 
 # NOTE: YAML sequences can't be extended via merge keys, so the image-to-3D
 # parameter lists below (under `parameters:` in each model block) are
@@ -84,10 +89,13 @@ x-meshy-t2i-params: &meshy-t2i-params
 #   - symmetry_mode is deprecated API-wide ("no longer affects output"). It
 #     stays on v5/v6 for continuity but is NOT advertised on v7 — don't add
 #     dead knobs to new models.
-# The surface is also aligned with fal's fal-ai/meshy/v6/image-to-3d so users
-# see the same knobs regardless of which provider serves the model — minus the
-# native-only params fal's wrapper hasn't been confirmed to pass through.
-# (fal has no v7 wrapper as of 2026-08 — their catalog tops out at v6.)
+# The surfaces are also aligned with fal's wrappers (fal-ai/meshy/v6/
+# image-to-3d and, since 2026-08, meshy/v7/image-to-3d under fal's partner
+# namespace) so users see the same knobs regardless of which provider serves
+# the model — minus the native-only params each fal wrapper doesn't expose
+# (confirmed against fal's OpenAPI, 2026-08): texture_prompt passes through
+# on both wrappers; v6's lacks texture_resolution/remove_lighting/
+# image_enhancement, v7's lacks texture_resolution/image_enhancement.
 
 # Shared image-to-3D request body. Per-version overrides (e.g. should_remesh)
 # go on each model block below.
@@ -120,7 +128,7 @@ provider:
   # data-URI encoding automatically when `upload` is absent.
 
 # =============================================================================
-# Text-to-Image (verified 2026-04-15)
+# Text-to-Image (verified 2026-04-15; remove_background added + re-verified 2026-08-19)
 # =============================================================================
 text_to_image:
   # --- Nano Banana ---
@@ -141,6 +149,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -163,6 +172,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -185,6 +195,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -210,6 +221,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -233,9 +245,14 @@ text_to_image:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      - name: 'remove_background'
+        label: 'Remove Background'
+        description: 'Return the image as a transparent RGBA PNG with the background removed. Ideal for sprites and image-to-3D inputs.'
+        type: boolean
+        default: false
 
 # =============================================================================
-# Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10)
+# Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10, t2 verified 2026-08-19)
 # =============================================================================
 image_to_3d:
   # --- Meshy v7 ---
@@ -325,6 +342,72 @@ image_to_3d:
         description: 'Let Meshy pre-process the input image for better results. Turn off to preserve the original appearance exactly.'
         type: boolean
         default: true
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        type: string
+        widget: input
+        default: null
+
+  # --- Meshy Smart Topology (meshy-t2) ---
+  # Meshy's Smart Topology model (model_type: smart-topology): cleaner
+  # topology, natively separated parts, triangle output, and a directly
+  # settable face count via target_polycount — aimed at game-ready meshes
+  # without a remesh pass. Meshy recommends it over the deprecated lowpoly
+  # mode. Per Meshy's docs, topology / should_remesh /
+  # save_pre_remeshed_model are IGNORED for smart-topology tasks, so this
+  # block advertises none of them; the body sends only what applies.
+  # (meshy-t1, the old low-poly model without settable face count, is
+  # deliberately not offered.)
+  - id: 'meshy/t2/image-to-3d'
+    name: 'Meshy Smart Topology'
+    description: 'Meshy T2 — clean topology and separated parts, game-ready face counts'
+    endpoint: '/openapi/v1/image-to-3d'
+    method: POST
+    request:
+      headers:
+        <<: *meshy-request-headers
+      body:
+        image_url: '${image_url}'
+        model_type: 'smart-topology'
+        ai_model: 'meshy-t2'
+        target_polycount: 4000
+        should_texture: true
+        enable_pbr: false
+        pose_mode: ''
+        target_formats: ['glb']
+        # Null = unset: stripped from the request so Meshy applies its own
+        # default unless the user supplies one.
+        texture_prompt: null
+    response:
+      response_type: polling
+      polling:
+        <<: *meshy-i23d-polling
+    parameters:
+      - name: 'target_polycount'
+        label: 'Target Polycount'
+        description: 'Face count for the generated mesh — applies directly on Smart Topology, no remesh pass needed. Capped at 15,000 for meshy-t2 (per the API changelog; the parameter page does not state it — verified live).'
+        type: integer
+        widget: input
+        default: 4000
+        min: 100
+        max: 15000
+      - name: 'should_texture'
+        label: 'Generate Textures'
+        description: 'Generate texture maps. Disable for untextured geometry only.'
+        type: boolean
+        default: true
+      - name: 'enable_pbr'
+        label: 'PBR Materials'
+        description: 'Generate metallic/roughness/normal maps. Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
+        type: boolean
+        default: false
+      - name: 'pose_mode'
+        label: 'Pose'
+        description: 'Force a standard character pose. Leave blank for automatic.'
+        type: select
+        default: ''
+        options: ['', 'a-pose', 't-pose']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'

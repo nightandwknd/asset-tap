@@ -39,6 +39,7 @@ Asset Tap ships with pre-configured support for two providers. You only need an 
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | [TRELLIS 2](https://fal.ai/models/fal-ai/trellis-2)                           | Native 3D generative model -- fast and versatile _(default)_ |
 | [Hunyuan3D Pro](https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/pro/image-to-3d) | Tencent Hunyuan3D v3.1 Pro -- high quality 3D generation     |
+| [Meshy v7](https://fal.ai/models/meshy/v7/image-to-3d)                        | Meshy 7 proxied through fal -- pay-per-call billing          |
 | [Meshy v6](https://fal.ai/models/fal-ai/meshy/v6/image-to-3d)                 | Meshy 6 proxied through fal -- pay-per-call billing          |
 
 > **Tip:** Your [fal.ai Dashboard](https://fal.ai/dashboard/recent-history) shows all generation requests, results, and costs. This is the source of truth for your usage and a handy way to recover past outputs.
@@ -56,19 +57,20 @@ Native Meshy API -- bypasses fal's proxy markup and unlocks the full Meshy featu
 | [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | `meshy/nano-banana-pro` | Higher quality, 9 credits/image                    |
 | [GPT Image 2](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/gpt-image-2`     | 9 credits/image; the only Meshy model offering 2:3 |
 
-Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`.
+Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`, `remove_background` (transparent RGBA PNG output).
 
 **Aspect ratios differ per model.** The Nano Banana family accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`; GPT Image 2 accepts `1:1`, `3:2`, `2:3` only. `generate_multi_view` cannot be combined with `aspect_ratio` — clear it with `--param aspect_ratio=` (or the `(unset)` entry in the GUI dropdown) when enabling multi-view.
 
 #### Image-to-3D Models
 
-| Model                                                | `--3d-model`           | Description                                                   |
-| ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------- |
-| [Meshy v7](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v7/image-to-3d` | Meshy 7 -- newest generation, supports Ultra mode _(default)_ |
-| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures              |
-| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/v5/image-to-3d` | Previous generation, lower credit cost                        |
+| Model                                                      | `--3d-model`           | Description                                                                   |
+| ---------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------- |
+| [Meshy v7](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v7/image-to-3d` | Meshy 7 -- newest generation, supports Ultra mode _(default)_                 |
+| [Smart Topology](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/t2/image-to-3d` | Meshy T2 -- clean topology, separated parts, game-ready face counts (max 15k) |
+| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures                              |
+| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v5/image-to-3d` | Previous generation, lower credit cost                                        |
 
-Tunable parameters (all versions): `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `pose_mode`, `texture_prompt`.
+Tunable parameters (v5/v6/v7): `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `pose_mode`, `texture_prompt`. Smart Topology sets its face count directly with `target_polycount` (100-15,000) -- `topology` and `should_remesh` don't apply.
 
 Version-specific knobs, per Meshy's own docs: v6 and v7 add `texture_resolution` (2k/4k/8k) and `image_enhancement`; `remove_lighting` is v6-only; `ultra_mode` (higher-fidelity geometry) is v7-only. `symmetry_mode` remains on v5/v6 but is deprecated by Meshy and no longer affects output.
 
