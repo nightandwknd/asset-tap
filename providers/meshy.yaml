@@ -68,6 +68,11 @@ x-meshy-t2i-params: &meshy-t2i-params
     type: select
     default: ''
     options: ['', 'a-pose', 't-pose']
+  - name: 'remove_background'
+    label: 'Remove Background'
+    description: 'Return the image as a transparent RGBA PNG with the background removed. Ideal for sprites and image-to-3D inputs.'
+    type: boolean
+    default: false
 
 # NOTE: YAML sequences can't be extended via merge keys, so the image-to-3D
 # parameter lists below (under `parameters:` in each model block) are
@@ -144,6 +149,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -166,6 +172,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -188,6 +195,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -213,6 +221,7 @@ text_to_image:
         aspect_ratio: '1:1'
         generate_multi_view: false
         pose_mode: ''
+        remove_background: false
     response:
       response_type: polling
       polling:
@@ -236,6 +245,11 @@ text_to_image:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      - name: 'remove_background'
+        label: 'Remove Background'
+        description: 'Return the image as a transparent RGBA PNG with the background removed. Ideal for sprites and image-to-3D inputs.'
+        type: boolean
+        default: false
 
 # =============================================================================
 # Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10)
