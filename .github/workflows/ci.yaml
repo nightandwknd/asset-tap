@@ -380,6 +380,10 @@ jobs:
       # broken installer can never sit at assettap.dev/install unnoticed.
       - name: Run installer
         run: bash site/static/install
+      - name: Run installer (pinned version path)
+        # A historical tag: releases are immutable, so this exercises the
+        # pinned-URL code path forever without maintenance.
+        run: ASSET_TAP_INSTALL_DIR="$RUNNER_TEMP/pin" bash site/static/install v26.8.11
       - name: Installed binary runs
         run: '"$HOME/.local/bin/asset-tap" --version'
       - name: atap alias runs

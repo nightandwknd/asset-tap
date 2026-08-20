@@ -18,9 +18,15 @@ Asset Tap includes a full-featured command-line interface for automation, script
 
 > **Alias:** release installs also provide `atap`, a short alias for `asset-tap` (symlink on macOS/Linux, `atap.cmd` on Windows). Every command on this page works with either name.
 
-The CLI is included with all installers, or available as a standalone download. See the [Installation page](@/docs/installation.md) for platform-specific instructions.
+**macOS / Linux** -- one line, no sudo (checksum-verified, installs `asset-tap` + `atap` to `~/.local/bin`):
 
-**macOS** -- The CLI is bundled inside the app. Create a symlink to use it from the terminal:
+```bash
+curl -fsSL https://assettap.dev/install | bash
+```
+
+The CLI is also included with all installers, or available as a standalone download. See the [Installation page](@/docs/installation.md) for every option.
+
+**macOS (app bundle)** -- the CLI is bundled inside the app. Create a symlink to use it from the terminal:
 
 ```bash
 sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
