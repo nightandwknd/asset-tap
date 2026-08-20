@@ -818,10 +818,13 @@ image_to_3d:
   # Highest quality tier — $0.80/gen, ~5-10 min processing.
   # NOTE: Keep this parameter surface aligned with the meshy provider's
   # meshy/v6/image-to-3d so users get the same knobs regardless of which
-  # provider they route through. Rigging/animation, safety-checker, and
-  # Meshy-native-only knobs (hd_texture, decimation_mode, moderation,
-  # auto_size, model_type, etc.) are deliberately omitted — out of scope
-  # for our "text → image → 3D model" pipeline.
+  # provider they route through. texture_prompt passes through (confirmed
+  # against fal's OpenAPI, 2026-08); texture_resolution / remove_lighting /
+  # image_enhancement are absent from fal's schema and stay native-only.
+  # Rigging/animation, safety-checker, and Meshy-native-only knobs
+  # (hd_texture, decimation_mode, moderation, auto_size, model_type, etc.)
+  # are deliberately omitted — out of scope for our
+  # "text → image → 3D model" pipeline.
   - id: 'fal-ai/meshy/v6/image-to-3d'
     name: 'Meshy v6'
     description: 'Meshy 6 — production-ready 3D models with PBR textures'
@@ -840,6 +843,9 @@ image_to_3d:
         should_texture: true
         enable_pbr: false
         pose_mode: ''
+        # Null = unset: stripped from the request so Meshy applies its own
+        # default unless the user supplies one.
+        texture_prompt: null
     response:
       response_type: polling
       polling:
@@ -889,3 +895,9 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      - name: 'texture_prompt'
+        label: 'Texture Prompt'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        type: string
+        widget: input
+        default: null

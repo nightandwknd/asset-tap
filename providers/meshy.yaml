@@ -92,10 +92,10 @@ x-meshy-t2i-params: &meshy-t2i-params
 # The surfaces are also aligned with fal's wrappers (fal-ai/meshy/v6/
 # image-to-3d and, since 2026-08, meshy/v7/image-to-3d under fal's partner
 # namespace) so users see the same knobs regardless of which provider serves
-# the model — minus the native-only params each fal wrapper doesn't expose:
-# v6's wrapper lacks texture_resolution/remove_lighting/image_enhancement/
-# texture_prompt; v7's wrapper passes texture_prompt through but still lacks
-# texture_resolution/image_enhancement.
+# the model — minus the native-only params each fal wrapper doesn't expose
+# (confirmed against fal's OpenAPI, 2026-08): texture_prompt passes through
+# on both wrappers; v6's lacks texture_resolution/remove_lighting/
+# image_enhancement, v7's lacks texture_resolution/image_enhancement.
 
 # Shared image-to-3D request body. Per-version overrides (e.g. should_remesh)
 # go on each model block below.
@@ -128,7 +128,7 @@ provider:
   # data-URI encoding automatically when `upload` is absent.
 
 # =============================================================================
-# Text-to-Image (verified 2026-04-15)
+# Text-to-Image (verified 2026-04-15; remove_background added + re-verified 2026-08-19)
 # =============================================================================
 text_to_image:
   # --- Nano Banana ---
@@ -252,7 +252,7 @@ text_to_image:
         default: false
 
 # =============================================================================
-# Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10)
+# Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10, t2 verified 2026-08-19)
 # =============================================================================
 image_to_3d:
   # --- Meshy v7 ---

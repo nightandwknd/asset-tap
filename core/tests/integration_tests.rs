@@ -325,15 +325,11 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     let native_v5 = param_names(&meshy, "meshy/v5/image-to-3d");
     let native_v7 = param_names(&meshy, "meshy/v7/image-to-3d");
 
-    // Params the native Meshy API documents but fal's wrapper hasn't been
-    // confirmed to pass through. They stay native-only until someone checks
-    // fal's schema for `fal-ai/meshy/v6/image-to-3d`.
-    const NATIVE_ONLY: &[&str] = &[
-        "texture_resolution",
-        "remove_lighting",
-        "image_enhancement",
-        "texture_prompt",
-    ];
+    // Params the native Meshy API documents but fal's v6 wrapper schema
+    // genuinely lacks (checked against fal's OpenAPI for
+    // `fal-ai/meshy/v6/image-to-3d`, 2026-08; texture_prompt IS in the
+    // schema and passes through).
+    const NATIVE_ONLY: &[&str] = &["texture_resolution", "remove_lighting", "image_enhancement"];
 
     // No fal-only params: anything the wrapper exposes must exist natively too.
     let only_in_fal: Vec<_> = fal_v6.difference(&native_v6).collect();
@@ -424,6 +420,66 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
          Either add them to fal-ai.yaml's meshy v7 block or, if fal's wrapper \
          genuinely doesn't support them, add them to V7_NATIVE_ONLY with a note."
     );
+
+    // Smart Topology (meshy-t2) has its own surface: Meshy documents
+    // topology / should_remesh (and save_pre_remeshed_model) as IGNORED for
+    // smart-topology tasks, and symmetry_mode is deprecated API-wide — so
+    // advertising any of them would offer dead knobs. Pin the exact surface
+    // so an accidental copy-paste from the v5/v6/v7 lists fails loudly.
+    let native_t2 = param_names(&meshy, "meshy/t2/image-to-3d");
+    let expected_t2: BTreeSet<String> = [
+        "target_polycount",
+        "should_texture",
+        "enable_pbr",
+        "pose_mode",
+        "texture_prompt",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(
+        native_t2, expected_t2,
+        "Smart Topology's surface changed. If Meshy's docs added a knob, extend \
+         the expected list; never advertise topology/should_remesh/symmetry_mode \
+         (ignored or deprecated for smart-topology)."
+    );
+}
+
+/// The nano-banana family shares one YAML anchor for its text-to-image
+/// parameters, but gpt-image-2 duplicates the list because its aspect-ratio
+/// options differ. That copy is drift-prone: a param added to the anchor
+/// (e.g. remove_background, 2026-08) must be hand-added to gpt-image-2 too.
+/// This test pins the param NAMES equal across all four models — only the
+/// option values may differ.
+#[test]
+fn meshy_text_to_image_surface_matches_across_models() {
+    use asset_tap_core::providers::config::ProviderConfig;
+    use std::collections::BTreeSet;
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../providers/meshy.yaml");
+    let config = ProviderConfig::from_yaml_file(&path).expect("meshy.yaml loads");
+
+    let surfaces: Vec<(String, BTreeSet<String>)> = config
+        .text_to_image
+        .iter()
+        .map(|m| {
+            (
+                m.id.clone(),
+                m.parameters.iter().map(|p| p.name.clone()).collect(),
+            )
+        })
+        .collect();
+    assert!(surfaces.len() >= 4, "expected at least 4 Meshy t2i models");
+
+    let (first_id, first) = &surfaces[0];
+    for (id, names) in &surfaces[1..] {
+        assert_eq!(
+            names, first,
+            "Meshy t2i models must expose the same parameter names; {id} differs \
+             from {first_id}. gpt-image-2 duplicates the shared anchor — keep the \
+             copies in sync (only aspect_ratio's OPTIONS may differ)."
+        );
+    }
 }
 
 /// Meshy rejects a request that sets `aspect_ratio` while `generate_multi_view`
