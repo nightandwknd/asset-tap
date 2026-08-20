@@ -841,7 +841,8 @@ impl App {
         });
     }
 
-    /// Import a bundle from a zip file in the background.
+    /// Import a bundle from a zip archive or a plain bundle directory
+    /// (e.g. a CLI run's output folder) in the background.
     fn import_bundle(&mut self, source: std::path::PathBuf) {
         let output_dir = self.settings.output_dir.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -849,7 +850,11 @@ impl App {
         self.add_toast(Toast::info("Importing bundle..."));
         self.runtime.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                asset_tap_core::import_bundle_zip(&source, &output_dir)
+                if source.is_dir() {
+                    asset_tap_core::import_bundle_dir(&source, &output_dir)
+                } else {
+                    asset_tap_core::import_bundle_zip(&source, &output_dir)
+                }
             })
             .await
             .unwrap_or_else(|e| Err(format!("Import task failed: {}", e)));
@@ -2460,6 +2465,12 @@ impl eframe::App for App {
                             .add_filter("Bundle Archive", &["zip"])
                             .pick_file()
                         {
+                            self.import_bundle(path);
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Import Bundle Folder...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             self.import_bundle(path);
                         }
                         ui.close();
