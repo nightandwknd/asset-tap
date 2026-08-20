@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.12 — 2026-08-20
+
+### Bug Fixes
+
+- FBX conversion is opt-in — GLB-only by default on every surface ([#60](https://github.com/nightandwknd/asset-tap/pull/60)) _(cli)_
+
 ## v26.8.11 — 2026-08-20
 
 ### Chores
