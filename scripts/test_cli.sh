@@ -1032,9 +1032,9 @@ assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)"
     "--image-model fal-ai/flux-2-pro 'test'" \
     '(.config.image_model_params | length) == 4 and .config.image_model_params.safety_tolerance == "2" and (.config.image_model_params | has("guidance_scale") | not)'
 
-assert_bundle_json "Bundle: meshy v6 via fal wrapper (7 params, should_remesh=false)" \
+assert_bundle_json "Bundle: meshy v6 via fal wrapper (8 params, should_remesh=false, texture_prompt stripped-null)" \
     "--3d-model fal-ai/meshy/v6/image-to-3d 'test'" \
-    '(.config.model_3d_params | length) == 7 and .config.model_3d_params.should_remesh == false and .config.model_3d_params.topology == "triangle"'
+    '(.config.model_3d_params | length) == 8 and .config.model_3d_params.should_remesh == false and .config.model_3d_params.topology == "triangle" and .config.model_3d_params.texture_prompt == null'
 
 # --- Overrides captured and merged with defaults ---
 
