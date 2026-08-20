@@ -2,6 +2,20 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.11 — 2026-08-20
+
+### Chores
+
+- bump h2 0.4.13 -> 0.4.17 (RUSTSEC-2026-0258) ([#59](https://github.com/nightandwknd/asset-tap/pull/59)) _(deps)_
+
+### Documentation
+
+- document the `atap` alias in install and CLI docs (README, AGENTS.md, site) ([#57](https://github.com/nightandwknd/asset-tap/pull/57))
+
+### Features
+
+- Meshy v7 via fal, Smart Topology, remove_background ([#58](https://github.com/nightandwknd/asset-tap/pull/58)) _(providers)_
+
 ## v26.8.10 — 2026-08-18
 
 ### Features
