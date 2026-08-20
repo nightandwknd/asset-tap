@@ -130,7 +130,7 @@ pub mod test_support {
 // Re-export commonly used types
 pub use bundle::{
     Bundle, BundleContents, BundleError, BundleMetadata, DemoDownloadResult, download_demo_bundle,
-    import_bundle_zip,
+    import_bundle_dir, import_bundle_zip,
 };
 pub use config::{list_image_to_3d_models, list_text_to_image_models};
 pub use error_log::ErrorLog;

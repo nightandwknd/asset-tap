@@ -767,6 +767,26 @@ async fn run_generation(
     // embedded hosts via the tool result)
     if !cli.json && !embedded {
         print_summary(&output);
+
+        // A custom -o that lands outside the configured library means the GUI
+        // won't list this bundle — say so instead of letting the user discover
+        // it via a failed hunt (or a zip-import detour).
+        if cli.output.is_some()
+            && let Some(ref bundle_dir) = output.output_dir
+        {
+            let library = asset_tap_core::settings::Settings::load().output_dir;
+            let canon = |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            if !canon(bundle_dir).starts_with(canon(&library)) {
+                println!(
+                    "  ℹ️  Saved outside your library ({}) — the GUI lists bundles from there.",
+                    library.display()
+                );
+                println!(
+                    "     Import it via File → Import Bundle Folder…, or omit -o to land in the library."
+                );
+                println!();
+            }
+        }
     }
 
     Ok(output)

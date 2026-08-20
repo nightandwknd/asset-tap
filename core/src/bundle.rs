@@ -1029,6 +1029,87 @@ pub fn import_bundle_zip(source_zip: &Path, output_dir: &Path) -> Result<PathBuf
         return Err("Zip archive is empty".to_string());
     }
 
+    finalize_imported_bundle(tmp_dir, output_dir, file_count)
+}
+
+/// Import a bundle from a plain directory (e.g. a CLI run's output folder) —
+/// no archive step needed. Copies the directory's contents into a new
+/// timestamped bundle under `output_dir`, with the same validation and
+/// metadata inference as zip import. The source directory is left untouched.
+pub fn import_bundle_dir(source_dir: &Path, output_dir: &Path) -> Result<PathBuf, String> {
+    if !source_dir.is_dir() {
+        return Err(format!("Not a directory: {}", source_dir.display()));
+    }
+
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    // Refuse to import a bundle into itself (source inside output_dir is fine —
+    // that's re-importing a library bundle — but identical paths are not).
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    if canon(source_dir) == canon(output_dir) {
+        return Err("Source directory is the output directory itself".to_string());
+    }
+
+    let tmp_dir = tempfile::tempdir_in(output_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    let mut file_count = 0usize;
+    copy_dir_contents(source_dir, tmp_dir.path(), &mut file_count)?;
+
+    if file_count == 0 {
+        return Err("Directory is empty".to_string());
+    }
+
+    finalize_imported_bundle(tmp_dir, output_dir, file_count)
+}
+
+/// Recursively copy a directory's contents, skipping macOS junk files and
+/// enforcing the same entry cap as zip extraction.
+fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) -> Result<(), String> {
+    for entry in std::fs::read_dir(src).map_err(|e| format!("Failed to read directory: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if is_macos_archive_junk(&name_str) {
+            continue;
+        }
+        let src_path = entry.path();
+        let dest_path = dest.join(&name);
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to stat {}: {}", src_path.display(), e))?;
+        // Symlinks are skipped: a link could point anywhere (including outside
+        // the bundle); imports copy real content only, like zip extraction.
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Failed to create {}: {}", dest_path.display(), e))?;
+            copy_dir_contents(&src_path, &dest_path, count)?;
+        } else {
+            if *count >= MAX_EXTRACT_ENTRIES {
+                return Err(format!(
+                    "Directory has too many files (max {MAX_EXTRACT_ENTRIES})"
+                ));
+            }
+            std::fs::copy(&src_path, &dest_path)
+                .map_err(|e| format!("Failed to copy {}: {}", src_path.display(), e))?;
+            *count += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Shared tail of bundle import: validate the staged contents, infer metadata
+/// when bundle.json is absent, and atomically move the staging directory to
+/// its final timestamped home.
+fn finalize_imported_bundle(
+    tmp_dir: tempfile::TempDir,
+    output_dir: &Path,
+    file_count: usize,
+) -> Result<PathBuf, String> {
     // Validate: must contain at least an image or model.
     let mut contents = BundleContents::default();
     let mut issues = Vec::new();
@@ -1065,6 +1146,21 @@ pub fn import_bundle_zip(source_zip: &Path, output_dir: &Path) -> Result<PathBuf
     Ok(final_dir)
 }
 
+/// macOS Archive Utility (Finder's "Compress") pollutes zips with AppleDouble
+/// metadata: a parallel `__MACOSX/` tree, `._*` resource-fork files, and
+/// `.DS_Store`. None of it is bundle content — and the `__MACOSX/` tree breaks
+/// wrapper-folder detection (two top-level dirs → no common prefix), which
+/// made every Archive-Utility-zipped bundle fail import validation.
+fn is_macos_archive_junk(path: &str) -> bool {
+    if path.split('/').next() == Some("__MACOSX") {
+        return true;
+    }
+    match path.rsplit('/').next() {
+        Some(name) => name == ".DS_Store" || name.starts_with("._"),
+        None => false,
+    }
+}
+
 /// Extract files from a zip archive into a destination directory.
 ///
 /// If all files share a common top-level directory (e.g., `bundle-name/image.png`),
@@ -1097,6 +1193,7 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
             .map_err(|e| format!("Failed to read zip entry: {}", e))?;
         if entry.is_file()
             && let Some(safe) = safe_zip_entry_path(&entry)
+            && !is_macos_archive_junk(&safe)
         {
             paths.push(safe);
         }
@@ -1126,6 +1223,11 @@ fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
                 entry.name()
             ));
         };
+
+        // Archive-Utility metadata is not bundle content — skip it entirely.
+        if is_macos_archive_junk(&raw_path) {
+            continue;
+        }
 
         let relative = if let Some(ref pfx) = prefix {
             raw_path.strip_prefix(pfx).unwrap_or(&raw_path)
@@ -2015,6 +2117,87 @@ mod tests {
         let result = import_bundle_zip(&zip_path, &output_dir);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("image"));
+    }
+
+    /// Regression: macOS Archive Utility (Finder "Compress") zips carry a
+    /// parallel `__MACOSX/` tree + `._*` AppleDouble files. The extra
+    /// top-level dir used to break wrapper-folder flattening, so every
+    /// Archive-Utility-zipped bundle failed import with "must contain at
+    /// least an image or model". Entry list modeled on a real archive.
+    #[test]
+    fn test_import_bundle_zip_tolerates_macos_archive_junk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("finder.zip");
+        let zip_data = create_test_zip(&[
+            ("2026-08-20_022113/bundle.json", b"{}"),
+            ("2026-08-20_022113/image.png", b"fake-png"),
+            ("2026-08-20_022113/model.glb", b"fake-glb"),
+            ("2026-08-20_022113/.DS_Store", b"junk"),
+            ("__MACOSX/2026-08-20_022113/._bundle.json", b"junk"),
+            ("__MACOSX/2026-08-20_022113/._image.png", b"junk"),
+            ("__MACOSX/2026-08-20_022113/._model.glb", b"junk"),
+        ]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let output_dir = tmp.path().join("output");
+        let bundle_dir = import_bundle_zip(&zip_path, &output_dir)
+            .expect("Archive Utility zips must import cleanly");
+
+        // Wrapper stripped, content present, junk absent.
+        assert!(bundle_dir.join("image.png").exists());
+        assert!(bundle_dir.join("model.glb").exists());
+        assert!(!bundle_dir.join(".DS_Store").exists());
+        assert!(!bundle_dir.join("__MACOSX").exists());
+        assert!(!bundle_dir.join("._image.png").exists());
+    }
+
+    #[test]
+    fn test_is_macos_archive_junk() {
+        assert!(is_macos_archive_junk("__MACOSX/bundle/._image.png"));
+        assert!(is_macos_archive_junk("bundle/.DS_Store"));
+        assert!(is_macos_archive_junk(".DS_Store"));
+        assert!(is_macos_archive_junk("bundle/._model.glb"));
+        assert!(!is_macos_archive_junk("bundle/image.png"));
+        assert!(!is_macos_archive_junk("image.png"));
+        // A real file that merely starts with underscore is not junk.
+        assert!(!is_macos_archive_junk("bundle/_notes.txt"));
+    }
+
+    #[test]
+    fn test_import_bundle_dir_copies_and_validates() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("cli-run");
+        std::fs::create_dir_all(src.join("textures")).unwrap();
+        std::fs::write(src.join("bundle.json"), b"{}").unwrap();
+        std::fs::write(src.join("image.png"), b"fake-png").unwrap();
+        std::fs::write(src.join("model.glb"), b"fake-glb").unwrap();
+        std::fs::write(src.join("textures/base.png"), b"fake-tex").unwrap();
+        std::fs::write(src.join(".DS_Store"), b"junk").unwrap();
+
+        let output_dir = tmp.path().join("library");
+        let bundle_dir = import_bundle_dir(&src, &output_dir).expect("dir import works");
+
+        assert!(bundle_dir.join("image.png").exists());
+        assert!(bundle_dir.join("model.glb").exists());
+        assert!(bundle_dir.join("textures/base.png").exists());
+        assert!(!bundle_dir.join(".DS_Store").exists());
+        // Source untouched.
+        assert!(src.join("image.png").exists());
+    }
+
+    #[test]
+    fn test_import_bundle_dir_rejects_empty_and_invalid() {
+        let tmp = tempfile::tempdir().unwrap();
+        let empty = tmp.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let output_dir = tmp.path().join("library");
+        assert!(import_bundle_dir(&empty, &output_dir).is_err());
+
+        let no_assets = tmp.path().join("no-assets");
+        std::fs::create_dir_all(&no_assets).unwrap();
+        std::fs::write(no_assets.join("readme.txt"), b"hi").unwrap();
+        let err = import_bundle_dir(&no_assets, &output_dir).unwrap_err();
+        assert!(err.contains("image (image.png) or model (model.glb)"));
     }
 
     #[test]
