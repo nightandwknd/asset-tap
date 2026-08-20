@@ -57,7 +57,7 @@ Native Meshy API -- bypasses fal's proxy markup and unlocks the full Meshy featu
 | [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | `meshy/nano-banana-pro` | Higher quality, 9 credits/image                    |
 | [GPT Image 2](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/gpt-image-2`     | 9 credits/image; the only Meshy model offering 2:3 |
 
-Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`.
+Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`, `remove_background` (transparent RGBA PNG output).
 
 **Aspect ratios differ per model.** The Nano Banana family accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`; GPT Image 2 accepts `1:1`, `3:2`, `2:3` only. `generate_multi_view` cannot be combined with `aspect_ratio` — clear it with `--param aspect_ratio=` (or the `(unset)` entry in the GUI dropdown) when enabling multi-view.
 
