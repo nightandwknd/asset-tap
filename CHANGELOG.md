@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.13 — 2026-08-20
+
+### Bug Fixes
+
+- CLI-output → GUI-library path — Finder-zip tolerance, folder import, outside-library hint ([#61](https://github.com/nightandwknd/asset-tap/pull/61)) _(bundle)_
+
 ## v26.8.12 — 2026-08-20
 
 ### Bug Fixes
