@@ -38,12 +38,20 @@ Env vars can be passed the usual way (`"env": {"FAL_KEY": "..."}`) if the host d
 
 ## Tools
 
-| Tool             | Arguments                                                                                                                                              | Backed by                    | Returns                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------- |
-| `list_catalog`   | --                                                                                                                                                     | `asset-tap --list --json`    | providers, models + parameter schemas, templates                                                  |
-| `auth_status`    | --                                                                                                                                                     | `asset-tap auth list --json` | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` -- never key material |
-| `inspect_bundle` | `bundle_dir`                                                                                                                                           | reads `bundle.json`          | `{bundle_dir, files[], bundle}`                                                                   |
-| `generate`       | `prompt` or `image`; optional `template`, `provider`, `image_model`, `model_3d`, `params{}`, `fbx` (default false), `image_only`, `output_dir`, `name` | the generation run           | `{status: "success", bundle_dir, duration_ms, bundle}`                                            |
+**`list_catalog`** -- no arguments. Backed by `asset-tap --list --json`.
+Returns providers, models with their parameter schemas, and templates.
+
+**`auth_status`** -- no arguments. Backed by `asset-tap auth list --json`.
+Returns, per provider: `configured`, `source` (`stored` | `env` | `missing`),
+and the `env_var` name -- never key material.
+
+**`inspect_bundle`** -- takes `bundle_dir`. Reads the bundle's `bundle.json`.
+Returns `{bundle_dir, files[], bundle}`.
+
+**`generate`** -- takes a `prompt` or an `image` path; optional `template`,
+`provider`, `image_model`, `model_3d`, `params{}`, `fbx` (default false),
+`image_only`, `output_dir`, `name`. Runs the generation pipeline and returns
+`{status: "success", bundle_dir, duration_ms, bundle}`.
 
 Every tool returns **structured content** (JSON) plus the same JSON as text, so hosts that read either work.
 
