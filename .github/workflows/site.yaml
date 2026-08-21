@@ -31,7 +31,8 @@ jobs:
         if: github.event.action != 'closed'
         uses: taiki-e/install-action@v2
         with:
-          # Keep in sync with the zola-deploy-action version in `publish` below.
+          # Keep in sync with ZOLA_VERSION in the Makefile and the
+          # zola-deploy-action version in `publish` below.
           tool: zola@0.22.1
       - name: Build site
         if: github.event.action != 'closed'
@@ -49,6 +50,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build and push to gh-pages
+        # Keep in sync with ZOLA_VERSION in the Makefile (the action tag
+        # tracks the zola version it bundles).
         uses: shalzz/zola-deploy-action@v0.22.1
         env:
           BUILD_DIR: site

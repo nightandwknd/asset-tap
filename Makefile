@@ -299,20 +299,37 @@ verify-sign-macos: ## Verify macOS signing, stapling, and Gatekeeper acceptance
 # =============================================================================
 # Website
 # =============================================================================
+# Zola is PINNED — a system zola (brew ships latest) can be a different major
+# with incompatible template syntax (0.23 swapped Tera 1 for Tera 2, which
+# breaks the vendored zap theme's macros). The pinned binary is downloaded
+# once into site/.bin/ and used by every site target, so local builds match
+# the deploy exactly.
+# Keep in sync with BOTH pins in .github/workflows/site.yaml
+# (taiki-e install-action `zola@…` and the shalzz/zola-deploy-action tag).
+ZOLA_VERSION := 0.22.1
+ZOLA_BIN := site/.bin/zola-$(ZOLA_VERSION)
 
-site-serve: ## Serve website locally (hot reload)
-	cd site && zola serve
-
-site-build: ## Build website
-ifndef CHECK_ZOLA
-	@echo "Zola not found — skipping site build (install: https://www.getzola.org/documentation/getting-started/installation/)"
+UNAME_S := $(shell uname -s)
+# uname says arm64 on Apple Silicon; Rust targets (and zola's release asset
+# names) say aarch64.
+UNAME_M := $(shell uname -m | sed 's/arm64/aarch64/')
+ifeq ($(UNAME_S),Darwin)
+ZOLA_TARGET := $(UNAME_M)-apple-darwin
 else
-	cd site && zola build
+ZOLA_TARGET := $(UNAME_M)-unknown-linux-gnu
 endif
 
-site-check: ## Check website for broken links
-ifndef CHECK_ZOLA
-	@echo "Zola not found — skipping site check (install: https://www.getzola.org/documentation/getting-started/installation/)"
-else
-	cd site && zola check
-endif
+$(ZOLA_BIN):
+	@echo "Downloading zola $(ZOLA_VERSION) ($(ZOLA_TARGET))..."
+	@mkdir -p site/.bin
+	@curl -fsSL "https://github.com/getzola/zola/releases/download/v$(ZOLA_VERSION)/zola-v$(ZOLA_VERSION)-$(ZOLA_TARGET).tar.gz" | tar -xz -C site/.bin
+	@mv site/.bin/zola $(ZOLA_BIN)
+
+site-serve: $(ZOLA_BIN) ## Serve website locally (hot reload)
+	cd site && .bin/zola-$(ZOLA_VERSION) serve
+
+site-build: $(ZOLA_BIN) ## Build website
+	cd site && .bin/zola-$(ZOLA_VERSION) build
+
+site-check: $(ZOLA_BIN) ## Check website for broken links
+	cd site && .bin/zola-$(ZOLA_VERSION) check
