@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.16 — 2026-08-21
+
+### Documentation
+
+- MCP server page + /install.sh alias ([#67](https://github.com/nightandwknd/asset-tap/pull/67)) _(site)_
+
 ## v26.8.15 — 2026-08-21
 
 ### Features
