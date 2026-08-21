@@ -1,4 +1,4 @@
-# Asset Tap CLI installer for Windows — https://assettap.dev/install.ps1
+# Asset Tap CLI installer for Windows -- https://assettap.dev/install.ps1
 #
 #   irm https://assettap.dev/install.ps1 | iex
 #
@@ -28,7 +28,7 @@ function Install-AssetTap {
         exit 1
     }
 
-    # Windows PowerShell 5.1 defaults to TLS 1.0 — GitHub requires 1.2+.
+    # Windows PowerShell 5.1 defaults to TLS 1.0 -- GitHub requires 1.2+.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     $Repo = "nightandwknd/asset-tap"
@@ -36,7 +36,7 @@ function Install-AssetTap {
     $Tag = if ($env:ASSET_TAP_VERSION) { $env:ASSET_TAP_VERSION } else { "latest" }
     $InstallDir = if ($env:ASSET_TAP_INSTALL_DIR) { $env:ASSET_TAP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "AssetTap\bin" }
 
-    # releases/latest/download redirects without the GitHub API — no rate limits.
+    # releases/latest/download redirects without the GitHub API -- no rate limits.
     if ($Tag -eq "latest") {
         $Base = "https://github.com/$Repo/releases/latest/download"
     } else {
@@ -59,13 +59,13 @@ function Install-AssetTap {
 
         $SumLine = Select-String -Path (Join-Path $Tmp "SHA256SUMS.txt") -Pattern ([regex]::Escape($Asset)) | Select-Object -First 1
         if (-not $SumLine) {
-            Write-Host "  checksum manifest has no entry for $Asset — refusing to install" -ForegroundColor Red
+            Write-Host "  checksum manifest has no entry for $Asset -- refusing to install" -ForegroundColor Red
             exit 1
         }
         $Expected = ($SumLine.Line -split "\s+")[0].ToLower()
         $Actual = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $Tmp $Asset)).Hash.ToLower()
         if ($Expected -ne $Actual) {
-            Write-Host "  checksum verification FAILED for $Asset — refusing to install" -ForegroundColor Red
+            Write-Host "  checksum verification FAILED for $Asset -- refusing to install" -ForegroundColor Red
             exit 1
         }
         Write-Host "  checksum verified" -ForegroundColor Green
@@ -79,7 +79,7 @@ function Install-AssetTap {
         $Exe = Join-Path $InstallDir "asset-tap.exe"
         $Version = & $Exe --version
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  installed binary failed to run — please report: https://github.com/$Repo/issues" -ForegroundColor Red
+            Write-Host "  installed binary failed to run -- please report: https://github.com/$Repo/issues" -ForegroundColor Red
             exit 1
         }
         Write-Host "  installed $Version -> $InstallDir (asset-tap + atap)" -ForegroundColor Green
