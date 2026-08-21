@@ -378,6 +378,12 @@ jobs:
       # this proves the script's download/verify/install contract end-to-end
       # (platform detection, SHA256SUMS verification, PATH-free install) so a
       # broken installer can never sit at assettap.dev/install unnoticed.
+      # /install.sh is a byte-identical alias of /install (catches the
+      # uv/ollama-school muscle memory that guesses the .sh form). The
+      # canonical URL in all docs stays /install; this guard is what makes
+      # the duplicate safe — the two files can never drift.
+      - name: install.sh alias is byte-identical
+        run: cmp site/static/install site/static/install.sh
       - name: Run installer
         run: bash site/static/install
       - name: Run installer (pinned version path)
