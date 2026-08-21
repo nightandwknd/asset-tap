@@ -363,3 +363,28 @@ jobs:
           path: test_results/
           if-no-files-found: warn
           retention-days: 7
+
+  installer-smoke:
+    name: Installer Smoke
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      # Run the working-tree installer against the LATEST PUBLISHED release:
+      # this proves the script's download/verify/install contract end-to-end
+      # (platform detection, SHA256SUMS verification, PATH-free install) so a
+      # broken installer can never sit at assettap.dev/install unnoticed.
+      - name: Run installer
+        run: bash site/static/install
+      - name: Run installer (pinned version path)
+        # A historical tag: releases are immutable, so this exercises the
+        # pinned-URL code path forever without maintenance.
+        run: ASSET_TAP_INSTALL_DIR="$RUNNER_TEMP/pin" bash site/static/install v26.8.11
+      - name: Installed binary runs
+        run: '"$HOME/.local/bin/asset-tap" --version'
+      - name: atap alias runs
+        run: '"$HOME/.local/bin/atap" --version'

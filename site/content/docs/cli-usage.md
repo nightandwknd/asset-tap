@@ -18,17 +18,15 @@ Asset Tap includes a full-featured command-line interface for automation, script
 
 > **Alias:** release installs also provide `atap`, a short alias for `asset-tap` (symlink on macOS/Linux, `atap.cmd` on Windows). Every command on this page works with either name.
 
-The CLI is included with all installers, or available as a standalone download. See the [Installation page](@/docs/installation.md) for platform-specific instructions.
-
-**macOS** -- The CLI is bundled inside the app. Create a symlink to use it from the terminal:
+**macOS / Linux** -- one line (checksum-verified, installs `asset-tap` + `atap` to `~/.local/bin`):
 
 ```bash
-sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
+curl -fsSL https://assettap.dev/install | bash
 ```
 
-**Linux (.deb)** -- The CLI is installed to `/usr/bin/asset-tap` automatically.
+**Windows** -- download [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip) and add the extracted folder to your `PATH`.
 
-**Windows** -- The CLI is available after install if the installer adds the install directory to PATH.
+(The Linux `.deb` desktop package also installs the CLI system-wide -- see the [Installation page](@/docs/installation.md) for every option.)
 
 ## API Key Configuration
 

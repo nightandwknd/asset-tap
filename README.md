@@ -15,45 +15,44 @@
 
 Text prompt → AI image → 3D model → FBX export
 
-## Download & Install
+## Install
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/nightandwknd/asset-tap/releases/latest).
+Two things you can install — pick what you need (or both): the **CLI** for
+your terminal, and the **desktop app** (GUI).
 
-### macOS
+### Install the CLI (macOS / Linux)
 
-**DMG Installer (Universal — Intel + Apple Silicon)**
+```bash
+curl -fsSL https://assettap.dev/install | bash
+```
+
+Installs `asset-tap` and the `atap` alias to `~/.local/bin`, checksum-verified against the release's `SHA256SUMS`. Pin a version with `... | bash -s -- v26.8.12`; change the destination with `ASSET_TAP_INSTALL_DIR=/some/bin`. On Windows, use [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip) (contains `asset-tap.exe` and `atap.cmd` — add the extracted folder to your `PATH`).
+
+Then:
+
+```bash
+asset-tap auth set fal.ai        # or: asset-tap auth set meshy
+asset-tap "a stylized sci-fi crate"
+```
+
+### Install the Desktop App
+
+Download your platform's installer from [GitHub Releases](https://github.com/nightandwknd/asset-tap/releases/latest).
+
+**macOS (Universal — Intel + Apple Silicon)**
 
 1. Download [AssetTap-macos.dmg](https://github.com/nightandwknd/asset-tap/releases/latest/download/AssetTap-macos.dmg)
 2. Open the DMG file
 3. Drag **AssetTap** to your Applications folder
 4. Launch from Applications or Spotlight
 
-**CLI Setup (Optional)**
+The app carries its own copy of the CLI internally; for terminal use, run the CLI install above.
 
-The CLI is bundled inside the app. To use it from the terminal:
-
-```bash
-sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
-sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/atap   # optional short alias
-```
-
-Or download the standalone CLI (the archive also carries **`atap`**, a short
-alias for `asset-tap` — move both):
-
-```bash
-curl -LO https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-macos.tar.gz
-tar -xzf asset-tap-cli-macos.tar.gz
-sudo mv asset-tap atap /usr/local/bin/
-```
-
-### Windows
+**Windows**
 
 1. Download [asset-tap-windows-setup.exe](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-windows-setup.exe)
 2. Run the installer
 3. Launch from the Start Menu
-
-Or download the standalone CLI: [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip)
-(contains `asset-tap.exe` and `atap.cmd`, a short alias — add the extracted folder to your `PATH` and both work).
 
 ### Linux
 
@@ -74,8 +73,7 @@ chmod +x asset-tap-linux-x86_64.AppImage
 ./asset-tap-linux-x86_64.AppImage
 ```
 
-Or download the standalone CLI: [asset-tap-cli-linux.tar.gz](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-linux.tar.gz)
-(carries the `atap` alias too: `tar -xzf … && sudo mv asset-tap atap /usr/local/bin/`).
+The AppImage is the GUI only — pair it with the CLI install above for terminal use.
 
 ### Build from Source
 

@@ -162,7 +162,7 @@ ifndef CHECK_SHELLCHECK
 	@echo "shellcheck not found — install: brew install shellcheck"
 	@exit 1
 endif
-	shellcheck -S warning scripts/*.sh
+	shellcheck -S warning scripts/*.sh site/static/install
 
 fmt: ## Format all code (Rust + other files)
 	cargo fmt --all

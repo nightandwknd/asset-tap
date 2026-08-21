@@ -12,70 +12,63 @@ images = []
 tags = ["guide"]
 +++
 
-First, grab the right package for your platform from the [Downloads](https://assettap.dev/download/) page.
+There are two things you can install — pick what you need (or both):
 
-## macOS
+- **The CLI** — `asset-tap` in your terminal, for scripting, automation, and agents.
+- **The desktop app** — the GUI, installed per platform.
+
+## Install the CLI (macOS / Linux)
+
+```bash
+curl -fsSL https://assettap.dev/install | bash
+```
+
+This installs `asset-tap` and the `atap` alias to `~/.local/bin`, verifying the download against the release's `SHA256SUMS` first. Options:
+
+```bash
+# pin a specific release
+curl -fsSL https://assettap.dev/install | bash -s -- v26.8.12
+
+# install somewhere else
+curl -fsSL https://assettap.dev/install | ASSET_TAP_INSTALL_DIR=/usr/local/bin bash
+```
+
+The script is readable at [assettap.dev/install](https://assettap.dev/install), and every step it performs can be done by hand with the archives on the [Downloads](https://assettap.dev/download/) page.
+
+**Windows CLI:** download [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip) — it contains `asset-tap.exe` and `atap.cmd` (a short alias). Add the extracted folder to your `PATH`.
+
+## Install the Desktop App
+
+Grab your platform's installer from the [Downloads](https://assettap.dev/download/) page.
+
+### macOS
 
 All macOS downloads are universal binaries that run natively on both Intel and Apple Silicon Macs.
 
-**DMG Installer (Recommended)**
-
-The DMG includes both the GUI application and the CLI tool.
-
-1. Open the DMG file
+1. Open [AssetTap-macos.dmg](https://github.com/nightandwknd/asset-tap/releases/latest/download/AssetTap-macos.dmg)
 2. Drag **AssetTap** to your Applications folder
 3. Launch from Applications or Spotlight
 
-**CLI Setup (Optional)**
+The app carries its own copy of the CLI internally. To use `asset-tap` from your terminal, run the [CLI install](#install-the-cli-macos-linux) above — same binary, kept current independently of the app.
 
-The CLI is bundled inside the app. To use it from the terminal, create a symlink:
+### Windows
 
-```bash
-sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/asset-tap
-sudo ln -sf "/Applications/Asset Tap.app/Contents/MacOS/asset-tap" /usr/local/bin/atap   # optional short alias
-```
-
-Verify it works:
-
-```bash
-asset-tap --help
-```
-
-**CLI-Only Download (Alternative)**
-
-If you only need the CLI without the GUI:
-
-```bash
-tar -xzf asset-tap-cli-macos.tar.gz
-sudo mv asset-tap atap /usr/local/bin/   # atap = short alias, shipped in the archive
-```
-
-## Windows
-
-**NSIS Installer (Recommended)**
-
-1. Run the installer
+1. Run [asset-tap-windows-setup.exe](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-windows-setup.exe)
 2. Launch Asset Tap from the Start Menu
 
-**CLI-Only Download (Alternative)**
+For the terminal, use the Windows CLI zip from the [CLI section](#install-the-cli-macos-linux) above.
 
-```powershell
-Expand-Archive asset-tap-cli-windows.zip -DestinationPath .
-```
-
-The zip contains `asset-tap.exe` and `atap.cmd` (a short alias); add the extracted folder to your `PATH` and both work.
-
-## Linux
+### Linux
 
 **Debian/Ubuntu (.deb)**
 
-The `.deb` package installs both the GUI and CLI.
+The `.deb` package installs the GUI and the CLI together, system-wide:
 
 ```bash
 sudo dpkg -i asset-tap-linux-amd64.deb
 ```
 
-After installation, `asset-tap-gui`, `asset-tap`, and the `atap` alias are available system-wide.
+After installation, `asset-tap-gui`, `asset-tap`, and the `atap` alias are on your `PATH` — no separate CLI install needed.
 
 **AppImage (Universal)**
 
@@ -84,12 +77,7 @@ chmod +x asset-tap-linux-x86_64.AppImage
 ./asset-tap-linux-x86_64.AppImage
 ```
 
-Note: The AppImage contains only the GUI. For the CLI, download the standalone archive from the [Downloads](https://assettap.dev/download/) page and extract:
-
-```bash
-tar -xzf asset-tap-cli-linux.tar.gz
-sudo mv asset-tap atap /usr/local/bin/   # atap = short alias, shipped in the archive
-```
+The AppImage is the GUI only — pair it with the [CLI install](#install-the-cli-macos-linux) above for terminal use.
 
 ## Blender (Optional)
 
