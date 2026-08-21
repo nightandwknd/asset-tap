@@ -2,6 +2,16 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.14 — 2026-08-21
+
+### Bug Fixes
+
+- pin zola everywhere — local builds auto-download the pinned version ([#63](https://github.com/nightandwknd/asset-tap/pull/63)) _(site)_
+
+### Features
+
+- one-line CLI installer at assettap.dev/install ([#62](https://github.com/nightandwknd/asset-tap/pull/62)) _(install)_
+
 ## v26.8.13 — 2026-08-20
 
 ### Bug Fixes
