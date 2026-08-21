@@ -841,9 +841,103 @@ impl App {
         });
     }
 
-    /// Import a bundle from a zip archive or a plain bundle directory
-    /// (e.g. a CLI run's output folder) in the background.
+    /// Image formats the pipeline's providers accept as input references.
+    /// Single source of truth for the input-image dropzone AND the Browse
+    /// picker — two lists here already drifted once (8 vs 4 extensions).
+    pub(crate) const IMAGE_EXTS: &'static [&'static str] =
+        &["png", "jpg", "jpeg", "webp", "gif", "avif"];
+
+    /// True when the path has an image extension the pipeline accepts.
+    pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
+        path.extension()
+            .is_some_and(|e| Self::IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    }
+
+    /// True for paths that should route to bundle import when dropped on the
+    /// window: bundle folders, zip archives, and bundle.json files. Image
+    /// files are NOT bundle drops — the input-image dropzone owns those.
+    pub(crate) fn is_bundle_drop(path: &std::path::Path) -> bool {
+        path.is_dir()
+            || path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+            || path
+                .file_name()
+                .is_some_and(|n| n == asset_tap_core::constants::files::bundle::METADATA)
+    }
+
+    /// Window-level drag & drop: dropping a bundle folder, zip, or
+    /// bundle.json anywhere imports it into the library, with a full-window
+    /// overlay while such a file hovers. Runs before the panels so the
+    /// input-image dropzone (which filters for image files) never races it.
+    fn handle_bundle_drops(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .filter(|p| Self::is_bundle_drop(p))
+                .collect()
+        });
+        // Multiple bundles dropped at once all import; only the last one's
+        // completion toast surfaces (pending_import tracks one receiver),
+        // but the bundle list refresh picks them all up.
+        for path in dropped {
+            self.import_bundle(path);
+        }
+
+        let hovering_bundle = ctx.input(|i| {
+            i.raw
+                .hovered_files
+                .iter()
+                .any(|f| f.path.as_deref().is_some_and(Self::is_bundle_drop))
+        });
+        if hovering_bundle {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("bundle_drop_overlay"),
+            ));
+            let rect = ctx.content_rect();
+            painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(160));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Drop to import bundle",
+                egui::FontId::proportional(28.0),
+                egui::Color32::WHITE,
+            );
+        }
+    }
+
+    /// Import a bundle from a zip archive, a plain bundle directory (e.g. a
+    /// CLI run's output folder), or a bundle.json inside one — pickers can't
+    /// make "double-click a folder" mean SELECT on macOS (it navigates), but
+    /// double-clicking the folder's bundle.json is unambiguous.
     fn import_bundle(&mut self, source: std::path::PathBuf) {
+        // Normalize bundle.json → its containing directory. Any OTHER .json
+        // is a wrong pick — say so instead of letting the zip importer
+        // report a misleading "invalid zip archive".
+        let is_metadata = source
+            .file_name()
+            .is_some_and(|n| n == asset_tap_core::constants::files::bundle::METADATA);
+        if !is_metadata
+            && source
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        {
+            self.add_toast(Toast::error(
+                "That JSON isn't a bundle.json — pick the bundle.json inside a bundle folder, or a .zip archive",
+            ));
+            return;
+        }
+        let source = if is_metadata {
+            match source.parent() {
+                Some(dir) => dir.to_path_buf(),
+                None => source,
+            }
+        } else {
+            source
+        };
         let output_dir = self.settings.output_dir.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_import = Some(rx);
@@ -1351,7 +1445,7 @@ impl App {
         // Spawn the async file dialog on the runtime
         self.runtime.spawn(async move {
             let result = rfd::AsyncFileDialog::new()
-                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                .add_filter("Images", Self::IMAGE_EXTS)
                 .pick_file()
                 .await
                 .map(|handle| handle.path().to_path_buf());
@@ -2036,6 +2130,9 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Window-level bundle drag & drop, before any panel reads input.
+        self.handle_bundle_drops(ctx);
+
         // Captured under the state lock and processed after release; see the
         // error-toast branch below for context.
         let mut pending_recovery_bundle: Option<PathBuf> = None;
@@ -2461,8 +2558,13 @@ impl eframe::App for App {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Import Bundle...").clicked() {
+                        // A folder can't be double-clicked in a file picker
+                        // (that navigates), so the filter also accepts the
+                        // folder's bundle.json — double-clicking THAT imports
+                        // the folder. Dragging a folder onto the window works
+                        // too.
                         if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Bundle Archive", &["zip"])
+                            .add_filter("Bundle (zip or bundle.json)", &["zip", "json"])
                             .pick_file()
                         {
                             self.import_bundle(path);
@@ -2470,6 +2572,8 @@ impl eframe::App for App {
                         ui.close();
                     }
                     if ui.button("Import Bundle Folder...").clicked() {
+                        // macOS note: single-click the folder, then Open —
+                        // double-clicking navigates into it.
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             self.import_bundle(path);
                         }
@@ -2771,9 +2875,33 @@ impl eframe::App for App {
 #[cfg(test)]
 mod tests {
     use super::{
-        PreviewTab, ToastType, build_startup_toasts, is_no_op_run, is_remote_url,
+        App, PreviewTab, ToastType, build_startup_toasts, is_no_op_run, is_remote_url,
         pick_preview_tab_for_output,
     };
+
+    #[test]
+    fn bundle_drop_routing_predicate() {
+        use std::path::Path;
+        let tmp = tempfile::tempdir().unwrap();
+        // Directories, zips, and bundle.json route to bundle import.
+        assert!(App::is_bundle_drop(tmp.path()));
+        assert!(App::is_bundle_drop(Path::new("helmet.zip")));
+        assert!(App::is_bundle_drop(Path::new("run/bundle.json")));
+        // Images and arbitrary json do NOT.
+        assert!(!App::is_bundle_drop(Path::new("helmet.png")));
+        assert!(!App::is_bundle_drop(Path::new("settings.json")));
+    }
+
+    #[test]
+    fn image_file_predicate_matches_pipeline_formats() {
+        use std::path::Path;
+        for ok in ["a.png", "b.JPG", "c.jpeg", "d.webp", "e.gif", "f.avif"] {
+            assert!(App::is_image_file(Path::new(ok)), "{ok}");
+        }
+        for no in ["m.glb", "z.zip", "bundle.json", "noext"] {
+            assert!(!App::is_image_file(Path::new(no)), "{no}");
+        }
+    }
     use asset_tap_core::settings::LoadStatus;
     use asset_tap_core::types::PipelineOutput;
     use std::path::PathBuf;
