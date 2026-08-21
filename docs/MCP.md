@@ -1,12 +1,14 @@
 # asset-tap as an MCP server
 
 `asset-tap mcp` serves the [Model Context Protocol](https://modelcontextprotocol.io)
-over stdio, for agent hosts that don't have a shell — Claude Desktop, Cursor,
-IDE agents. It is a **thin front door**: every tool maps 1:1 onto something the
+over stdio. It is a **thin front door**: every tool maps 1:1 onto something the
 CLI already does and returns the same shapes as the `--json` wire format
 ([CLI_MACHINE_INTERFACE.md](CLI_MACHINE_INTERFACE.md)), so the two can't drift.
-If your agent has a shell (Claude Code, Cursor's terminal agent), the CLI itself
-is usually the better interface — see [AGENTS.md](../AGENTS.md).
+For hosts with no shell (Claude Desktop and other chat apps) it is the only way
+in; for agents that have one (Cursor's agent, IDE agents, Claude Code) both
+work — MCP gives discovered, typed tools with progress and cancellation, while
+the CLI is the more direct interface for terminal-native agents — see
+[AGENTS.md](../AGENTS.md).
 
 ## Install
 

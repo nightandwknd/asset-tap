@@ -12,7 +12,13 @@ images = []
 tags = ["reference"]
 +++
 
-`asset-tap mcp` serves the [Model Context Protocol](https://modelcontextprotocol.io) over stdio, for agent hosts that don't have a shell -- Claude Desktop, Cursor, IDE agents. It is a **thin front door**: every tool maps 1:1 onto something the CLI already does and returns the same shapes as the `--json` wire format, so the two can't drift. If your agent has a shell (Claude Code, Cursor's terminal agent), the [CLI itself](@/docs/cli-usage.md) is usually the better interface.
+`asset-tap mcp` serves the [Model Context Protocol](https://modelcontextprotocol.io) over stdio. It is a **thin front door**: every tool maps 1:1 onto something the CLI already does and returns the same shapes as the `--json` wire format, so the two can't drift.
+
+When to use which:
+
+- **Hosts with no shell at all** (Claude Desktop and other chat apps) -- the MCP server is the only way in.
+- **Agents that have a shell** (Cursor's agent, IDE agents, Claude Code) -- both work. The MCP gives you discovered, typed tools with structured results, live progress, and clean cancellation, with no `PATH` or output-parsing concerns; the [CLI](@/docs/cli-usage.md) is the more direct interface if your agent already lives in a terminal.
+- **Long-running generation** benefits from MCP either way: progress streams as notifications and cancelling the request cancels the pipeline.
 
 ## Setup
 
