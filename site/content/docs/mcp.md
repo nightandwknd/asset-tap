@@ -16,7 +16,7 @@ tags = ["reference"]
 
 ## Setup
 
-The binary must be on `PATH` (or use its absolute path) -- see [Installation](@/docs/installation.md). Provider keys are the CLI's: `asset-tap auth set fal.ai` or an env var such as `FAL_KEY` -- the MCP server reads the same settings. Saved keys are loaded when the server starts; if you add one with `auth set` while a server is running, restart it (hosts do this on config change).
+The binary must be on `PATH` -- see [Installation](@/docs/installation.md). **For GUI-launched hosts (Claude Desktop), use the absolute path instead**: apps launched outside a terminal don't inherit your shell's `PATH`, so a bare `asset-tap` command can silently fail to spawn (e.g. use `"command": "/Users/you/.local/bin/asset-tap"`). Provider keys are the CLI's: `asset-tap auth set fal.ai` or an env var such as `FAL_KEY` -- the MCP server reads the same settings. Saved keys are loaded when the server starts; if you add one with `auth set` while a server is running, restart it (hosts do this on config change).
 
 **Claude Code**
 
@@ -34,7 +34,7 @@ claude mcp add asset-tap -- asset-tap mcp
 }
 ```
 
-Env vars can be passed the usual way (`"env": {"FAL_KEY": "..."}`) if the host doesn't inherit your shell's.
+Env vars can be passed the usual way (`"env": {"FAL_KEY": "..."}`) if the host doesn't inherit your shell's. After editing a host's config, fully quit and reopen it -- a config reload without a real restart is the most common "server doesn't appear" cause.
 
 ## Tools
 
@@ -53,7 +53,7 @@ Returns `{bundle_dir, files[], bundle}`.
 `image_only`, `output_dir`, `name`. Runs the generation pipeline and returns
 `{status: "success", bundle_dir, duration_ms, bundle}`.
 
-Every tool returns **structured content** (JSON) plus the same JSON as text, so hosts that read either work.
+Every tool returns **structured content** (JSON) plus the same JSON as text, so hosts that read either work. `list_catalog` and `auth_status` make no API calls -- they're free to use as preflight checks.
 
 ## `generate` semantics
 
@@ -69,4 +69,4 @@ Every tool returns **structured content** (JSON) plus the same JSON as text, so 
 - Not a hosted/remote service -- stdio only, runs on your machine with your keys.
 - Not a place capability appears first: anything the MCP can do, the CLI can do, by construction.
 
-Deeper reference (wire-format details, zero-cost testing with mock builds): [docs/MCP.md](https://github.com/nightandwknd/asset-tap/blob/main/docs/MCP.md) in the repository.
+The tools return the same shapes as the CLI's `--json` output; the full wire-format specification is [CLI_MACHINE_INTERFACE.md](https://github.com/nightandwknd/asset-tap/blob/main/docs/CLI_MACHINE_INTERFACE.md) in the repository.
