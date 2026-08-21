@@ -1,7 +1,8 @@
 //! Model Context Protocol server: `asset-tap mcp` (stdio).
 //!
-//! A thin front door for agent hosts that don't have a shell (Claude
-//! Desktop, Cursor, IDEs). Every tool maps 1:1 onto something the CLI already
+//! A thin front door for MCP hosts (Claude Desktop, Cursor, IDE agents —
+//! required where the host has no shell, useful alongside one where it
+//! does). Every tool maps 1:1 onto something the CLI already
 //! does and returns the same shapes the `--json` wire format uses
 //! (`machine.rs`), so the two can't drift:
 //!

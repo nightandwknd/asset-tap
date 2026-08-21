@@ -83,7 +83,7 @@ no-cost calls against a release binary.
 
 ## No shell? Use the MCP server
 
-Hosts without a shell (Claude Desktop, Cursor, IDE agents) can add
+MCP hosts (Claude Desktop, Cursor, IDE agents) can add
 `asset-tap mcp` as an MCP server — `claude mcp add asset-tap -- asset-tap mcp`
 or a `{"command": "asset-tap", "args": ["mcp"]}` entry. Its tools
 (`list_catalog`, `auth_status`, `inspect_bundle`, `generate`) return the same

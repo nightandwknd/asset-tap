@@ -12,7 +12,7 @@ images = []
 tags = ["reference"]
 +++
 
-Asset Tap includes a full-featured command-line interface for automation, scripting, and headless generation.
+Asset Tap includes a full-featured command-line interface for automation, scripting, and headless generation. (The same capabilities are also exposed as an [MCP server](@/docs/mcp.md) for MCP hosts like Claude Desktop and Cursor.)
 
 ## Installation
 

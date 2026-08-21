@@ -211,8 +211,8 @@ enum Command {
         #[command(subcommand)]
         action: DemoAction,
     },
-    /// Serve the Model Context Protocol over stdio (for agent hosts without a
-    /// shell: Claude Desktop, Cursor, IDEs). Same internals as the CLI: the
+    /// Serve the Model Context Protocol over stdio (for MCP hosts: Claude
+    /// Desktop, Cursor, IDE agents). Same internals as the CLI: the
     /// tools are `list_catalog`, `auth_status`, `inspect_bundle`, `generate`.
     /// Add with e.g. `claude mcp add asset-tap -- asset-tap mcp`.
     Mcp,
