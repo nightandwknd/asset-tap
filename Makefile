@@ -314,9 +314,9 @@ UNAME_S := $(shell uname -s)
 # names) say aarch64.
 UNAME_M := $(shell uname -m | sed 's/arm64/aarch64/')
 ifeq ($(UNAME_S),Darwin)
-  ZOLA_TARGET := $(UNAME_M)-apple-darwin
+ZOLA_TARGET := $(UNAME_M)-apple-darwin
 else
-  ZOLA_TARGET := $(UNAME_M)-unknown-linux-gnu
+ZOLA_TARGET := $(UNAME_M)-unknown-linux-gnu
 endif
 
 $(ZOLA_BIN):
