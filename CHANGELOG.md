@@ -2,6 +2,13 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.15 — 2026-08-21
+
+### Features
+
+- Windows one-liner — irm assettap.dev/install.ps1 | iex ([#65](https://github.com/nightandwknd/asset-tap/pull/65)) _(install)_
+- window-level bundle drag & drop + bundle.json import ([#66](https://github.com/nightandwknd/asset-tap/pull/66)) _(gui)_
+
 ## v26.8.14 — 2026-08-21
 
 ### Bug Fixes
