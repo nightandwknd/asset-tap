@@ -334,10 +334,12 @@ impl BundleInfoPanel {
 
                     if ui
                         .button(icons::TRAY_ARROW_DOWN.to_string())
-                        .on_hover_text("Import a bundle from a zip archive")
+                        .on_hover_text(
+                            "Import a bundle: pick a .zip archive or a bundle folder's bundle.json (or drag either onto the window)",
+                        )
                         .clicked()
                         && let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Bundle Archive", &["zip"])
+                            .add_filter("Bundle (zip or bundle.json)", &["zip", "json"])
                             .pick_file()
                     {
                         action = Some(BundleInfoAction::ImportBundle(path));

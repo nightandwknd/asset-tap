@@ -310,21 +310,32 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 app.select_existing_image();
             }
 
-            // Check for dropped files
+            // Check for dropped files. Only claim IMAGE files — bundle
+            // folders, zips, and bundle.json route to the window-level
+            // bundle import (App::handle_bundle_drops), not the input image.
             let mut dropped_image = None;
             ui.ctx().input(|i| {
-                if !i.raw.dropped_files.is_empty() {
-                    for file in &i.raw.dropped_files {
-                        if let Some(path) = &file.path {
-                            dropped_image = Some(path.to_string_lossy().to_string());
-                            break;
-                        }
+                for file in &i.raw.dropped_files {
+                    if let Some(path) = &file.path
+                        && crate::app::App::is_image_file(path)
+                    {
+                        dropped_image = Some(path.to_string_lossy().to_string());
+                        break;
                     }
                 }
             });
 
-            // Visual styling for dropzone
-            let is_being_dragged = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
+            // Visual styling for dropzone. Light up only when an IMAGE is
+            // being dragged — bundle folders/zips/bundle.json get the
+            // window-level import overlay instead, and lighting both reads
+            // as "this drop goes to the image slot" when it doesn't.
+            let is_being_dragged = ui.ctx().input(|i| {
+                i.raw.hovered_files.iter().any(|f| {
+                    f.path
+                        .as_deref()
+                        .is_some_and(crate::app::App::is_image_file)
+                })
+            });
             let bg_color = if is_being_dragged {
                 ui.visuals().selection.bg_fill.gamma_multiply(0.3)
             } else if response.hovered() {

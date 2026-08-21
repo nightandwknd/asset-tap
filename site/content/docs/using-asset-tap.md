@@ -81,6 +81,21 @@ The Library view lets you browse all previously generated models. Each entry sho
 
 Bundles are loaded from your configured output directory. See [Bundle Structure](@/docs/bundle-structure.md) for details on the output format.
 
+## Importing Bundles
+
+Bring bundles into your library from anywhere -- a CLI run that used a custom
+output directory, a bundle someone shared, or an exported archive:
+
+- **Drag & drop** -- drop a bundle folder, a `.zip` archive, or a bundle's
+  `bundle.json` anywhere on the window.
+- **File → Import Bundle...** -- pick a `.zip`, or navigate into a bundle
+  folder and double-click its `bundle.json`.
+- **File → Import Bundle Folder...** -- single-click the folder, then Open
+  (double-clicking navigates into it -- that's the OS file picker, not us).
+
+Imports are copied into your library; the source is left untouched. Zips made
+with macOS's built-in Compress work fine.
+
 ## Settings
 
 Open Settings from the gear icon to configure:
