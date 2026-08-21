@@ -24,7 +24,11 @@ Asset Tap includes a full-featured command-line interface for automation, script
 curl -fsSL https://assettap.dev/install | bash
 ```
 
-**Windows** -- download [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip) and add the extracted folder to your `PATH`.
+**Windows** -- one line in PowerShell (checksum-verified, installs to `%LOCALAPPDATA%\AssetTap\bin` and registers it on your user `PATH`):
+
+```powershell
+irm https://assettap.dev/install.ps1 | iex
+```
 
 (The Linux `.deb` desktop package also installs the CLI system-wide -- see the [Installation page](@/docs/installation.md) for every option.)
 

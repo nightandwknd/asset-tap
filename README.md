@@ -26,7 +26,13 @@ your terminal, and the **desktop app** (GUI).
 curl -fsSL https://assettap.dev/install | bash
 ```
 
-Installs `asset-tap` and the `atap` alias to `~/.local/bin`, checksum-verified against the release's `SHA256SUMS`. Pin a version with `... | bash -s -- v26.8.12`; change the destination with `ASSET_TAP_INSTALL_DIR=/some/bin`. On Windows, use [asset-tap-cli-windows.zip](https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-cli-windows.zip) (contains `asset-tap.exe` and `atap.cmd` — add the extracted folder to your `PATH`).
+Installs `asset-tap` and the `atap` alias to `~/.local/bin`, checksum-verified against the release's `SHA256SUMS`. Pin a version with `... | bash -s -- v26.8.12`; change the destination with `ASSET_TAP_INSTALL_DIR=/some/bin`. On Windows (PowerShell):
+
+```powershell
+irm https://assettap.dev/install.ps1 | iex
+```
+
+Installs `asset-tap.exe` and the `atap` alias to `%LOCALAPPDATA%\AssetTap\bin` and adds it to your user `PATH`, checksum-verified. Pin with `$env:ASSET_TAP_VERSION = "v26.8.12"` first.
 
 Then:
 
