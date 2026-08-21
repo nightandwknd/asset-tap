@@ -388,3 +388,35 @@ jobs:
         run: '"$HOME/.local/bin/asset-tap" --version'
       - name: atap alias runs
         run: '"$HOME/.local/bin/atap" --version'
+
+  installer-smoke-windows:
+    name: Installer Smoke (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows PowerShell 5.1 is what's preinstalled on users' machines;
+        # pwsh 7 is what power users run. The installer must work under both.
+        shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run installer
+        run: ./site/static/install.ps1
+      - name: Installed binary runs
+        run: |
+          & (Join-Path $env:LOCALAPPDATA "AssetTap\bin\asset-tap.exe") --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: atap alias runs
+        run: |
+          & (Join-Path $env:LOCALAPPDATA "AssetTap\bin\atap.cmd") --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Pinned version path
+        run: |
+          $env:ASSET_TAP_VERSION = "v26.8.11"
+          $env:ASSET_TAP_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "pin"
+          ./site/static/install.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }

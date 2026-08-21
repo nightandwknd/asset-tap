@@ -47,7 +47,7 @@ main() {
             fail "no prebuilt CLI for Linux arm64 yet — build from source: https://github.com/$REPO#building-from-source"
             ;;
         MINGW* | MSYS* | CYGWIN* | Windows*)
-            fail "this installer is for macOS/Linux — on Windows, use the zip: https://github.com/$REPO/releases/latest/download/asset-tap-cli-windows.zip"
+            fail "this installer is for macOS/Linux — on Windows run: irm https://assettap.dev/install.ps1 | iex"
             ;;
         *)
             fail "unsupported platform: $platform — downloads: https://github.com/$REPO/releases/latest"
