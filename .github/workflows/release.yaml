@@ -9,6 +9,7 @@ on:
       - '.github/dependabot.yaml'
       - '.github/workflows/site.yaml'
       - '.github/workflows/ci.yaml'
+      - '.github/workflows/audit-schedule.yaml'
       - '.vscode/**'
       - 'docs/**'
       - 'site/**'
