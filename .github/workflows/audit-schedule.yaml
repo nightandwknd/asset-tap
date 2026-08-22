@@ -1,0 +1,22 @@
+name: Scheduled Audit
+
+# New advisories land on their own schedule; the push-time audit only runs
+# when Cargo.lock changes. This daily run catches advisories against an
+# unchanged lockfile so they surface as their own signal instead of
+# redlining unrelated PRs (the 2026-08-20 h2/RUSTSEC-2026-0258 lesson).
+on:
+  schedule:
+    - cron: '41 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: Security Audit (scheduled)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: make audit

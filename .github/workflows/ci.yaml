@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 3
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      lockfile: ${{ steps.filter.outputs.lockfile }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -41,6 +42,8 @@ jobs:
               - '.github/actions/**'
               - '.github/workflows/ci.yaml'
               - 'rust-toolchain.toml'
+            lockfile:
+              - 'Cargo.lock'
 
   # ─── Layer 0: All independent jobs run in parallel ──────────────────
   fmt:
@@ -162,10 +165,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make doc
 
+  # Advisories arrive on their own schedule, not ours — the push-time gate
+  # only runs audit when the LOCKFILE changed; the daily scheduled audit
+  # workflow catches new advisories against an unchanged lockfile without
+  # redlining unrelated PRs (the 2026-08-20 h2 advisory did exactly that).
   audit:
     name: Security Audit
     needs: [changes]
-    if: needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.lockfile == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
