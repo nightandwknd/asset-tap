@@ -281,6 +281,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # gh workflow run in the stale hand-off below.
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -291,17 +293,31 @@ jobs:
         with:
           tool: git-cliff,dprint
 
-      # A rerun executes against its original SHA; if main has moved, the newer
-      # push's release supersedes this one.
-      - name: Abort stale rerun
+      # This run executes against its original SHA; if main has moved, it
+      # cannot release (the tag would name a tree these artifacts were not
+      # built from, and the atomic push would be rejected). The newer push
+      # is not guaranteed to release anything either: dependabot merges and
+      # paths-ignored pushes skip. So hand the baton forward: dispatch a
+      # fresh run on the new head and skip the rest of this job. The
+      # dispatched run computes should_release for itself, so if the newer
+      # push did release, it is a clean no-op. (workflow_dispatch is the
+      # documented exception to GITHUB_TOKEN recursion prevention.)
+      - name: Hand off if superseded
+        id: stale
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch origin main
           if [ "$(git rev-parse origin/main)" != "${{ github.sha }}" ]; then
-            echo "::error::main has moved past ${{ github.sha }}; superseded by the newer push's release"
-            exit 1
+            echo "::notice::main has moved past ${{ github.sha }}; dispatching a fresh release run on the new head"
+            gh workflow run release.yaml --ref main
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create release commit and tag
+        if: steps.stale.outputs.stale != 'true'
         run: |
           NEW_VERSION="${{ needs.version.outputs.new_version }}"
 
@@ -324,11 +340,13 @@ jobs:
           git push --atomic origin main "refs/tags/v${NEW_VERSION}"
 
       - name: Download all artifacts
+        if: steps.stale.outputs.stale != 'true'
         uses: actions/download-artifact@v8
         with:
           path: artifacts
 
       - name: Prepare release assets
+        if: steps.stale.outputs.stale != 'true'
         run: |
           mkdir -p release
 
@@ -360,6 +378,7 @@ jobs:
           ls -la release/
 
       - name: Generate checksums
+        if: steps.stale.outputs.stale != 'true'
         run: |
           # SHA-256 over every release asset; downstream consumers verify
           # downloads against this file. Paths are basenames so `sha256sum -c`
@@ -368,6 +387,7 @@ jobs:
           cat release/SHA256SUMS.txt
 
       - name: Create GitHub Release
+        if: steps.stale.outputs.stale != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           CHANGELOG: ${{ needs.version.outputs.changelog }}
