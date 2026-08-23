@@ -305,8 +305,8 @@ verify-sign-macos: ## Verify macOS signing, stapling, and Gatekeeper acceptance
 # pinned binary is downloaded
 # once into site/.bin/ and used by every site target, so local builds match
 # the deploy exactly.
-# Keep in sync with BOTH pins in .github/workflows/site.yaml
-# (taiki-e install-action `zola@…` and the shalzz/zola-deploy-action tag).
+# Keep in sync with BOTH taiki-e install-action `zola@…` pins in
+# .github/workflows/site.yaml (preview and publish jobs).
 ZOLA_VERSION := 0.23.4
 ZOLA_BIN := site/.bin/zola-$(ZOLA_VERSION)
 
