@@ -1,0 +1,7 @@
+@media (max-width: 768px) {
+  .content table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block main_class -%}
+{%- set home_layout = config.extra.home_layout | default(value="default") -%}
+{%- if section.extra.home_layout is defined -%}
+{%- set home_layout = section.extra.home_layout -%}
+{%- endif -%}
+{%- if home_layout == "wide" %} site-main-home-wide{% else %} site-main-home-default{% endif -%}
+{%- endblock main_class %}
+
+{% block content %}
+{% set docs_path = config.extra.devlab.docs.path | default(value="") %}
+{% set get_started_path = config.extra.devlab.docs.get_started_path | default(value="") %}
+{% set home_layout = config.extra.home_layout | default(value="default") %}
+{% if section.extra.home_layout is defined %}
+{% set home_layout = section.extra.home_layout %}
+{% endif %}
+{% set home_hero_image = config.extra.home_hero_image | default(value="") %}
+{% if section.extra.home_hero_image is defined %}
+{% set home_hero_image = section.extra.home_hero_image %}
+{% endif %}
+{% set home_hero_image_alt = config.extra.home_hero_image_alt | default(value="") %}
+{% if section.extra.home_hero_image_alt is defined %}
+{% set home_hero_image_alt = section.extra.home_hero_image_alt %}
+{% endif %}
+{% set home_eyebrow = config.extra.home_eyebrow | default(value="Developer-first Zola theme") %}
+{% if section.extra.home_eyebrow is defined %}
+{% set home_eyebrow = section.extra.home_eyebrow %}
+{% endif %}
+{% set home_primary_action_label = config.extra.home_primary_action_label | default(value="Get started") %}
+{% if section.extra.home_primary_action_label is defined %}
+{% set home_primary_action_label = section.extra.home_primary_action_label %}
+{% endif %}
+{% set home_primary_action_path = config.extra.home_primary_action_path | default(value="") %}
+{% if not home_primary_action_path and get_started_path %}
+{% set home_primary_action_path = get_started_path %}
+{% endif %}
+{% if section.extra.home_primary_action_path is defined %}
+{% set home_primary_action_path = section.extra.home_primary_action_path %}
+{% endif %}
+{% set home_secondary_action_label = config.extra.home_secondary_action_label | default(value="Learn more") %}
+{% if section.extra.home_secondary_action_label is defined %}
+{% set home_secondary_action_label = section.extra.home_secondary_action_label %}
+{% endif %}
+{% set home_secondary_action_path = config.extra.home_secondary_action_path | default(value="") %}
+{% if section.extra.home_secondary_action_path is defined %}
+{% set home_secondary_action_path = section.extra.home_secondary_action_path %}
+{% endif %}
+
+<div class="home-page{% if home_layout == 'wide' %} home-page-wide{% else %} home-page-default{% endif %}">
+{% include "partials/devlab/home/hero.html" %}
+{% include "partials/devlab/home/features.html" %}
+
+{% set has_home_learn = false %}
+{% if section.extra.home_learn is defined or config.extra.home_learn is defined %}
+{% set has_home_learn = true %}
+{% endif %}
+{% set has_home_workflow = false %}
+{% if section.extra.home_workflow is defined or config.extra.home_workflow is defined %}
+{% set has_home_workflow = true %}
+{% endif %}
+{% set has_home_cta = false %}
+{% if section.extra.home_cta is defined or config.extra.home_cta is defined %}
+{% set has_home_cta = true %}
+{% endif %}
+
+{% if has_home_learn or has_home_workflow or has_home_cta %}
+<div class="home-learn" id="home-learn-more">
+  {% include "partials/devlab/home/learn.html" %}
+  {% include "partials/devlab/home/workflow.html" %}
+  {% include "partials/devlab/home/cta.html" %}
+</div>
+{% endif %}
+</div>
+{% endblock content %}

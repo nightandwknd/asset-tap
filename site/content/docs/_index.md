@@ -1,14 +1,10 @@
 +++
 title = "Documentation"
+description = "Install Asset Tap, generate your first asset, and go deeper with the CLI, MCP, and provider guides."
 sort_by = "weight"
-template = "docs-list.html"
-page_template = "docs-page.html"
+template = "docs.html"
+page_template = "doc-page.html"
 in_search_index = true
-
-[extra]
-images = []
 +++
 
-Everything you need to get started with Asset Tap and make the most of its features. Asset Tap generates 3D models from text prompts using a two-step AI pipeline: text-to-image, then image-to-3D.
-
-For developer and contributor documentation, see the [docs/ directory on GitHub](https://github.com/nightandwknd/asset-tap/tree/main/docs).
+Start with [installation](@/docs/getting-started/installation.md), then generate your first asset with the [first-asset walkthrough](@/docs/getting-started/first-asset.md).

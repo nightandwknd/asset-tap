@@ -33,7 +33,7 @@ jobs:
         with:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
           # zola-deploy-action version in `publish` below.
-          tool: zola@0.22.1
+          tool: zola@0.23.4
       - name: Build site
         if: github.event.action != 'closed'
         run: cd site && zola build --base-url "/pr-preview/pr-${{ github.event.number }}"
@@ -52,7 +52,7 @@ jobs:
       - name: Build and push to gh-pages
         # Keep in sync with ZOLA_VERSION in the Makefile (the action tag
         # tracks the zola version it bundles).
-        uses: shalzz/zola-deploy-action@v0.22.1
+        uses: shalzz/zola-deploy-action@v0.23.4
         env:
           BUILD_DIR: site
           PAGES_BRANCH: gh-pages

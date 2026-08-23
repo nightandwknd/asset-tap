@@ -1,0 +1,63 @@
+{# Internal DevLab partial. #}
+{% set has_home_hero_lead = section.description or section.content or home_primary_action_path or home_secondary_action_path %}
+<section class="hero{% if home_layout == 'wide' %} hero-wide{% if home_hero_image %} hero-with-media{% endif %}{% endif %}">
+  <div class="hero-copy">
+    <div class="hero-heading">
+      <p class="hero-eyebrow">{{ home_eyebrow }}</p>
+
+      <h1 class="hero-title">
+        {{ section.title }}
+      </h1>
+    </div>
+
+    {% if has_home_hero_lead %}
+    <div class="hero-lead">
+    {% if section.description %}
+      <p class="hero-description">
+        {{ section.description }}
+      </p>
+    {% endif %}
+
+    {% if section.content %}
+      <div class="hero-content">
+        {{ section.content | safe }}
+      </div>
+    {% endif %}
+
+    {% if home_primary_action_path or home_secondary_action_path %}
+      <div class="hero-actions">
+        {% if home_primary_action_path %}
+        <a class="button button-primary" href="{{<devlab.route_url path={home_primary_action_path} content_lang={lang} />}}">
+          {{ home_primary_action_label }}
+        </a>
+        {% endif %}
+
+        {% if home_secondary_action_path %}
+        <a class="button button-secondary" href="{{<devlab.route_url path={home_secondary_action_path} content_lang={lang} />}}">
+          {{ home_secondary_action_label }}
+        </a>
+        {% endif %}
+      </div>
+    {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if home_layout == "wide" and home_hero_image %}
+  {% set normalized_hero_image = home_hero_image | lower %}
+  {% set hero_image_is_remote = normalized_hero_image is starting_with(pat="http://") or normalized_hero_image is starting_with(pat="https://") or home_hero_image is starting_with(pat="//") %}
+  {% set hero_image_metadata = none %}
+  {% if not hero_image_is_remote %}
+  {% set hero_image_metadata = get_image_metadata(path=home_hero_image, allow_missing=true) %}
+  {% endif %}
+  <figure class="hero-media">
+    <img
+      src="{{<devlab.url path={home_hero_image} />}}"
+      alt="{{ home_hero_image_alt }}"
+      {% if hero_image_metadata %}width="{{ hero_image_metadata.width }}" height="{{ hero_image_metadata.height }}"{% endif %}
+      decoding="async"
+      fetchpriority="high"
+    >
+  </figure>
+  {% endif %}
+</section>

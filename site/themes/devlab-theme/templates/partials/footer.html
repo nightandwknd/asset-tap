@@ -1,0 +1,22 @@
+{% set footer_text = config.title %}
+{% if config.extra.devlab is defined and config.extra.devlab.brand is defined and config.extra.devlab.brand.footer_text is defined %}
+{% set footer_text = config.extra.devlab.brand.footer_text %}
+{% endif %}
+{% set footer_note = "" %}
+{% set footer_links = [] %}
+{% set footer_links_label = "Footer links" %}
+{% if config.extra.devlab is defined and config.extra.devlab.footer is defined %}
+{% set footer_note = config.extra.devlab.footer.note | default(value="") %}
+{% set footer_links = config.extra.devlab.footer.links | default(value=[]) %}
+{% set footer_links_label = config.extra.devlab.footer.links_label | default(value="Footer links") %}
+{% endif %}
+{% set footer_year = now() | date(format="%Y") %}
+{% set footer_class = "site-footer" %}
+{% if footer_compact is defined and footer_compact %}
+{% set footer_class = footer_class ~ " site-footer-compact" %}
+{% endif %}
+<footer class="{{ footer_class }}">
+  <div class="site-footer-inner">
+    {% include "partials/footer-content.html" %}
+  </div>
+</footer>

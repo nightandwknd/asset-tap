@@ -1,0 +1,28 @@
+.downloads-verification {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.45fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: start;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.downloads-verification-heading-only {
+  grid-template-columns: 1fr;
+}
+
+.downloads-verification-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.downloads-verification-body > p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 1.05rem;
+}
+
+.downloads-verification-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}

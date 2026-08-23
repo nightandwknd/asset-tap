@@ -1,0 +1,98 @@
+.home-learn-split {
+  width: 100%;
+  margin-inline: auto;
+  padding-block: clamp(var(--space-16), 8vw, 7rem);
+}
+
+.home-learn-split-with-points {
+  display: grid;
+  grid-template-columns: minmax(20rem, 0.82fr) minmax(0, 1.18fr);
+  gap: clamp(var(--space-12), 8vw, 8rem);
+  align-items: center;
+}
+
+.home-learn-split-copy {
+  max-width: 38rem;
+}
+
+.home-learn-split-copy > p:last-child {
+  font-size: var(--text-lg);
+}
+
+.home-learn-points {
+  position: relative;
+
+  display: grid;
+  margin: 0;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-2) 0;
+
+  list-style: none;
+  counter-reset: home-workflow;
+}
+
+.home-learn-points::before {
+  position: absolute;
+  inset-block: calc(var(--space-10) + var(--space-4));
+  inset-inline-start: calc(var(--space-2) + 1.125rem);
+
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--color-accent) 18%,
+    var(--color-border) 82%,
+    transparent
+  );
+  content: "";
+}
+
+.home-learn-point {
+  position: relative;
+
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  column-gap: var(--space-5);
+  padding-block: var(--space-6);
+  counter-increment: home-workflow;
+}
+
+.home-learn-point::before {
+  z-index: 1;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-strong);
+  color: var(--color-accent);
+  box-shadow: 0 0 0 var(--space-2) var(--color-surface-raised);
+  content: counter(home-workflow, decimal-leading-zero);
+
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.home-learn-point p,
+.home-learn-point span {
+  grid-column: 2;
+}
+
+.home-learn-point p {
+  margin: 0 0 var(--space-1);
+  color: var(--color-fg);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: var(--leading-snug);
+}
+
+.home-learn-point span {
+  color: var(--color-muted);
+  line-height: var(--leading-body);
+}

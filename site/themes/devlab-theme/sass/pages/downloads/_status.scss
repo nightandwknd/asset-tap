@@ -1,0 +1,61 @@
+.downloads-status,
+.downloads-verification {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.downloads-status {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.downloads-status-label,
+.download-card-status {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.downloads-status h2,
+.download-card h2,
+.downloads-verification h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.downloads-status-description {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.downloads-status-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem 0 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.downloads-status-list div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.35fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.downloads-status-list dt {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.downloads-status-list dd {
+  margin: 0;
+  color: var(--color-fg);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}

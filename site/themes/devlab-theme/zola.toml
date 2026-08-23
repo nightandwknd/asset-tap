@@ -1,0 +1,89 @@
+# The URL the site will be built for
+base_url = "https://example.com"
+title = "DevLab"
+description = "A modern Zola theme for developers, documentation and technical blogs."
+author = "RiPetitor"
+default_language = "en"
+
+# Whether to automatically compile all Sass files in the sass directory
+compile_sass = true
+
+# Whether to build a search index to be used later on by a JavaScript library
+build_search_index = true
+
+# Whether to generate Atom feeds
+generate_feeds = true
+feed_filenames = ["atom.xml"]
+exclude_paginated_pages_in_sitemap = "all"
+taxonomies = [{ name = "tags", paginate_by = 3 }]
+
+[search]
+index_format = "elasticlunr_javascript"
+include_title = true
+include_description = true
+include_content = true
+
+[markdown]
+insert_anchor_links = "right"
+
+[markdown.highlighting]
+light_theme = "github-light"
+dark_theme = "github-dark"
+
+[extra]
+home_layout = "wide"
+home_eyebrow = "Developer-first Zola theme"
+home_hero_image = ""
+home_hero_image_alt = ""
+home_primary_action_label = "Get started"
+home_primary_action_path = "/docs/getting-started/"
+home_secondary_action_label = "Learn more"
+home_secondary_action_path = "#home-learn-more"
+
+[extra.devlab.brand]
+logo_text = "DevLab"
+footer_text = "DevLab"
+show_logo_mark = true
+logo_mark_path = ""
+
+[extra.devlab.footer]
+note = "A Zola-native theme for technical projects."
+links = [
+  { name = "Codeberg", path = "https://codeberg.org/RiPetitor/devlab-theme", icon = "codeberg" },
+  { name = "Atom feed", path = "/atom.xml", icon = "rss" },
+]
+
+[extra.devlab.navigation]
+links = [
+  { name = "Home", path = "/" },
+  { name = "Docs", path = "/docs/", kind = "docs" },
+  { name = "Blog", path = "/blog/", kind = "blog" },
+  { name = "Downloads", path = "/downloads/" },
+]
+
+[extra.devlab.docs]
+section = "docs/_index.md"
+path = "/docs/"
+get_started_path = "/docs/getting-started/"
+navigation = [
+  { section = "docs/getting-started/_index.md" },
+  { section = "docs/guides/_index.md" },
+  { section = "docs/customization/_index.md" },
+  { section = "docs/reference/_index.md" },
+]
+
+[extra.devlab.blog]
+path = "/blog/"
+
+[extra.devlab.appearance]
+default_mode = "system"
+show_toggle = true
+
+[extra.devlab.i18n]
+rtl_languages = []
+
+[extra.devlab.search]
+index = ""
+
+[extra.devlab.seo]
+og_image = ""

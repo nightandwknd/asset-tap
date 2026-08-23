@@ -1,0 +1,42 @@
+{% set supported_footer_icons = [
+  "github",
+  "gitlab",
+  "codeberg",
+  "matrix",
+  "zulip",
+  "telegram",
+  "discord",
+  "rss",
+  "email",
+  "link"
+] %}
+
+{% if footer_note %}
+<p class="site-footer-note">{{ footer_note }}</p>
+{% endif %}
+
+<p class="site-footer-copyright">&copy; {{ footer_year }} {{ footer_text }}</p>
+
+{% if footer_links %}
+<nav class="site-footer-links" aria-label="{{ footer_links_label }}">
+  {% for footer_link in footer_links %}
+  {% if footer_link.name is defined and footer_link.path is defined %}
+  {% set footer_icon = footer_link.icon | default(value="") %}
+  {% set has_footer_icon = footer_icon in supported_footer_icons %}
+  <a
+    class="site-footer-link{% if has_footer_icon %} site-footer-link-icon{% endif %}"
+    href="{{<devlab.route_url path={footer_link.path} content_lang={lang} />}}"
+    {% if has_footer_icon %}aria-label="{{ footer_link.name }}"{% endif %}
+  >
+    {% if has_footer_icon %}
+    <span class="site-footer-link-mark" aria-hidden="true">
+      {{<devlab.svg_icon name={footer_icon} />}}
+    </span>
+    {% else %}
+    {{ footer_link.name }}
+    {% endif %}
+  </a>
+  {% endif %}
+  {% endfor %}
+</nav>
+{% endif %}

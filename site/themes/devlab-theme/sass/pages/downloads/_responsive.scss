@@ -1,0 +1,25 @@
+@media (max-width: 900px) {
+  .downloads-hero-with-status,
+  .downloads-verification {
+    grid-template-columns: 1fr;
+  }
+
+  .downloads-channels {
+    grid-template-columns: 1fr;
+  }
+
+  .download-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .downloads-page {
+    width: min(100% - var(--wide-gutter-compact), var(--wide-width));
+  }
+
+  .downloads-status-list div {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}

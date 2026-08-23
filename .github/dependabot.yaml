@@ -49,8 +49,10 @@ updates:
       # dtolnay/rust-toolchain@master + an explicit toolchain input, so
       # Dependabot must not treat action @tags as rustc upgrades.
       - dependency-name: 'dtolnay/rust-toolchain'
-      # Zola 0.23 dropped Tera template syntax; the vendored zap theme
-      # (site/themes/zap) must be ported before bumping past v0.22.x.
+      # The action tag tracks Zola versions and must move in LOCKSTEP with
+      # ZOLA_VERSION in the Makefile and the zola@ pin in site.yaml (all
+      # three bumped together, by hand). A solo bump here desyncs local
+      # builds from the deploy.
       - dependency-name: 'shalzz/zola-deploy-action'
     groups:
       # No update-types filter: action majors (checkout v6→v7 etc.) are

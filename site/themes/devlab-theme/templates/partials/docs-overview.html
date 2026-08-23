@@ -1,0 +1,45 @@
+{% set docs_section_path = config.extra.devlab.docs.section | default(value="") %}
+{% set is_docs_root = docs_context_path and section.path == docs_context_path %}
+{% set has_curated_docs_navigation = config.extra.devlab.docs.navigation is defined and config.extra.devlab.docs.navigation %}
+
+{% if has_curated_docs_navigation %}
+  {% if is_docs_root %}
+    <section class="docs-overview-direct docs-overview-catalog" aria-label="Documentation sections">
+      <ul class="docs-overview-card-grid">
+        {% for docs_navigation_entry in config.extra.devlab.docs.navigation %}
+          {% if lang == config.default_language %}
+          {% set overview_item = get_section(path=docs_navigation_entry.section, lang=lang) %}
+          {% else %}
+          {% set overview_item = get_section(path=docs_navigation_entry.section, lang=lang, allow_missing=true) %}
+          {% endif %}
+          {% if overview_item %}
+          {{<devlab.docs_overview_card item={overview_item} />}}
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </section>
+  {% elif section.pages or section.subsections %}
+    <section class="docs-overview-direct docs-overview-catalog" aria-label="Documentation pages and sections">
+      <ul class="docs-overview-card-grid">
+        {{<devlab.docs_overview_catalog_items catalog_section={section} content_lang={lang} />}}
+      </ul>
+    </section>
+  {% endif %}
+{% elif section.pages or section.subsections %}
+  {% if section.pages %}
+  <section class="docs-overview-direct" aria-label="Documentation pages">
+    <ul class="docs-overview-card-grid">
+    {% for page in section.pages %}
+      {{<devlab.docs_overview_card item={page} />}}
+    {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if section.subsections %}
+  <section class="docs-overview" aria-label="Documentation sections">
+    {% set overview_recursive = not is_docs_root %}
+    {{<devlab.docs_overview_tree parent_section={section} id_prefix="docs-overview" depth={1} recursive={overview_recursive} content_lang={lang} />}}
+  </section>
+  {% endif %}
+{% endif %}

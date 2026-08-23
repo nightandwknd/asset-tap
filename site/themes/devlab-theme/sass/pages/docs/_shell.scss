@@ -1,0 +1,9 @@
+.docs-shell {
+  display: grid;
+  grid-template-columns: 17.5rem minmax(0, 1fr) 15rem;
+  gap: 0;
+  align-items: start;
+
+  width: 100%;
+  min-height: calc(100vh - var(--header-height));
+}

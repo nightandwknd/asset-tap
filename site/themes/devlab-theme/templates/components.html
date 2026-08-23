@@ -1,0 +1,581 @@
+{# Global Tera 2 components provided by DevLab. #}
+
+{# URL resolution #}
+{% component devlab.url(path: string, content_lang: string = "") -%}
+{%- set normalized_path = path | lower -%}
+{%- set has_external_scheme =
+  normalized_path is starting_with(pat="http://")
+  or normalized_path is starting_with(pat="https://")
+  or normalized_path is starting_with(pat="mailto:")
+  or normalized_path is starting_with(pat="tel:")
+-%}
+{%- set is_browser_relative =
+  path is starting_with(pat="//")
+  or path is starting_with(pat="#")
+  or path is starting_with(pat="?")
+-%}
+{%- if has_external_scheme or is_browser_relative -%}
+{{- path -}}
+{%- elif content_lang -%}
+{{- get_url(path=path, lang=content_lang) -}}
+{%- else -%}
+{{- get_url(path=path) -}}
+{%- endif -%}
+{%- endcomponent devlab.url %}
+
+{% component devlab.route_url(path: string, content_lang: string = "") -%}
+{{- <devlab.url path={path} content_lang={content_lang} /> -}}
+{%- endcomponent devlab.route_url %}
+
+{# SVG icons #}
+{% component devlab.svg_icon(name: string) %}
+{%- if name == "sun" -%}{% include "components/icons/sun.html" %}
+{%- elif name == "moon" -%}{% include "components/icons/moon.html" %}
+{%- elif name == "github" -%}{% include "components/icons/github.html" %}
+{%- elif name == "gitlab" -%}{% include "components/icons/gitlab.html" %}
+{%- elif name == "codeberg" -%}{% include "components/icons/codeberg.html" %}
+{%- elif name == "matrix" -%}{% include "components/icons/matrix.html" %}
+{%- elif name == "zulip" -%}{% include "components/icons/zulip.html" %}
+{%- elif name == "telegram" -%}{% include "components/icons/telegram.html" %}
+{%- elif name == "discord" -%}{% include "components/icons/discord.html" %}
+{%- elif name == "rss" -%}{% include "components/icons/rss.html" %}
+{%- elif name == "email" -%}{% include "components/icons/email.html" %}
+{%- elif name == "link" -%}{% include "components/icons/link.html" %}
+{%- elif name == "search" -%}{% include "components/icons/search.html" %}
+{%- elif name == "chevron-right" -%}{% include "components/icons/chevron-right.html" %}
+{%- elif name == "external-link" -%}{% include "components/icons/external-link.html" %}
+{%- elif name == "copy" -%}{% include "components/icons/copy.html" %}
+{%- elif name == "check" -%}{% include "components/icons/check.html" %}
+{%- elif name == "info" -%}{% include "components/icons/info.html" %}
+{%- elif name == "warning" -%}{% include "components/icons/warning.html" %}
+{%- elif name == "menu" -%}{% include "components/icons/menu.html" %}
+{%- elif name == "x" -%}{% include "components/icons/x.html" %}
+{%- elif name == "arrow-left" -%}{% include "components/icons/arrow-left.html" %}
+{%- elif name == "arrow-right" -%}{% include "components/icons/arrow-right.html" %}
+{%- else -%}<!-- Icon "{{ name }}" not found -->
+{%- endif -%}
+{% endcomponent devlab.svg_icon %}
+
+{# Global navigation #}
+{# Internal DevLab navigation component. #}
+{% component devlab.navigation_link(nav_link: map, class_name: string, active_path: string, docs_path: string, blog_path: string, wrap_name: bool = false, active_url: string = "", content_lang: string = "") %}
+{% if nav_link.kind is defined and nav_link.kind == "docs" %}
+{% if docs_path %}
+{% set link_url = <devlab.route_url path={docs_path} content_lang={content_lang} /> %}
+{% set link_prefix = link_url ~ "/" %}
+{% if link_url is ending_with(pat="/") %}
+{% set link_prefix = link_url %}
+{% endif %}
+{% set is_exact = active_path == docs_path %}
+{% set is_active = active_path and active_path is starting_with(pat=docs_path) %}
+{% if active_url and content_lang %}
+{% set is_exact = active_url == link_url or active_url == link_prefix %}
+{% set is_active = is_exact or active_url is starting_with(pat=link_prefix) %}
+{% endif %}
+<a
+  class="{{ class_name }} {% if is_active %}is-active{% endif %}"
+  href="{{ link_url }}"
+  {% if is_active %}aria-current="{% if is_exact %}page{% else %}location{% endif %}"{% endif %}
+>
+  {% if wrap_name %}<span>{{ nav_link.name }}</span>{% else %}{{ nav_link.name }}{% endif %}
+</a>
+{% endif %}
+{% elif nav_link.kind is defined and nav_link.kind == "blog" %}
+{% if blog_path %}
+{% set link_url = <devlab.route_url path={blog_path} content_lang={content_lang} /> %}
+{% set link_prefix = link_url ~ "/" %}
+{% if link_url is ending_with(pat="/") %}
+{% set link_prefix = link_url %}
+{% endif %}
+{% set is_exact = active_path == blog_path %}
+{% set is_active = active_path and active_path is starting_with(pat=blog_path) %}
+{% if active_url and content_lang %}
+{% set is_exact = active_url == link_url or active_url == link_prefix %}
+{% set is_active = is_exact or active_url is starting_with(pat=link_prefix) %}
+{% endif %}
+<a
+  class="{{ class_name }} {% if is_active %}is-active{% endif %}"
+  href="{{ link_url }}"
+  {% if is_active %}aria-current="{% if is_exact %}page{% else %}location{% endif %}"{% endif %}
+>
+  {% if wrap_name %}<span>{{ nav_link.name }}</span>{% else %}{{ nav_link.name }}{% endif %}
+</a>
+{% endif %}
+{% else %}
+{% set link_url = <devlab.route_url path={nav_link.path} content_lang={content_lang} /> %}
+{% set link_prefix = link_url ~ "/" %}
+{% if link_url is ending_with(pat="/") %}
+{% set link_prefix = link_url %}
+{% endif %}
+{% set is_exact = active_path == nav_link.path %}
+{% set is_active = is_exact or (nav_link.path != '/' and active_path is starting_with(pat=nav_link.path)) %}
+{% if active_url and content_lang %}
+{% set is_exact = active_url == link_url or active_url == link_prefix %}
+{% set is_active = is_exact or (nav_link.path != '/' and active_url is starting_with(pat=link_prefix)) %}
+{% endif %}
+<a
+  class="{{ class_name }} {% if is_active %}is-active{% endif %}"
+  href="{{ link_url }}"
+  {% if is_active %}aria-current="{% if is_exact %}page{% else %}location{% endif %}"{% endif %}
+>
+  {% if wrap_name %}<span>{{ nav_link.name }}</span>{% else %}{{ nav_link.name }}{% endif %}
+</a>
+{% endif %}
+{% endcomponent devlab.navigation_link %}
+
+{# Homepage and download cards #}
+{% component devlab.feature_card(feature: map) %}
+<article class="feature-card">
+  {% if feature.kicker is defined %}
+  <p class="feature-card-kicker">{{ feature.kicker }}</p>
+  {% endif %}
+
+  <h2 class="feature-card-title">{{ feature.title }}</h2>
+
+  {% if feature.description is defined %}
+  <p class="feature-card-description">
+    {{ feature.description }}
+  </p>
+  {% endif %}
+</article>
+{% endcomponent devlab.feature_card %}
+
+{% component devlab.home_learn_card(card: map) %}
+<article class="home-learn-card">
+  {% if card.kicker is defined %}
+  <p class="home-learn-card-kicker">{{ card.kicker }}</p>
+  {% endif %}
+
+  <h3>{{ card.title }}</h3>
+
+  {% if card.description is defined %}
+  <p>
+    {{ card.description }}
+  </p>
+  {% endif %}
+</article>
+{% endcomponent devlab.home_learn_card %}
+
+{% component devlab.workflow_point(point: map) %}
+<li class="home-learn-point">
+  <p>{{ point.title }}</p>
+
+  {% if point.description is defined %}
+  <span>{{ point.description }}</span>
+  {% endif %}
+</li>
+{% endcomponent devlab.workflow_point %}
+
+{% component devlab.download_card(channel: map, unavailable_label: string) %}
+{% set channel_name = channel.name %}
+<article class="download-card">
+  <div>
+    {% if channel.status is defined and channel.status %}
+    <p class="download-card-status">{{ channel.status }}</p>
+    {% endif %}
+
+    <h2>{{ channel_name }}</h2>
+  </div>
+
+  {% if channel.description is defined and channel.description %}
+  <p class="download-card-description">{{ channel.description }}</p>
+  {% endif %}
+
+  {% if channel.url is defined and channel.url %}
+  <a class="button button-primary" href="{{<devlab.url path={channel.url} />}}">
+    {% if channel.button_label is defined and channel.button_label %}{{ channel.button_label }}{% else %}{{ channel_name }}{% endif %}
+  </a>
+  {% else %}
+  <button class="button button-secondary" type="button" disabled>
+    {% if channel.button_label is defined and channel.button_label %}{{ channel.button_label }}{% else %}{{ unavailable_label }}{% endif %}
+  </button>
+  {% endif %}
+</article>
+{% endcomponent devlab.download_card %}
+
+{% component devlab.default_feature_grid() %}
+<section class="feature-grid" aria-label="Theme features">
+  <article class="feature-card">
+    <p class="feature-card-kicker">Docs</p>
+    <h2 class="feature-card-title">Structured documentation</h2>
+    <p class="feature-card-description">
+      Build clean technical documentation with sections, pages and readable navigation.
+    </p>
+  </article>
+
+  <article class="feature-card">
+    <p class="feature-card-kicker">Blog</p>
+    <h2 class="feature-card-title">Technical writing</h2>
+    <p class="feature-card-description">
+      Publish development notes, release posts, tutorials and engineering articles.
+    </p>
+  </article>
+
+  <article class="feature-card">
+    <p class="feature-card-kicker">Projects</p>
+    <h2 class="feature-card-title">Project showcase</h2>
+    <p class="feature-card-description">
+      Present open-source work, internal tools and product experiments in one place.
+    </p>
+  </article>
+</section>
+{% endcomponent devlab.default_feature_grid %}
+
+{% component devlab.default_home_learn_cards() %}
+<article class="home-learn-card">
+  <p class="home-learn-card-kicker">Navigation</p>
+  <h3>One docs structure</h3>
+  <p>
+    Sidebar, mobile menu, overview, breadcrumbs and prev/next links follow the same section tree.
+  </p>
+</article>
+
+<article class="home-learn-card">
+  <p class="home-learn-card-kicker">Mobile</p>
+  <h3>Single site menu</h3>
+  <p>
+    One mobile drawer handles global navigation and documentation links without adding a second burger menu.
+  </p>
+</article>
+
+<article class="home-learn-card">
+  <p class="home-learn-card-kicker">Content</p>
+  <h3>Readable components</h3>
+  <p>
+    Callouts, cards, code styling and copy buttons support technical writing without a frontend framework.
+  </p>
+</article>
+
+<article class="home-learn-card">
+  <p class="home-learn-card-kicker">Runtime</p>
+  <h3>Minimal JavaScript</h3>
+  <p>
+    The theme uses small vanilla scripts only where interaction needs them: search, theme mode and menus.
+  </p>
+</article>
+{% endcomponent devlab.default_home_learn_cards %}
+
+{% component devlab.default_workflow_points() %}
+<li class="home-learn-point">
+  <p>Shared partials</p>
+  <span>Docs navigation is rendered once and reused across desktop and mobile.</span>
+</li>
+
+<li class="home-learn-point">
+  <p>Live examples</p>
+  <span>Feature docs show rendered output and the Markdown syntax behind it.</span>
+</li>
+
+<li class="home-learn-point">
+  <p>Short iterations</p>
+  <span>Each workflow can evolve without a large template rewrite.</span>
+</li>
+{% endcomponent devlab.default_workflow_points %}
+
+{# Documentation table of contents #}
+{% component devlab.toc(items: array) %}
+  {% if items %}
+  <ul class="docs-toc-list">
+    {% for item in items %}
+    <li class="docs-toc-item docs-toc-level-{{ item.level }}">
+      {% if item.children and item.level < 3 %}
+      <details class="docs-toc-group" data-docs-toc-group>
+        <summary class="docs-toc-group-toggle">
+          <a href="{{ item.permalink | safe }}">
+            {{ item.title }}
+          </a>
+          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
+        </summary>
+
+        {{<devlab.toc items={item.children} />}}
+      </details>
+      {% else %}
+      <a href="{{ item.permalink | safe }}">
+        {{ item.title }}
+      </a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endcomponent devlab.toc %}
+
+{# Documentation pagination #}
+{% component devlab.docs_page_paths(section_path: string, content_lang: string, resolved_path: bool = false) -%}
+{%- if resolved_path -%}
+{%- set nav_section = get_section(path=section_path) -%}
+{%- else -%}
+{%- set nav_section = get_section(path=section_path, lang=content_lang) -%}
+{%- endif -%}
+{%- for doc_page in nav_section.pages -%}
+{%- set doc_parent_path = doc_page.ancestors | last -%}
+{%- if doc_parent_path == nav_section.relative_path -%}
+{{- doc_page.relative_path | safe -}}:::
+{%- endif -%}
+{%- endfor -%}
+{%- for subsection_path in nav_section.subsections -%}
+{{- <devlab.docs_page_paths section_path={subsection_path} content_lang={content_lang} resolved_path={true} /> -}}
+{%- endfor -%}
+{%- endcomponent devlab.docs_page_paths %}
+
+{# Content callout #}
+{% component devlab.callout(type: string = "info", title: string = "") %}
+<div class="callout{% if type %} callout--{{ type }}{% endif %}">
+  {% if title %}
+  <p class="callout-title">{{ title }}</p>
+  {% elif type %}
+  <p class="callout-title">{{ type }}</p>
+  {% endif %}
+  {{ body | markdown | safe }}
+</div>
+{% endcomponent devlab.callout %}
+
+{# Content card #}
+{% component devlab.card(title: string = "", href: string = "", content_lang: string = "") %}
+{% if href %}
+<a class="card" href="{{<devlab.route_url path={href} content_lang={content_lang} />}}">
+{% else %}
+<div class="card">
+{% endif %}
+  {% if title %}
+  <h3 class="card-title">{{ title }}</h3>
+  {% endif %}
+  <div class="card-body">
+    {{ body | markdown | safe }}
+  </div>
+{% if href %}
+</a>
+{% else %}
+</div>
+{% endif %}
+{% endcomponent devlab.card %}
+
+{# Content details #}
+{% component devlab.details(summary: string) %}
+<details class="details">
+  <summary class="details-summary">
+    <span class="details-indicator" aria-hidden="true">&rsaquo;</span>
+    {{ summary }}
+  </summary>
+  <div class="details-body">
+    {{ body | markdown | safe }}
+  </div>
+</details>
+{% endcomponent devlab.details %}
+
+{# Content icon #}
+{% component devlab.icon(name: string, size: string = "inline", label: string = "", extra_class: string = "") -%}
+{%- set icon_size = size -%}
+{%- if size not in ["sm", "inline", "md", "lg"] -%}
+  {%- set icon_size = "inline" -%}
+{%- endif -%}
+<span class="content-icon content-icon-{{ icon_size }}{% if extra_class %} {{ extra_class }}{% endif %}" {% if label %}role="img" aria-label="{{ label }}"{% else %}aria-hidden="true"{% endif %}>{{<devlab.svg_icon name={name} />}}</span>
+{%- endcomponent devlab.icon %}
+
+{# Content steps #}
+{% component devlab.steps() %}
+<div class="steps">
+  {{ body | markdown | safe }}
+</div>
+{% endcomponent devlab.steps %}
+
+{# Detect whether recursive documentation navigation renders any link. #}
+{% component devlab.docs_nav_items_marker(nav_section: map) -%}
+{%- for doc_page in nav_section.pages -%}
+{%- set doc_parent_path = doc_page.ancestors | last -%}
+{%- if doc_parent_path == nav_section.relative_path -%}1{%- endif -%}
+{%- endfor -%}
+{%- for subsection_path in nav_section.subsections -%}
+{%- set subsection = get_section(path=subsection_path) -%}
+{%- if subsection.transparent -%}
+{{- <devlab.docs_nav_items_marker nav_section={subsection} /> -}}
+{%- else -%}
+1
+{%- endif -%}
+{%- endfor -%}
+{%- endcomponent devlab.docs_nav_items_marker %}
+
+{# Recursive documentation navigation #}
+{% component devlab.docs_nav_tree(nav_section: map, id_prefix: string, active_path: string, toggle_label: string, content_lang: string) %}
+{% for doc_page in nav_section.pages %}
+{% set doc_parent_path = doc_page.ancestors | last %}
+{% if doc_parent_path == nav_section.relative_path %}
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link {% if active_path == doc_page.path %}is-active{% endif %}"
+    href="{{ doc_page.permalink }}"
+    {% if active_path == doc_page.path %}aria-current="page"{% endif %}
+  >
+    {{ doc_page.title }}
+  </a>
+</li>
+{% endif %}
+{% endfor %}
+
+{% for subsection_path in nav_section.subsections %}
+{% set subsection = get_section(path=subsection_path) %}
+{% set subsection_id_prefix = id_prefix ~ "-section-" ~ loop.index %}
+{% if subsection.transparent %}
+  {{<devlab.docs_nav_tree nav_section={subsection} id_prefix={subsection_id_prefix} active_path={active_path} toggle_label={toggle_label} content_lang={content_lang} />}}
+{% else %}
+  {{<devlab.docs_nav_section subsection={subsection} subsection_id_prefix={subsection_id_prefix} active_path={active_path} toggle_label={toggle_label} content_lang={content_lang} />}}
+{% endif %}
+{% endfor %}
+{% endcomponent devlab.docs_nav_tree %}
+
+{# Documentation navigation section #}
+{% component devlab.docs_nav_section(subsection: map, subsection_id_prefix: string, active_path: string, toggle_label: string, content_lang: string) %}
+{% set is_active_branch = active_path and active_path is starting_with(pat=subsection.path) %}
+{% if subsection.pages or subsection.subsections %}
+{% set subsection_toggle_label = toggle_label | replace(from="{title}", to=subsection.title) %}
+<li
+  class="docs-nav-group{% if is_active_branch %} is-active-branch{% endif %}"
+  data-docs-nav-group="{{ subsection.permalink }}"
+  {% if is_active_branch %}data-docs-nav-active-branch{% endif %}
+>
+  <div class="docs-nav-group-row">
+    <a
+      class="docs-nav-link docs-nav-section-link {% if active_path == subsection.path %}is-active{% endif %}"
+      href="{{ subsection.permalink }}"
+      {% if active_path == subsection.path %}aria-current="page"{% endif %}
+    >
+      {{ subsection.title }}
+    </a>
+
+    <button
+      class="docs-nav-group-toggle"
+      type="button"
+      aria-label="{{ subsection_toggle_label }}"
+      aria-controls="{{ subsection_id_prefix }}-children"
+      aria-expanded="{% if is_active_branch %}true{% else %}false{% endif %}"
+      data-docs-nav-toggle
+      hidden
+    >
+      <span class="docs-nav-group-indicator" aria-hidden="true">&rsaquo;</span>
+    </button>
+  </div>
+
+  <ul
+    id="{{ subsection_id_prefix }}-children"
+    class="docs-nav-list docs-nav-group-links"
+    data-docs-nav-children
+  >
+    {{<devlab.docs_nav_tree nav_section={subsection} id_prefix={subsection_id_prefix} active_path={active_path} toggle_label={toggle_label} content_lang={content_lang} />}}
+  </ul>
+</li>
+{% else %}
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link docs-nav-section-link {% if active_path == subsection.path %}is-active{% endif %}"
+    href="{{ subsection.permalink }}"
+    {% if active_path == subsection.path %}aria-current="page"{% endif %}
+  >
+    {{ subsection.title }}
+  </a>
+</li>
+{% endif %}
+{% endcomponent devlab.docs_nav_section %}
+
+{# Documentation overview card #}
+{% component devlab.docs_overview_card(item: map) %}
+<li class="docs-overview-card-item">
+  <a class="docs-overview-card" href="{{ item.permalink }}">
+    <div class="docs-overview-card-copy">
+      <h2>{{ item.title }}</h2>
+
+      {% if item.description %}
+      <p>{{ item.description }}</p>
+      {% endif %}
+    </div>
+  </a>
+</li>
+{% endcomponent devlab.docs_overview_card %}
+
+{# Recursive documentation catalog #}
+{% component devlab.docs_overview_catalog_items(catalog_section: map, content_lang: string) %}
+{% for overview_page in catalog_section.pages %}
+{% set overview_page_parent_path = overview_page.ancestors | last %}
+{% if overview_page_parent_path == catalog_section.relative_path %}
+  {{<devlab.docs_overview_card item={overview_page} />}}
+{% endif %}
+{% endfor %}
+
+{% for overview_subsection_path in catalog_section.subsections %}
+{% set overview_subsection = get_section(path=overview_subsection_path) %}
+{% if overview_subsection.transparent %}
+  {{<devlab.docs_overview_catalog_items catalog_section={overview_subsection} content_lang={content_lang} />}}
+{% else %}
+  {{<devlab.docs_overview_card item={overview_subsection} />}}
+{% endif %}
+{% endfor %}
+{% endcomponent devlab.docs_overview_catalog_items %}
+
+{# Documentation overview section #}
+{% component devlab.docs_overview_section(overview_section: map, overview_id: string, depth: integer) %}
+<section class="docs-overview-group" aria-labelledby="{{ overview_id }}">
+  <div class="docs-overview-group-header">
+    {% if depth == 1 %}
+    <h2 id="{{ overview_id }}">
+      <a class="docs-overview-section-link" href="{{ overview_section.permalink }}">{{ overview_section.title }}</a>
+    </h2>
+    {% elif depth == 2 %}
+    <h3 id="{{ overview_id }}">
+      <a class="docs-overview-section-link" href="{{ overview_section.permalink }}">{{ overview_section.title }}</a>
+    </h3>
+    {% else %}
+    <h4 id="{{ overview_id }}">
+      <a class="docs-overview-section-link" href="{{ overview_section.permalink }}">{{ overview_section.title }}</a>
+    </h4>
+    {% endif %}
+
+    {% if overview_section.description %}
+    <p>{{ overview_section.description }}</p>
+    {% endif %}
+  </div>
+
+  {% if overview_section.pages %}
+  <ul class="docs-overview-card-grid">
+    {% for page in overview_section.pages %}
+    <li class="docs-overview-card-item">
+      <a class="docs-overview-card" href="{{ page.permalink }}">
+        <div class="docs-overview-card-copy">
+          {% if depth == 1 %}
+          <h3>{{ page.title }}</h3>
+          {% elif depth == 2 %}
+          <h4>{{ page.title }}</h4>
+          {% else %}
+          <h5>{{ page.title }}</h5>
+          {% endif %}
+
+          {% if page.description %}
+          <p>{{ page.description }}</p>
+          {% endif %}
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endcomponent devlab.docs_overview_section %}
+
+{# Recursive documentation overview #}
+{% component devlab.docs_overview_tree(parent_section: map, id_prefix: string, depth: integer, recursive: bool, content_lang: string) %}
+{% for subsection_path in parent_section.subsections %}
+{% set overview_section = get_section(path=subsection_path) %}
+{% set overview_branch_id = id_prefix ~ "-" ~ loop.index %}
+{% if overview_section.transparent %}
+  {{<devlab.docs_overview_tree parent_section={overview_section} id_prefix={overview_branch_id} depth={depth} recursive={recursive} content_lang={content_lang} />}}
+{% else %}
+<div class="docs-overview-branch docs-overview-level-{{ depth }}{% if depth > 1 %} is-nested{% endif %}">
+  {{<devlab.docs_overview_section overview_section={overview_section} overview_id={overview_branch_id} depth={depth} />}}
+
+  {% if recursive and overview_section.subsections %}
+  <div class="docs-overview-children">
+    {{<devlab.docs_overview_tree parent_section={overview_section} id_prefix={overview_branch_id} depth={depth + 1} recursive={recursive} content_lang={content_lang} />}}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+{% endcomponent devlab.docs_overview_tree %}

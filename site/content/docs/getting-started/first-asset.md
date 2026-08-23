@@ -1,0 +1,49 @@
++++
+title = "Your First Asset"
+description = "Set up your API key, launch the desktop app, and generate your first 3D model from a text prompt."
+date = 2026-02-09
+weight = 1
+in_search_index = true
+
+[extra]
+images = []
+
+[taxonomies]
+tags = ["guide"]
++++
+
+**This guide walks the desktop app path.** Asset Tap is one pipeline with two interfaces: the desktop app (this page) and the CLI. If you live in a terminal or you're wiring up an agent, start with [CLI usage](@/docs/guides/cli-usage.md) instead; keys and configuration are shared either way.
+
+## Get an API Key
+
+Asset Tap works in two AI-powered steps: first it generates an image from your text prompt (text-to-image), then it converts that image into a 3D model (image-to-3D). You'll need an API key from at least one provider that supports these models.
+
+**Included providers** -- pick either one (a single key unlocks the full pipeline):
+
+- [fal.ai](https://fal.ai) -- [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
+- [Meshy AI](https://www.meshy.ai) -- [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
+
+You can also [configure your own providers](@/docs/guides/providers.md#adding-custom-providers) with YAML configuration files.
+
+## Launch the Application
+
+Open Asset Tap from your Applications folder, Start Menu, or wherever you installed it.
+
+On first launch, you'll be prompted to enter your API key.
+
+## Generate Your First Model
+
+1. Enter a text prompt (e.g., "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back")
+2. Select your text-to-image model and image-to-3D model from the dropdowns
+3. Click **Generate**
+4. Review the AI-generated image and approve it for 3D conversion
+5. The image-to-3D model creates your 3D model -- preview it in the built-in viewer
+
+That's it! Your generated assets are saved to a timestamped output directory. See [Using Asset Tap](@/docs/guides/using-asset-tap.md) for the full GUI guide, or [Bundle Structure](@/docs/guides/bundle-structure.md) for the output format.
+
+## What's Next
+
+- [Using Asset Tap](@/docs/guides/using-asset-tap.md) -- Full GUI guide with viewer, library, and settings
+- [Installation](@/docs/getting-started/installation.md) -- Download and install for your platform
+- [CLI Usage](@/docs/guides/cli-usage.md) -- Automate generation from the command line
+- [Providers](@/docs/guides/providers.md) -- Available models and custom provider configuration

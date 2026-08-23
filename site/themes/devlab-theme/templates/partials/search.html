@@ -1,0 +1,74 @@
+{% set search_index_format_compatible = true %}
+{% if config.search is defined and config.search.index_format is defined and config.search.index_format != "elasticlunr_javascript" %}
+{% set search_index_format_compatible = false %}
+{% endif %}
+{% if config.build_search_index and search_index_format_compatible %}
+{% set search_start_label = "Start typing to search." %}
+{% set search_no_results_label = "No results found." %}
+{% set search_unavailable_label = "Search is currently unavailable." %}
+{% set search_results_label = "Search results" %}
+{% set search_results_count_label = "Results found: {count}." %}
+{% if config.extra.labels is defined and config.extra.labels.search_start is defined %}
+{% set search_start_label = config.extra.labels.search_start %}
+{% endif %}
+{% if config.extra.labels is defined and config.extra.labels.search_no_results is defined %}
+{% set search_no_results_label = config.extra.labels.search_no_results %}
+{% endif %}
+{% if config.extra.labels is defined and config.extra.labels.search_unavailable is defined %}
+{% set search_unavailable_label = config.extra.labels.search_unavailable %}
+{% endif %}
+{% if config.extra.labels is defined and config.extra.labels.search_results is defined %}
+{% set search_results_label = config.extra.labels.search_results %}
+{% endif %}
+{% if config.extra.labels is defined and config.extra.labels.search_results_count is defined %}
+{% set search_results_count_label = config.extra.labels.search_results_count %}
+{% endif %}
+<div
+  class="site-search"
+  data-search
+  data-search-index-format="elasticlunr_javascript"
+  data-search-start-label="{{ search_start_label }}"
+  data-search-no-results-label="{{ search_no_results_label }}"
+  data-search-unavailable-label="{{ search_unavailable_label }}"
+  data-search-results-count-label="{{ search_results_count_label }}"
+>
+  <label class="site-search-label" for="site-search-input">
+    {{ config.extra.search_label | default(value="Search") }}
+  </label>
+
+  <input
+    id="site-search-input"
+    class="site-search-input"
+    type="search"
+    placeholder="{{ config.extra.search_placeholder | default(value='Search...') }}"
+    autocomplete="off"
+    role="combobox"
+    aria-autocomplete="list"
+    aria-controls="site-search-results"
+    aria-expanded="false"
+    aria-haspopup="listbox"
+    data-search-input
+  >
+
+  <kbd class="site-search-shortcut" data-search-shortcut aria-hidden="true">Ctrl+K</kbd>
+
+  <div class="site-search-results" data-search-results hidden>
+    <div
+      id="site-search-results"
+      class="site-search-list"
+      role="listbox"
+      aria-label="{{ search_results_label }}"
+      data-search-list
+    ></div>
+    <p class="site-search-empty" data-search-message hidden></p>
+  </div>
+
+  <p
+    class="site-search-status"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-search-status
+  ></p>
+</div>
+{% endif %}

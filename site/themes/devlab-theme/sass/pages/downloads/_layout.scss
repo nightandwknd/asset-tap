@@ -1,0 +1,39 @@
+.site-main-downloads {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.downloads-page {
+  display: grid;
+  gap: clamp(3rem, 6vw, 5rem);
+  width: min(100% - var(--wide-gutter), var(--wide-width));
+  margin: 0 auto;
+  padding: clamp(3rem, 6vw, 5rem) 0;
+}
+
+.downloads-hero-with-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.75fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: start;
+}
+
+.downloads-hero-copy {
+  max-width: 48rem;
+}
+
+.downloads-hero h1 {
+  max-width: 12ch;
+}
+
+.downloads-intro {
+  max-width: 62ch;
+  margin-top: 1.5rem;
+  color: var(--color-muted);
+  font-size: 1.05rem;
+}
+
+.downloads-intro p:last-child {
+  margin-bottom: 0;
+}

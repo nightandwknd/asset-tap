@@ -1,0 +1,111 @@
+@media (min-width: 1280px) {
+  .hero-title {
+    max-width: 16ch;
+  }
+
+  .hero-description,
+  .hero-content {
+    max-width: 64ch;
+  }
+}
+
+@media (max-width: 900px) {
+  .home-page .feature-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hero-with-media,
+  .home-learn-overview-with-cards .home-learn-overview-inner,
+  .home-learn-split-with-points,
+  .home-learn-cta-with-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-with-media {
+    gap: var(--space-10);
+  }
+
+  .hero-media {
+    width: min(100%, 48rem);
+  }
+
+  .home-learn-overview-with-cards .home-learn-overview-inner,
+  .home-learn-split-with-points {
+    gap: var(--space-10);
+  }
+}
+
+@media (max-width: 760px) {
+  .hero-wide,
+  .home-page-wide .feature-grid,
+  .home-page-wide .home-learn-overview-inner,
+  .home-page-wide .home-learn-split,
+  .home-page-wide .home-learn-cta {
+    width: min(100% - var(--wide-gutter-compact), var(--wide-width));
+  }
+
+  .hero-wide {
+    padding:
+      var(--space-16)
+      var(--space-6)
+      clamp(var(--space-20), 14vw, 6rem);
+  }
+
+  .home-page-wide .hero-wide + .feature-grid {
+    margin-top: calc(var(--space-10) * -1);
+  }
+
+  .home-page .feature-grid,
+  .home-learn-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-page .feature-card {
+    padding: var(--space-6);
+  }
+
+  .home-learn {
+    margin-top: var(--space-16);
+  }
+
+  .home-learn-card {
+    min-height: 0;
+  }
+
+  .home-learn-split {
+    padding-block: var(--space-16);
+  }
+
+  .home-learn-cta {
+    margin-bottom: var(--space-16);
+    padding: var(--space-8);
+  }
+
+  .home-learn-cta .hero-actions {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-wide {
+    padding:
+      var(--space-12)
+      var(--space-5)
+      var(--space-20);
+    border-radius: calc(var(--radius-lg) + var(--space-1));
+  }
+
+  .hero-media {
+    padding-block-start: var(--space-6);
+  }
+
+  .hero-copy .hero-actions .button,
+  .home-learn-cta .hero-actions .button {
+    flex: 1 1 100%;
+  }
+
+  .home-learn-point {
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    column-gap: var(--space-3);
+  }
+}

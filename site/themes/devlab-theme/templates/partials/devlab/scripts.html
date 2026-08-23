@@ -1,0 +1,44 @@
+{# Internal DevLab partial. #}
+{% set search_index_format_compatible = true %}
+{% if config.search is defined and config.search.index_format is defined and config.search.index_format != "elasticlunr_javascript" %}
+{% set search_index_format_compatible = false %}
+{% endif %}
+{% if config.build_search_index and search_index_format_compatible %}
+{% set search_index_path = "search_index." ~ lang ~ ".js" %}
+{% if config.extra.devlab.search.index is defined and config.extra.devlab.search.index %}
+{% set search_index_path = config.extra.devlab.search.index %}
+{% endif %}
+<script src="{{ get_url(path='elasticlunr.min.js') }}"></script>
+<script src="{{ get_url(path=search_index_path) }}"></script>
+<script src="{{ get_url(path='js/search.js') }}"></script>
+{% endif %}
+<script src="{{ get_url(path='js/theme.js') }}"></script>
+{% set copy_label = "Copy" %}
+{% set copied_label = "Copied" %}
+{% set copy_failed_label = "Failed" %}
+{% set copy_success_message = "Code copied to clipboard." %}
+{% set copy_error_message = "Unable to copy code." %}
+{% if config.extra.labels is defined %}
+{% if config.extra.labels.copy is defined %}{% set copy_label = config.extra.labels.copy %}{% endif %}
+{% if config.extra.labels.copied is defined %}{% set copied_label = config.extra.labels.copied %}{% endif %}
+{% if config.extra.labels.copy_failed is defined %}{% set copy_failed_label = config.extra.labels.copy_failed %}{% endif %}
+{% if config.extra.labels.copy_success is defined %}{% set copy_success_message = config.extra.labels.copy_success %}{% endif %}
+{% if config.extra.labels.copy_error is defined %}{% set copy_error_message = config.extra.labels.copy_error %}{% endif %}
+{% endif %}
+<script
+  src="{{ get_url(path='js/copy-button.js') }}"
+  data-copy-label="{{ copy_label }}"
+  data-copied-label="{{ copied_label }}"
+  data-copy-failed-label="{{ copy_failed_label }}"
+  data-copy-success-message="{{ copy_success_message }}"
+  data-copy-error-message="{{ copy_error_message }}"
+></script>
+{% if is_docs_page or has_docs_navigation_panel %}
+<script src="{{ get_url(path='js/docs-nav.js') }}"></script>
+{% endif %}
+{% if is_docs_page %}
+<script src="{{ get_url(path='js/toc.js') }}"></script>
+{% endif %}
+{% if has_navigation_links %}
+<script src="{{ get_url(path='js/site-menu.js') }}"></script>
+{% endif %}

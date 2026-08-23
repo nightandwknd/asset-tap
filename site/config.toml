@@ -1,19 +1,24 @@
 title = "Asset Tap"
-description = "Generate 3D models from text prompts"
+description = "The game-asset generation pipeline: prompt in, engine-ready bundle out."
 base_url = "https://assettap.dev"
 
-theme = "zap"
+theme = "devlab-theme"
 
-compile_sass = false
+compile_sass = true
 build_search_index = true
 default_language = "en"
 
 generate_feeds = false
-
 taxonomies = [{ name = "tags" }]
 
 [search]
-index_format = "fuse_javascript"
+index_format = "elasticlunr_javascript"
+include_title = true
+include_description = true
+include_content = true
+
+[markdown]
+insert_anchor_links = "right"
 
 [markdown.highlighting]
 style = "class"
@@ -26,28 +31,52 @@ taxonomies = "on"
 anchors = "on"
 
 [extra]
-meta_description = "Generate 3D models from text prompts."
+meta_description = "Asset Tap is the game-asset generation pipeline: prompt in, engine-ready bundle out via CLI, desktop app, and MCP."
 keywords = "3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust"
-og_preview_img = "images/og-preview.png"
-inline_icons = true
-icon_path = "static/icons/"
-icons = ["home", "document", "download", "search", "light", "asleep", "github"]
+home_layout = "wide"
+home_eyebrow = "Agent-native asset pipeline"
+home_primary_action_label = "Get started"
+home_primary_action_path = "/docs/getting-started/"
+home_secondary_action_label = "Download"
+home_secondary_action_path = "/download/"
 
-search_path = "$BASE_URL/search/"
+[extra.devlab.brand]
+logo_text = "Asset Tap"
+footer_text = "Asset Tap | Night and Wknd"
+show_logo_mark = true
+logo_mark_path = "/images/icon.png"
 
-image_resizing_disabled = false
-image_format = "auto"
-image_quality = 80
-images_default_size = 1024
-images_sizes = [512, 1024, 2048]
-
-thumbnail_quality = 70
-thumbnail_default_size = 256
-thumbnail_sizes = [128, 256]
-
-menu_links = [
-  { url = "$BASE_URL/", name = "Home", icon = "home.svg" },
-  { url = "$BASE_URL/docs/", name = "Docs", icon = "document.svg" },
-  { url = "$BASE_URL/download/", name = "Download", icon = "download.svg" },
-  { url = "https://github.com/nightandwknd/asset-tap", name = "GitHub", icon = "github.svg" },
+[extra.devlab.footer]
+note = "The game-asset generation pipeline."
+links = [
+  { name = "GitHub", path = "https://github.com/nightandwknd/asset-tap", icon = "github" },
 ]
+
+[extra.devlab.navigation]
+links = [
+  { name = "Home", path = "/" },
+  { name = "Docs", path = "/docs/", kind = "docs" },
+  { name = "Download", path = "/download/" },
+]
+
+[extra.devlab.docs]
+section = "docs/_index.md"
+path = "/docs/"
+get_started_path = "/docs/getting-started/"
+navigation = [
+  { section = "docs/getting-started/_index.md" },
+  { section = "docs/guides/_index.md" },
+]
+
+[extra.devlab.appearance]
+default_mode = "system"
+show_toggle = true
+
+[extra.devlab.i18n]
+rtl_languages = []
+
+[extra.devlab.search]
+index = ""
+
+[extra.devlab.seo]
+og_image = "/images/og-preview.png"

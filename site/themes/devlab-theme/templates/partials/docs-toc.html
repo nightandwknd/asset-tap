@@ -1,0 +1,13 @@
+{% if toc_items %}
+{% set first_toc_item = toc_items[0] %}
+{% if toc_items | length > 1 or first_toc_item.children %}
+{% set toc_label = config.extra.toc_label | default(value="On this page") %}
+<aside class="docs-toc" aria-labelledby="docs-toc-title">
+  <p class="docs-toc-title" id="docs-toc-title">{{ toc_label }}</p>
+
+  <nav class="docs-toc-nav" aria-label="{{ toc_label }}">
+    {{<devlab.toc items={toc_items} />}}
+  </nav>
+</aside>
+{% endif %}
+{% endif %}

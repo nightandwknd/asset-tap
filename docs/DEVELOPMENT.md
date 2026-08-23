@@ -143,7 +143,7 @@ cargo run --features mock --bin asset-tap -- --mock -y "test"
 cargo run --features mock --bin asset-tap-gui  # then set MOCK_API=1
 ```
 
-Mock mode redirects all API requests to a local `wiremock` server that returns generic synthetic data (test PNG/GLB files). It validates pipeline and configuration plumbing, but does not test provider-specific response parsing.
+Mock mode redirects all API requests to a local `wiremock` server that returns generic synthetic data (test PNG/GLB files). Handlers are synthesized from each provider's own `polling` YAML, so every provider -- custom ones included -- can be exercised with no additional code (`make mock ARGS='-p my-provider -y "test"'`). It validates pipeline and configuration plumbing (YAML parsing, model registration, endpoint routing, request bodies, the polling loop), but because the mock is derived from the same YAML that drives the client, it cannot catch a config that misdescribes the real API. Test against the real API to validate response field extraction.
 
 ### Development Mode Paths
 

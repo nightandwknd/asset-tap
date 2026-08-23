@@ -1,0 +1,11 @@
+.home-page-wide .feature-grid,
+.home-page-wide .home-learn-overview-inner,
+.home-page-wide .home-learn-split {
+  width: min(100% - var(--wide-gutter), var(--wide-width));
+  max-width: none;
+  margin-inline: auto;
+}
+
+.home-page-wide .home-learn-cta {
+  width: min(100% - var(--wide-gutter), var(--wide-width));
+}

@@ -1,0 +1,29 @@
+<header class="site-header{% if has_navigation_links %} site-header-has-menu{% endif %}">
+  <div class="site-header-inner">
+    {% include "partials/devlab/header/brand.html" %}
+
+    {% if has_navigation_links %}
+    <nav class="site-nav" aria-label="Main navigation">
+      {% for nav_link in nav_links %}
+      {{<devlab.navigation_link nav_link={nav_link} class_name="site-nav-link" active_path={active_path} docs_path={docs_path} blog_path={blog_path} active_url={active_url} content_lang={lang} />}}
+      {% endfor %}
+    </nav>
+    {% endif %}
+    
+    {% include "partials/search.html" %}
+    {% include "partials/theme-toggle.html" %}
+
+    {% if has_navigation_links %}
+    <button
+      class="site-menu-button"
+      type="button"
+      aria-label="{{ config.extra.menu_open_label | default(value='Open menu') }}"
+      aria-controls="site-menu"
+      aria-expanded="false"
+      data-site-menu-toggle
+    >
+      <span class="site-menu-button-icon" aria-hidden="true"></span>
+    </button>
+    {% endif %}
+  </div>
+</header>
