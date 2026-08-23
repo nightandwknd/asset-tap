@@ -1,0 +1,84 @@
+{%- if content_title is defined -%}
+{%- set seo_title = content_title -%}
+{%- else -%}
+{%- set seo_title = config.title -%}
+{%- if page is defined -%}
+{%- set seo_title = page.title -%}
+{%- elif section is defined -%}
+{%- set seo_title = section.title -%}
+{%- elif term is defined -%}
+{%- set taxonomy_title = taxonomy.name | title -%}
+{%- set seo_title = term.name ~ " — " ~ taxonomy_title -%}
+{%- elif taxonomy is defined -%}
+{%- set seo_title = taxonomy.name | title -%}
+{%- endif -%}
+{%- endif -%}
+
+{%- set seo_description = "" -%}
+{%- if page is defined and page.description -%}
+{%- set seo_description = page.description -%}
+{%- elif section is defined and section.description -%}
+{%- set seo_description = section.description -%}
+{%- elif config.description -%}
+{%- set seo_description = config.description -%}
+{%- endif -%}
+
+{%- set seo_url = "" -%}
+{%- if current_url is defined and current_url -%}
+{%- set seo_url = current_url -%}
+{%- elif page is defined -%}
+{%- set seo_url = page.permalink -%}
+{%- elif section is defined -%}
+{%- set seo_url = section.permalink -%}
+{%- endif -%}
+
+{%- set configured_og_image = config.extra.devlab.seo.og_image | default(value="") -%}
+{%- set seo_image = "" -%}
+{%- if configured_og_image -%}
+{%- if configured_og_image is starting_with(pat="http://") -%}
+{%- set seo_image = configured_og_image -%}
+{%- elif configured_og_image is starting_with(pat="https://") -%}
+{%- set seo_image = configured_og_image -%}
+{%- else -%}
+{%- set seo_image = get_url(path=configured_og_image) -%}
+{%- endif -%}
+{%- endif %}
+
+{%- if seo_description %}
+<meta name="description" content="{{ seo_description }}">
+{%- endif %}
+
+{%- if seo_url %}
+<link rel="canonical" href="{{ seo_url | safe }}">
+{%- endif %}
+
+<meta property="og:title" content="{{ seo_title }}">
+{%- if seo_description %}
+<meta property="og:description" content="{{ seo_description }}">
+{%- endif %}
+<meta property="og:type" content="{% if page is defined %}article{% else %}website{% endif %}">
+{%- if seo_url %}
+<meta property="og:url" content="{{ seo_url | safe }}">
+{%- endif %}
+<meta property="og:site_name" content="{{ config.title }}">
+{%- if page is defined and page.date %}
+<meta property="article:published_time" content="{{ page.date }}">
+{%- endif %}
+{%- if page is defined and page.updated %}
+<meta property="article:modified_time" content="{{ page.updated }}">
+{%- endif %}
+{%- if seo_image %}
+<meta property="og:image" content="{{ seo_image | safe }}">
+{%- endif %}
+
+<meta name="twitter:card" content="{% if seo_image %}summary_large_image{% else %}summary{% endif %}">
+<meta name="twitter:title" content="{{ seo_title }}">
+{%- if seo_description %}
+<meta name="twitter:description" content="{{ seo_description }}">
+{%- endif %}
+{%- if seo_image %}
+<meta name="twitter:image" content="{{ seo_image | safe }}">
+{%- endif %}
+
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">

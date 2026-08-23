@@ -1,0 +1,32 @@
+{# Internal DevLab partial. #}
+{% if docs_previous_path %}
+{% set docs_previous_page = get_page(path=docs_previous_path) %}
+{% endif %}
+{% if docs_next_path %}
+{% set docs_next_page = get_page(path=docs_next_path) %}
+{% endif %}
+
+<nav
+  class="docs-prev-next"
+  aria-label="Documentation pagination"
+>
+  {% if docs_previous_path %}
+  <a
+    class="docs-prev-next-link docs-prev-next-link-previous"
+    href="{{ docs_previous_page.permalink }}"
+  >
+    <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> {{ previous_label }}</span>
+    <span class="docs-prev-next-title">{{ docs_previous_page.title }}</span>
+  </a>
+  {% endif %}
+
+  {% if docs_next_path %}
+  <a
+    class="docs-prev-next-link docs-prev-next-link-next"
+    href="{{ docs_next_page.permalink }}"
+  >
+    <span class="docs-prev-next-label">{{ next_label }} <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
+    <span class="docs-prev-next-title">{{ docs_next_page.title }}</span>
+  </a>
+  {% endif %}
+</nav>

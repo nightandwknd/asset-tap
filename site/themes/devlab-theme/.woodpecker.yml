@@ -1,0 +1,61 @@
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      partial: false
+      depth: 0
+steps:
+  - name: validate-release-tag
+    image: alpine:3.24
+    commands:
+      - |
+        theme_version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' theme.toml)"
+        if [ -z "$theme_version" ]; then
+          echo "Could not read the theme version from theme.toml."
+          exit 1
+        fi
+        expected_tag="v$theme_version"
+        if [ "$CI_COMMIT_TAG" != "$expected_tag" ]; then
+          echo "Tag $CI_COMMIT_TAG does not match theme.toml version $theme_version (expected $expected_tag)."
+          exit 1
+        fi
+    when:
+      - event: tag
+  - name: build
+    image: debian:bookworm-slim
+    commands:
+      - apt-get update
+      - apt-get install -y --no-install-recommends ca-certificates curl tar
+      - curl -fsSL https://github.com/getzola/zola/releases/download/v0.23.4/zola-v0.23.4-x86_64-unknown-linux-gnu.tar.gz -o /tmp/zola.tar.gz
+      - echo "54d1a347781b2f32330914fcc02def81c7e3ddb6111b36d1cc89c06557aed1de  /tmp/zola.tar.gz" | sha256sum -c -
+      - tar -xzf /tmp/zola.tar.gz -C /usr/local/bin
+      - chmod +x /usr/local/bin/zola
+      - test "$(zola --version)" = "zola 0.23.4"
+      - zola check
+      - zola build --base-url "https://ripetitor.codeberg.page/devlab-theme/"
+    when:
+      - event: push
+      - event: pull_request
+      - event: tag
+  - name: deploy
+    image: alpine:3.24
+    environment:
+      CB_TOKEN:
+        from_secret: codeberg_token
+    commands:
+      - apk add --no-cache git
+      - git config --global user.name "Woodpecker CI"
+      - git config --global user.email "ci@woodpecker"
+      - git clone --branch pages --depth 1 https://codeberg.org/$CI_REPO.git _pages || (mkdir -p _pages && cd _pages && git init -b pages)
+      - cd _pages
+      - git rm -rf . 2>/dev/null || true
+      - cd ..
+      - cp -ar public/. _pages/
+      - cd _pages
+      - git remote add origin https://RiPetitor:$CB_TOKEN@codeberg.org/$CI_REPO.git 2>/dev/null || git remote set-url origin https://RiPetitor:$CB_TOKEN@codeberg.org/$CI_REPO.git
+      - git add -A
+      - git diff --cached --quiet || git commit -m "Deploy $CI_COMMIT_SHA"
+      - git push origin pages
+    when:
+      - event: push
+        branch: main

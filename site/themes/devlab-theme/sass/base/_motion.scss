@@ -1,0 +1,15 @@
+@media (prefers-reduced-motion: reduce) {
+  .site-nav-link,
+  .button,
+  .content .card,
+  .theme-toggle,
+  .site-search-input,
+  .site-menu,
+  .docs-nav-group-indicator,
+  .docs-toc-group-indicator,
+  .details-indicator,
+  .docs-overview-card,
+  .docs-overview-card :is(h2, h3, h4, h5) {
+    transition: none;
+  }
+}

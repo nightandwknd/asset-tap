@@ -1,0 +1,32 @@
+{# Internal DevLab partial. #}
+{% if has_home_workflow %}
+{% set home_workflow_points = [] %}
+{% if config.extra.home_workflow is defined and config.extra.home_workflow.points is defined %}
+{% set home_workflow_points = config.extra.home_workflow.points %}
+{% endif %}
+{% if section.extra.home_workflow is defined and section.extra.home_workflow.points is defined %}
+{% set home_workflow_points = section.extra.home_workflow.points %}
+{% endif %}
+{% set has_home_workflow_points = home_workflow_points | length > 0 %}
+<section class="home-learn-split{% if has_home_workflow_points %} home-learn-split-with-points{% endif %}" aria-labelledby="home-workflow-title">
+  <div class="home-learn-split-copy">
+    <p class="hero-eyebrow">
+      {% if section.extra.home_workflow is defined and section.extra.home_workflow.eyebrow is defined %}{{ section.extra.home_workflow.eyebrow }}{% elif config.extra.home_workflow is defined and config.extra.home_workflow.eyebrow is defined %}{{ config.extra.home_workflow.eyebrow }}{% else %}Workflow{% endif %}
+    </p>
+    <h2 id="home-workflow-title">
+      {% if section.extra.home_workflow is defined and section.extra.home_workflow.title is defined %}{{ section.extra.home_workflow.title }}{% elif config.extra.home_workflow is defined and config.extra.home_workflow.title is defined %}{{ config.extra.home_workflow.title }}{% else %}Built for maintainable documentation{% endif %}
+    </h2>
+    <p>
+      {% if section.extra.home_workflow is defined and section.extra.home_workflow.description is defined %}{{ section.extra.home_workflow.description }}{% elif config.extra.home_workflow is defined and config.extra.home_workflow.description is defined %}{{ config.extra.home_workflow.description }}{% else %}DevLab favors reusable partials, Zola section trees and plain Markdown examples, so each feature stays easy to inspect and extend.{% endif %}
+    </p>
+  </div>
+
+  {% if has_home_workflow_points %}
+  <ol class="home-learn-points" role="list">
+    {% for point in home_workflow_points %}
+    {{<devlab.workflow_point point={point} />}}
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endif %}

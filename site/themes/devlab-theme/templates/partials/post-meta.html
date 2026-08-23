@@ -1,0 +1,37 @@
+{% set published_label = "Published" %}
+{% set updated_label = "Updated" %}
+{% set date_format = "%d.%m.%Y" %}
+{% set configured_date_format = config.extra.devlab.blog.date_format | default(value="") %}
+{% if configured_date_format %}
+{% set date_format = configured_date_format %}
+{% endif %}
+{% if config.extra.labels is defined %}
+{% if config.extra.labels.published is defined %}
+{% set published_label = config.extra.labels.published %}
+{% endif %}
+{% if config.extra.labels.updated is defined %}
+{% set updated_label = config.extra.labels.updated %}
+{% endif %}
+{% endif %}
+
+{% if page.date or page.updated or (page.extra.release is defined and page.extra.release) %}
+<div class="post-meta">
+  {% if page.extra.release is defined and page.extra.release %}
+  <span class="post-release-badge">{{ page.extra.release }}</span>
+  {% endif %}
+
+  {% if page.date %}
+  <span class="post-meta-item">
+    {{ published_label }}
+    <time datetime="{{ page.date }}">{{ page.date | date(format=date_format) }}</time>
+  </span>
+  {% endif %}
+
+  {% if page.updated and page.updated != page.date %}
+  <span class="post-meta-item">
+    {{ updated_label }}
+    <time datetime="{{ page.updated }}">{{ page.updated | date(format=date_format) }}</time>
+  </span>
+  {% endif %}
+</div>
+{% endif %}

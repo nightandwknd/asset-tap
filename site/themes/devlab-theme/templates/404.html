@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}
+Page not found | {{ config.title }}
+{% endblock title %}
+
+{% block main_class %} site-main-not-found{% endblock main_class %}
+
+{% block content %}
+<section class="not-found" aria-labelledby="not-found-title">
+  <p class="not-found-code" aria-hidden="true">404</p>
+
+  <h1 id="not-found-title">Page not found</h1>
+
+  <p class="not-found-description">
+    The page may have moved, been removed, or never existed.
+  </p>
+
+  <div class="not-found-actions">
+    <a class="button button-primary" href="{{<devlab.route_url path='/' content_lang={lang} />}}">Go home</a>
+  </div>
+
+  {% if has_site_search %}
+  <p class="not-found-hint">
+    Search in the header can help find docs, posts and examples.
+  </p>
+  {% endif %}
+</section>
+{% endblock content %}

@@ -1,0 +1,61 @@
+name = "devlab-theme"
+version = "0.5.0"
+description = "A Zola-native theme for documentation, release updates and developer sites."
+license = "MIT"
+homepage = "https://codeberg.org/RiPetitor/devlab-theme"
+demo = "https://ripetitor.codeberg.page/devlab-theme/"
+min_version = "0.23.4"
+tags = ["documentation", "blog", "responsive", "search", "dark-mode"]
+features = ["documentation", "updates", "search", "dark mode", "tera components", "accessible navigation"]
+
+[author]
+name = "RiPetitor"
+homepage = "https://codeberg.org/RiPetitor"
+
+[extra]
+home_layout = "default"
+home_eyebrow = "Developer-first Zola theme"
+home_hero_image = ""
+home_hero_image_alt = ""
+home_primary_action_label = "Get started"
+home_primary_action_path = ""
+home_secondary_action_label = "Learn more"
+home_secondary_action_path = ""
+
+[extra.devlab.brand]
+show_logo_mark = false
+logo_mark_path = ""
+
+[extra.devlab.footer]
+note = ""
+links_label = "Footer links"
+links = []
+
+[extra.devlab.navigation]
+links = [
+  { name = "Home", path = "/" },
+  { name = "Docs", path = "/docs/", kind = "docs" },
+  { name = "Blog", path = "/blog/", kind = "blog" },
+]
+
+[extra.devlab.docs]
+section = ""
+path = ""
+get_started_path = ""
+
+[extra.devlab.blog]
+path = ""
+date_format = "%d.%m.%Y"
+
+[extra.devlab.appearance]
+default_mode = "system"
+show_toggle = true
+
+[extra.devlab.i18n]
+rtl_languages = []
+
+[extra.devlab.search]
+index = ""
+
+[extra.devlab.seo]
+og_image = ""

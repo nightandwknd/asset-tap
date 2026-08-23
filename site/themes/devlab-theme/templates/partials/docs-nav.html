@@ -1,0 +1,39 @@
+{% set docs_section_path = config.extra.devlab.docs.section | default(value="") %}
+{% set active_path = "" %}
+{% if current_path is defined %}
+{% set active_path = current_path %}
+{% endif %}
+
+{% set docs = none %}
+{% if docs_section is defined and docs_section %}
+{% set docs = docs_section %}
+{% elif docs_section_path %}
+{% if lang == config.default_language %}
+{% set docs = get_section(path=docs_section_path, lang=lang) %}
+{% else %}
+{% set docs = get_section(path=docs_section_path, lang=lang, allow_missing=true) %}
+{% endif %}
+{% endif %}
+
+{% if docs %}
+{% set nav_section = docs %}
+{% set docs_nav_id_prefix = docs_nav_instance | default(value="docs-nav") %}
+{% set docs_section_toggle_label = config.extra.docs_section_toggle_label | default(value="Toggle section: {title}") %}
+<ul class="docs-nav-list">
+  {% if config.extra.devlab.docs.navigation is defined and config.extra.devlab.docs.navigation %}
+  {% for navigation_item in config.extra.devlab.docs.navigation %}
+  {% if lang == config.default_language %}
+  {% set subsection = get_section(path=navigation_item.section, lang=lang) %}
+  {% else %}
+  {% set subsection = get_section(path=navigation_item.section, lang=lang, allow_missing=true) %}
+  {% endif %}
+  {% if subsection %}
+  {% set subsection_id_prefix = docs_nav_id_prefix ~ "-section-" ~ loop.index %}
+  {{<devlab.docs_nav_section subsection={subsection} subsection_id_prefix={subsection_id_prefix} active_path={active_path} toggle_label={docs_section_toggle_label} content_lang={lang} />}}
+  {% endif %}
+  {% endfor %}
+  {% else %}
+  {{<devlab.docs_nav_tree nav_section={nav_section} id_prefix={docs_nav_id_prefix} active_path={active_path} toggle_label={docs_section_toggle_label} content_lang={lang} />}}
+  {% endif %}
+</ul>
+{% endif %}

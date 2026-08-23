@@ -1,0 +1,34 @@
+{# Internal DevLab partial. #}
+{% if has_home_learn %}
+{% set home_learn_cards = [] %}
+{% if config.extra.home_learn is defined and config.extra.home_learn.cards is defined %}
+{% set home_learn_cards = config.extra.home_learn.cards %}
+{% endif %}
+{% if section.extra.home_learn is defined and section.extra.home_learn.cards is defined %}
+{% set home_learn_cards = section.extra.home_learn.cards %}
+{% endif %}
+{% set has_home_learn_cards = home_learn_cards | length > 0 %}
+<section class="home-learn-overview{% if has_home_learn_cards %} home-learn-overview-with-cards{% endif %}" aria-labelledby="home-learn-title">
+  <div class="home-learn-overview-inner">
+    <div class="home-learn-header">
+      <p class="hero-eyebrow">
+        {% if section.extra.home_learn is defined and section.extra.home_learn.eyebrow is defined %}{{ section.extra.home_learn.eyebrow }}{% elif config.extra.home_learn is defined and config.extra.home_learn.eyebrow is defined %}{{ config.extra.home_learn.eyebrow }}{% else %}Features{% endif %}
+      </p>
+      <h2 id="home-learn-title">
+        {% if section.extra.home_learn is defined and section.extra.home_learn.title is defined %}{{ section.extra.home_learn.title }}{% elif config.extra.home_learn is defined and config.extra.home_learn.title is defined %}{{ config.extra.home_learn.title }}{% else %}Why DevLab is different{% endif %}
+      </h2>
+      <p>
+        {% if section.extra.home_learn is defined and section.extra.home_learn.description is defined %}{{ section.extra.home_learn.description }}{% elif config.extra.home_learn is defined and config.extra.home_learn.description is defined %}{{ config.extra.home_learn.description }}{% else %}DevLab keeps the theme small and Zola-native while giving documentation sites the navigation patterns readers expect.{% endif %}
+      </p>
+    </div>
+
+    {% if has_home_learn_cards %}
+    <div class="home-learn-grid">
+      {% for card in home_learn_cards %}
+      {{<devlab.home_learn_card card={card} />}}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}

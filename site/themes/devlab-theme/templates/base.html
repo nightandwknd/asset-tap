@@ -1,0 +1,123 @@
+{% set document_direction = "ltr" %}
+{% if config.extra.devlab.i18n is defined and config.extra.devlab.i18n.rtl_languages is defined and lang in config.extra.devlab.i18n.rtl_languages %}
+{% set document_direction = "rtl" %}
+{% endif %}
+<!doctype html>
+<html lang="{{ lang }}" dir="{{ document_direction }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% set content_title = config.title %}
+  {% if page is defined %}
+  {% set content_title = page.title %}
+  {% elif section is defined %}
+  {% set content_title = section.title %}
+  {% elif term is defined %}
+  {% set taxonomy_title = taxonomy.name | title %}
+  {% set content_title = term.name ~ " — " ~ taxonomy_title %}
+  {% elif taxonomy is defined %}
+  {% set content_title = taxonomy.name | title %}
+  {% endif %}
+  {% set html_title = content_title %}
+  {% if paginator is defined and paginator.current_index > 1 %}
+  {% set html_title = html_title ~ " — Page " ~ paginator.current_index %}
+  {% endif %}
+  {% if content_title != config.title %}
+  {% set html_title = html_title ~ " | " ~ config.title %}
+  {% endif %}
+  <title>{% block title %}{{ html_title }}{% endblock title %}</title>
+  {% include "partials/head.html" %}
+  {% block head_extra %}{% endblock head_extra %}
+  {% block extra_styles %}{% endblock extra_styles %}
+</head>
+
+{% set has_site_search = config.build_search_index %}
+{% if config.search is defined and config.search.index_format is defined and config.search.index_format != "elasticlunr_javascript" %}
+{% set has_site_search = false %}
+{% endif %}
+<body{% if has_site_search %} class="has-site-search"{% endif %}>
+  {% set docs_section_path = config.extra.devlab.docs.section | default(value="") %}
+  {% set docs_path = config.extra.devlab.docs.path | default(value="") %}
+  {% set docs_context_path = docs_path %}
+  {% set docs_section = none %}
+  {% if docs_section_path %}
+  {% if lang == config.default_language %}
+  {% set docs_section = get_section(path=docs_section_path, lang=lang) %}
+  {% else %}
+  {% set docs_section = get_section(path=docs_section_path, lang=lang, allow_missing=true) %}
+  {% endif %}
+  {% if docs_section %}
+  {% set docs_context_path = docs_section.path %}
+  {% else %}
+  {% set docs_path = "" %}
+  {% set docs_context_path = "" %}
+  {% endif %}
+  {% endif %}
+  {% set blog_path = config.extra.devlab.blog.path | default(value="") %}
+  {% set nav_links = config.extra.devlab.navigation.links | default(value=[]) %}
+  {% set active_path = "" %}
+  {% set active_url = "" %}
+  {% if current_path is defined %}
+  {% set active_path = current_path %}
+  {% endif %}
+  {% if current_url is defined %}
+  {% set active_url = current_url %}
+  {% endif %}
+  {% set is_docs_page = false %}
+  {% if docs_context_path and active_path and active_path is starting_with(pat=docs_context_path) %}
+  {% set is_docs_page = true %}
+  {% endif %}
+  {% set_global has_navigation_links = false %}
+  {% set_global has_docs_navigation_panel = false %}
+  {% set_global docs_navigation_has_items = false %}
+  {% if docs_section %}
+  {% if config.extra.devlab.docs.navigation is defined and config.extra.devlab.docs.navigation %}
+  {% for navigation_item in config.extra.devlab.docs.navigation %}
+  {% if lang == config.default_language %}
+  {% set navigation_section = get_section(path=navigation_item.section, lang=lang) %}
+  {% else %}
+  {% set navigation_section = get_section(path=navigation_item.section, lang=lang, allow_missing=true) %}
+  {% endif %}
+  {% if navigation_section %}{% set_global docs_navigation_has_items = true %}{% endif %}
+  {% endfor %}
+  {% else %}
+  {% set docs_navigation_items_marker = <devlab.docs_nav_items_marker nav_section={docs_section} /> %}
+  {% if docs_navigation_items_marker %}{% set_global docs_navigation_has_items = true %}{% endif %}
+  {% endif %}
+  {% endif %}
+  {% for nav_link in nav_links %}
+  {% if nav_link.kind is defined and nav_link.kind == "docs" %}
+  {% if docs_path %}
+  {% set_global has_navigation_links = true %}
+  {% if docs_navigation_has_items %}{% set_global has_docs_navigation_panel = true %}{% endif %}
+  {% endif %}
+  {% elif nav_link.kind is defined and nav_link.kind == "blog" %}
+  {% if blog_path %}{% set_global has_navigation_links = true %}{% endif %}
+  {% else %}
+  {% set_global has_navigation_links = true %}
+  {% endif %}
+  {% endfor %}
+
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  {% block body_start %}{% endblock body_start %}
+
+  <div class="site-shell">
+    {% include "partials/header.html" %}
+    {% if has_navigation_links %}
+    {% include "partials/site-menu.html" %}
+    {% endif %}
+    
+    <main id="main-content" class="site-main{% if is_docs_page %} site-main-docs{% endif %}{% block main_class %}{% endblock main_class %}" tabindex="-1">
+      {% block content %}{% endblock content %}
+    </main>
+
+    {% if not is_docs_page %}
+    {% include "partials/footer.html" %}
+    {% endif %}
+  </div>
+  
+  {% include "partials/devlab/scripts.html" %}
+  {% block extra_scripts %}{% endblock extra_scripts %}
+  {% block body_end %}{% endblock body_end %}
+</body>
+</html>

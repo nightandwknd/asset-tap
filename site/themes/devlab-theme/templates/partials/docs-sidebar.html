@@ -1,0 +1,15 @@
+{% set docs_sidebar_title = config.extra.docs_sidebar_title | default(value="Documentation") %}
+<aside
+  id="docs-sidebar"
+  class="docs-sidebar"
+  aria-label="{{ docs_sidebar_title }} navigation"
+>
+  <nav class="docs-sidebar-nav" aria-label="{{ docs_sidebar_title }}">
+    <p class="docs-sidebar-title">{{ docs_sidebar_title }}</p>
+    {% set docs_nav_instance = "docs-sidebar" %}
+    {% include "partials/docs-nav.html" %}
+  </nav>
+
+  {% set footer_compact = true %}
+  {% include "partials/footer.html" %}
+</aside>

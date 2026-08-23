@@ -1,0 +1,21 @@
+{% set theme_toggle = config.extra.devlab.appearance.show_toggle | default(value=true) %}
+{% if theme_toggle %}
+{% set theme_default = config.extra.devlab.appearance.default_mode | default(value="system") %}
+{% set theme_label = "System theme" %}
+{% if theme_default == "light" %}
+{% set theme_label = "Light theme" %}
+{% elif theme_default == "dark" %}
+{% set theme_label = "Dark theme" %}
+{% endif %}
+<button
+  class="theme-toggle"
+  type="button"
+  data-theme-toggle
+  aria-label="{{ theme_label }}"
+  title="{{ theme_label }}"
+>
+  {% include "components/icons/desktop.html" %}
+  {% include "components/icons/sun.html" %}
+  {% include "components/icons/moon.html" %}
+</button>
+{% endif %}

@@ -1,0 +1,58 @@
+{# Internal DevLab partial. #}
+{% if has_home_cta %}
+  {% set home_cta_primary_label = "Get started" %}
+  {% set home_cta_primary_path = get_started_path %}
+  {% if config.extra.home_cta is defined and config.extra.home_cta.primary_label is defined %}
+  {% set home_cta_primary_label = config.extra.home_cta.primary_label %}
+  {% endif %}
+  {% if config.extra.home_cta is defined and config.extra.home_cta.primary_path is defined %}
+  {% set home_cta_primary_path = config.extra.home_cta.primary_path %}
+  {% endif %}
+  {% if section.extra.home_cta is defined and section.extra.home_cta.primary_label is defined %}
+  {% set home_cta_primary_label = section.extra.home_cta.primary_label %}
+  {% endif %}
+  {% if section.extra.home_cta is defined and section.extra.home_cta.primary_path is defined %}
+  {% set home_cta_primary_path = section.extra.home_cta.primary_path %}
+  {% endif %}
+  {% set home_cta_secondary_label = "View docs" %}
+  {% set home_cta_secondary_path = docs_path %}
+  {% if config.extra.home_cta is defined and config.extra.home_cta.secondary_label is defined %}
+  {% set home_cta_secondary_label = config.extra.home_cta.secondary_label %}
+  {% endif %}
+  {% if config.extra.home_cta is defined and config.extra.home_cta.secondary_path is defined %}
+  {% set home_cta_secondary_path = config.extra.home_cta.secondary_path %}
+  {% endif %}
+  {% if section.extra.home_cta is defined and section.extra.home_cta.secondary_label is defined %}
+  {% set home_cta_secondary_label = section.extra.home_cta.secondary_label %}
+  {% endif %}
+  {% if section.extra.home_cta is defined and section.extra.home_cta.secondary_path is defined %}
+  {% set home_cta_secondary_path = section.extra.home_cta.secondary_path %}
+  {% endif %}
+
+<section class="home-learn-cta{% if home_cta_primary_path or home_cta_secondary_path %} home-learn-cta-with-actions{% endif %}" aria-labelledby="home-cta-title">
+  <div class="home-learn-cta-copy">
+    <h2 id="home-cta-title">
+      {% if section.extra.home_cta is defined and section.extra.home_cta.title is defined %}{{ section.extra.home_cta.title }}{% elif config.extra.home_cta is defined and config.extra.home_cta.title is defined %}{{ config.extra.home_cta.title }}{% else %}Ready to build your docs?{% endif %}
+    </h2>
+    <p>
+      {% if section.extra.home_cta is defined and section.extra.home_cta.description is defined %}{{ section.extra.home_cta.description }}{% elif config.extra.home_cta is defined and config.extra.home_cta.description is defined %}{{ config.extra.home_cta.description }}{% else %}Start with the getting started guide or jump straight into the documentation overview.{% endif %}
+    </p>
+  </div>
+
+  {% if home_cta_primary_path or home_cta_secondary_path %}
+  <div class="hero-actions">
+    {% if home_cta_primary_path %}
+    <a class="button button-primary" href="{{<devlab.route_url path={home_cta_primary_path} content_lang={lang} />}}">
+      {{ home_cta_primary_label }}
+    </a>
+    {% endif %}
+
+    {% if home_cta_secondary_path %}
+    <a class="button button-secondary" href="{{<devlab.route_url path={home_cta_secondary_path} content_lang={lang} />}}">
+      {{ home_cta_secondary_label }}
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}

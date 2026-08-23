@@ -1,0 +1,15 @@
+{# Internal DevLab partial. #}
+{% set home_features = [] %}
+{% if config.extra.home_features is defined %}
+{% set home_features = config.extra.home_features %}
+{% endif %}
+{% if section.extra.home_features is defined %}
+{% set home_features = section.extra.home_features %}
+{% endif %}
+{% if home_features | length > 0 %}
+<section class="feature-grid" aria-label="Theme features">
+  {% for feature in home_features %}
+  {{<devlab.feature_card feature={feature} />}}
+  {% endfor %}
+</section>
+{% endif %}

@@ -1,0 +1,10 @@
+{% include "partials/theme-init.html" %}
+
+{% include "partials/seo.html" %}
+
+{% if config.generate_feeds and config.feed_filenames %}
+{% set feed_filename = config.feed_filenames | first %}
+<link rel="alternate" type="application/atom+xml" title="{{ config.title }}" href="{{ get_url(path=feed_filename, lang=lang) }}">
+{% endif %}
+<link rel="icon" href="{{ get_url(path='favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ get_url(path='main.css') }}">

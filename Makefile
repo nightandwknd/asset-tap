@@ -299,14 +299,15 @@ verify-sign-macos: ## Verify macOS signing, stapling, and Gatekeeper acceptance
 # =============================================================================
 # Website
 # =============================================================================
-# Zola is PINNED — a system zola (brew ships latest) can be a different major
-# with incompatible template syntax (0.23 swapped Tera 1 for Tera 2, which
-# breaks the vendored zap theme's macros). The pinned binary is downloaded
+# Zola is PINNED — a system zola (brew ships whatever is latest) can drift
+# from what the vendored theme supports (devlab-theme requires >= 0.23.4 /
+# Tera 2; the retired zap theme was the reason for the old 0.22 pin). The
+# pinned binary is downloaded
 # once into site/.bin/ and used by every site target, so local builds match
 # the deploy exactly.
 # Keep in sync with BOTH pins in .github/workflows/site.yaml
 # (taiki-e install-action `zola@…` and the shalzz/zola-deploy-action tag).
-ZOLA_VERSION := 0.22.1
+ZOLA_VERSION := 0.23.4
 ZOLA_BIN := site/.bin/zola-$(ZOLA_VERSION)
 
 UNAME_S := $(shell uname -s)
