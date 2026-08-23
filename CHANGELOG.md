@@ -2,6 +2,18 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.17 — 2026-08-23
+
+### Chores
+
+- bump the rust-dependencies group across 1 directory with 2 updates ([#70](https://github.com/nightandwknd/asset-tap/pull/70)) _(deps)_
+
+### Other
+
+- gate audit on lockfile changes + daily scheduled audit [skip ci] ([#68](https://github.com/nightandwknd/asset-tap/pull/68))
+- adopt devlab-theme with Asset Tap branding ([#69](https://github.com/nightandwknd/asset-tap/pull/69))
+- publish preserves PR previews; serialize gh-pages writers ([#71](https://github.com/nightandwknd/asset-tap/pull/71)) _(site)_
+
 ## v26.8.16 — 2026-08-21
 
 ### Documentation
