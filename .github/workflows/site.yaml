@@ -18,6 +18,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# One gh-pages writer at a time: on merge, the preview-removal run and the
+# publish run both push the branch; unserialized, the loser lands on a
+# stale ref and its Pages build shows up as a failed deployment.
+concurrency:
+  group: site-gh-pages
+  cancel-in-progress: false
+
 jobs:
   # PR: build preview + auto-cleanup on close
   preview:
@@ -32,7 +39,7 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
-          # zola-deploy-action version in `publish` below.
+          # Install Zola step in `publish` below.
           tool: zola@0.23.4
       - name: Build site
         if: github.event.action != 'closed'
@@ -41,7 +48,11 @@ jobs:
         with:
           source-dir: site/public
 
-  # Merge: build and push to gh-pages (GitHub Pages deploys automatically)
+  # Merge: build and push to gh-pages (GitHub Pages deploys automatically).
+  # NOT the zola-deploy-action: it force-pushes gh-pages, which wiped live
+  # PR previews on every publish and made the preview-removal pushes fail
+  # against the rewritten ref. This deploy keeps pr-preview/ intact and
+  # pushes without force.
   publish:
     name: Publish
     if: github.event_name == 'push'
@@ -49,11 +60,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Build and push to gh-pages
-        # Keep in sync with ZOLA_VERSION in the Makefile (the action tag
-        # tracks the zola version it bundles).
-        uses: shalzz/zola-deploy-action@v0.23.4
-        env:
-          BUILD_DIR: site
-          PAGES_BRANCH: gh-pages
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          # Keep in sync with ZOLA_VERSION in the Makefile and the
+          # Install Zola step in `preview` above.
+          tool: zola@0.23.4
+      - name: Build site
+        run: cd site && zola build
+      - name: Deploy to gh-pages, preserving PR previews
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: site/public
+          branch: gh-pages
+          clean: true
+          clean-exclude: pr-preview
+          force: false
