@@ -5,7 +5,7 @@
 	lint-workflows lint-shell \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
-	site-serve site-build site-check
+	site-serve site-build site-check tokens-check
 
 # Dependency check helpers
 CHECK_DPRINT := $(shell command -v dprint 2> /dev/null)
@@ -332,5 +332,9 @@ site-serve: $(ZOLA_BIN) ## Serve website locally (hot reload)
 site-build: $(ZOLA_BIN) ## Build website
 	cd site && .bin/zola-$(ZOLA_VERSION) build
 
-site-check: $(ZOLA_BIN) ## Check website for broken links
+tokens-check: ## Verify the theme palette mirrors static/tokens.css
+	./scripts/check-tokens-mirror.sh
+
+site-check: $(ZOLA_BIN) ## Check website: broken links + token mirror
 	cd site && .bin/zola-$(ZOLA_VERSION) check
+	./scripts/check-tokens-mirror.sh

@@ -1,6 +1,9 @@
 // VENDORED DIVERGENCE (Asset Tap): brand palette swapped onto the stock
-// mixins — navy/cyan/near-white from the shared token sheet. Everything
-// else is upstream devlab-theme.
+// mixins — navy/cyan/near-white. These values are a MIRROR of
+// static/tokens.css, which is linked after main.css and wins at runtime;
+// they live here only so a bare `zola build` of the theme (no site
+// templates) still renders on-brand rather than in devlab's stock colors.
+// Edit tokens.css first, then mirror here. Everything else is upstream.
 @mixin theme-palette-light {
   color-scheme: light;
 
@@ -12,6 +15,7 @@
   --color-accent: #175d84;
   --color-accent-contrast: #ffffff;
   --color-accent-warm: #9a4f1e;
+  --color-accent-visited: #0c4a6d;
   --shadow-color: 15 23 42;
   --color-code-bg: #f3f4f6;
   --color-code-fg: #111827;
@@ -43,6 +47,7 @@
   --color-accent: #52bbdb;
   --color-accent-contrast: #0a1628;
   --color-accent-warm: #d88956;
+  --color-accent-visited: #7da8c4;
   --shadow-color: 0 0 0;
   --color-code-bg: #1f2937;
   --color-code-fg: #f9fafb;

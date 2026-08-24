@@ -41,6 +41,9 @@ jobs:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
           # Install Zola step in `publish` below.
           tool: zola@0.23.4
+      - name: Check token mirror
+        if: github.event.action != 'closed'
+        run: ./scripts/check-tokens-mirror.sh
       - name: Build site
         if: github.event.action != 'closed'
         run: cd site && zola build --base-url "/pr-preview/pr-${{ github.event.number }}"
@@ -66,6 +69,8 @@ jobs:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
           # Install Zola step in `preview` above.
           tool: zola@0.23.4
+      - name: Check token mirror
+        run: ./scripts/check-tokens-mirror.sh
       - name: Build site
         run: cd site && zola build
       - name: Deploy to gh-pages, preserving PR previews
