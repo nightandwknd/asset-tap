@@ -12,6 +12,10 @@
 {% endblock head_extra %}
 
 {% block extra_styles %}
+{# Shared design tokens, linked AFTER the theme's main.css so the brand
+   palette overrides devlab's stock one. Canonical copy of this file lives
+   here and is consumed by every surface (see STYLE_GUIDE.md). #}
+<link rel="stylesheet" href="{{ get_url(path='tokens.css') }}">
 <style>
   .hero-media img { cursor: zoom-in; }
   .site-lightbox {
