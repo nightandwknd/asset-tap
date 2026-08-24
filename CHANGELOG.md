@@ -2,6 +2,12 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.18 — 2026-08-24
+
+### Features
+
+- shared design tokens as the canonical brand palette ([#73](https://github.com/nightandwknd/asset-tap/pull/73)) _(site)_
+
 ## v26.8.17 — 2026-08-23
 
 ### Chores
