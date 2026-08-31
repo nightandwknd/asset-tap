@@ -79,4 +79,4 @@ rtl_languages = []
 index = ""
 
 [extra.devlab.seo]
-og_image = "/images/og-preview.png"
+og_image = "/images/og-card.png"

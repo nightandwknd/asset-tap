@@ -12,7 +12,6 @@ home_primary_action_label = "Get started"
 home_primary_action_path = "/docs/getting-started/"
 home_secondary_action_label = "Download"
 home_secondary_action_path = "/download/"
-og_preview_img = "images/og-preview.png"
 +++
 
 Asset Tap turns a text prompt into a game-ready asset: image, 3D model, and textures in one bundle. Bring your own keys and use one of the supported providers, or configure one yourself. Drive it from the CLI, the desktop app, or any MCP-capable agent.
