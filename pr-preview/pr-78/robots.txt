@@ -1,4 +1,0 @@
-User-agent: *
-Disallow:
-Allow: /
-Sitemap: /pr-preview/pr-78/sitemap.xml
