@@ -245,7 +245,7 @@ impl AssetTapServer {
 
     #[tool(
         name = "inspect_bundle",
-        description = "Read a bundle directory's bundle.json (name, models used, prompt/provenance, mesh stats) and list its files.",
+        description = "Read a bundle directory's bundle.json (v2 artifacts + pipeline, plus name/models/prompt/mesh stats) and list its files.",
         annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false)
     )]
     async fn inspect_bundle(

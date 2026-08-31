@@ -189,7 +189,7 @@ Generated assets are saved to timestamped directories:
 ```
 output/
 └── 1984-01-24_120000/
-    ├── bundle.json      # Metadata (prompt, models, stats)
+    ├── bundle.json      # Metadata (v2: artifacts + pipeline)
     ├── image.png        # AI-generated image
     ├── model.glb        # 3D model (GLB format)
     ├── model.fbx        # FBX export (if Blender installed)

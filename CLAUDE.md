@@ -266,7 +266,7 @@ PipelineConfig → ProviderRegistry → Provider → HttpProviderClient → API
 
 ```
 output/YYYY-MM-DD_HHMMSS/
-├── bundle.json      # Metadata (prompt, models, params, stats)
+├── bundle.json      # Metadata (v2: artifacts + pipeline)
 ├── image.png        # Generated image
 ├── model.glb        # 3D model
 ├── model.fbx        # FBX (if exported)
@@ -284,7 +284,7 @@ asset-tap -y "a robot" --name "My Robot"                          # Name at gene
 asset-tap --export-bundle output/2025-01-15_143022 --name "My Robot"  # Name + export
 ```
 
-**Model info:** `bundle.json` includes `model_info` (vertex count, triangle count, file size) populated automatically at pipeline time via `extract_model_info()` — no need to wait for the GUI viewer.
+**Model info:** vertex/triangle counts and file size are written onto the model artifact at pipeline time via `extract_model_info()` — no need to wait for the GUI viewer.
 
 **Demo bundle:** A showcase 3D model (`bundles/asset-tap/`) is included in the repo but **never compiled into the binary**. It exists in two forms:
 

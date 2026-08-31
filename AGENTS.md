@@ -47,8 +47,8 @@ Rules an agent should follow:
   environment (Blender, filesystem) · `1` other. Retry only when
   `retryable` is true; on `3`, ask the human for a key rather than looping.
 - **The bundle is the product.** `result.bundle_dir` is an absolute path
-  containing `bundle.json` (name, models used, prompt/provenance, mesh
-  stats, file list), the image, `model.glb`, optional `model.fbx`, and
+  containing `bundle.json` (v2: `artifacts` + `pipeline` steps, plus v1
+  `config` / mesh stats), the image, `model.glb`, optional `model.fbx`, and
   textures. `bundle.json` is written **last**, so a directory containing it
   is complete. Schema: [docs/guides/BUNDLE_STRUCTURE.md](docs/guides/BUNDLE_STRUCTURE.md).
 - **GLB-only is the default; pass `--fbx` only when FBX is needed** — FBX conversion requires

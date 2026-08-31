@@ -307,12 +307,59 @@ async fn test_pipeline_creates_bundle_metadata() {
     let content = std::fs::read_to_string(&bundle_json).unwrap();
     let metadata: serde_json::Value = serde_json::from_str(&content).unwrap();
 
-    // Verify metadata has config
-    assert!(metadata.get("config").is_some(), "Should have config");
-    let config_json = &metadata["config"];
-    assert_eq!(config_json["prompt"], "test metadata");
-    assert_eq!(config_json["image_model"], "fal-ai/nano-banana");
-    assert_eq!(config_json["model_3d"], "fal-ai/trellis-2");
+    assert!(metadata.get("config").is_none(), "v2 writes omit config");
+    assert!(
+        metadata.get("model_info").is_none(),
+        "v2 writes omit model_info"
+    );
+
+    assert_eq!(metadata["version"], 2);
+    assert_eq!(metadata["primary"], "model");
+    assert!(metadata.get("category").is_none());
+    let artifacts = metadata["artifacts"].as_array().expect("artifacts");
+    assert!(artifacts.iter().any(|a| a["id"] == "image"));
+    assert!(artifacts.iter().any(|a| a["id"] == "model"));
+    let steps = metadata["pipeline"]["steps"].as_array().expect("steps");
+    assert_eq!(steps[0]["kind"], "model");
+    assert_eq!(steps[0]["modality"], "text_to_image");
+    assert_eq!(steps[0]["prompt"], "test metadata");
+    assert_eq!(steps[0]["model"], "fal-ai/nano-banana");
+    assert_eq!(steps[1]["kind"], "model");
+    assert_eq!(steps[1]["modality"], "image_to_3d");
+    assert_eq!(steps[1]["model"], "fal-ai/trellis-2");
+
+    cleanup_mock_env();
+}
+
+#[tokio::test]
+async fn test_pipeline_image_only_writes_v2_without_model_step() {
+    let (_env, temp_dir) = setup_mock_env();
+
+    let config = PipelineConfig::new()
+        .with_prompt("test image only")
+        .with_image_model("fal-ai/nano-banana")
+        .with_skip_3d()
+        .with_output_dir(temp_dir.path().to_path_buf());
+
+    let registry = ProviderRegistry::new();
+    let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
+
+    while rx.recv().await.is_some() {}
+    let output = handle.await.unwrap().unwrap();
+
+    let bundle_json = output.output_dir.unwrap().join(bundle_files::METADATA);
+    let metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&bundle_json).unwrap()).unwrap();
+
+    assert_eq!(metadata["version"], 2);
+    assert_eq!(metadata["primary"], "image");
+    assert!(metadata.get("category").is_none() || metadata["category"].is_null());
+    let artifacts = metadata["artifacts"].as_array().expect("artifacts");
+    assert!(artifacts.iter().any(|a| a["id"] == "image"));
+    assert!(!artifacts.iter().any(|a| a["id"] == "model"));
+    let steps = metadata["pipeline"]["steps"].as_array().expect("steps");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["modality"], "text_to_image");
 
     cleanup_mock_env();
 }
