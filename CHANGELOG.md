@@ -2,6 +2,17 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.8.19 — 2026-08-31
+
+### Chores
+
+- bump the rust-dependencies group with 2 updates ([#75](https://github.com/nightandwknd/asset-tap/pull/75)) _(deps)_
+
+### Features
+
+- shared type stacks in tokens.css ([#74](https://github.com/nightandwknd/asset-tap/pull/74)) _(site)_
+- emit bundle.json v2 with artifacts and pipeline steps ([#76](https://github.com/nightandwknd/asset-tap/pull/76)) _(core)_
+
 ## v26.8.18 — 2026-08-24
 
 ### Features
