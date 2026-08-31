@@ -1,0 +1,1677 @@
+
+
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  <title>Using Asset Tap | Asset Tap</title>
+  
+<script>
+  (function () {
+    var storageKey = "devlab-theme-color-mode";
+    var root = document.documentElement;
+    var defaultMode = "system";
+
+    function isValidMode(mode) {
+      return mode === "light" || mode === "dark" || mode === "system";
+    }
+
+    function getSystemTheme() {
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+
+    function resolveTheme(mode) {
+      return mode === "system" ? getSystemTheme() : mode;
+    }
+
+    function getStoredMode() {
+      try {
+        return localStorage.getItem(storageKey);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    var storedMode = getStoredMode();
+    var mode = isValidMode(storedMode) ? storedMode : defaultMode;
+
+    if (!isValidMode(mode)) {
+      mode = "system";
+    }
+
+    root.dataset.themeDefault = defaultMode;
+    root.dataset.themeMode = mode;
+    root.dataset.theme = resolveTheme(mode);
+  })();
+</script>
+
+
+
+<meta name="description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
+<link rel="canonical" href="/pr-preview/pr-77/docs/guides/using-asset-tap/">
+
+<meta property="og:title" content="Using Asset Tap">
+<meta property="og:description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="/pr-preview/pr-77/docs/guides/using-asset-tap/">
+<meta property="og:site_name" content="Asset Tap">
+<meta property="article:published_time" content="2026-02-10">
+<meta property="og:image" content="/pr-preview/pr-77/images/og-preview.png">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Using Asset Tap">
+<meta name="twitter:description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
+<meta name="twitter:image" content="/pr-preview/pr-77/images/og-preview.png">
+
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+
+
+
+<link rel="icon" href="/pr-preview/pr-77/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/pr-preview/pr-77/main.css">
+
+  
+<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust">
+<meta name="twitter:site" content="@nightandwknd">
+<meta name="twitter:creator" content="@nightandwknd">
+<link rel="apple-touch-icon" href="/pr-preview/pr-77/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/pr-preview/pr-77/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/pr-preview/pr-77/favicon-16x16.png">
+
+  
+
+<link rel="stylesheet" href="/pr-preview/pr-77/tokens.css">
+<style>
+  .hero-media img { cursor: zoom-in; }
+  .site-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background: rgb(4 8 16 / 92%);
+    cursor: zoom-out;
+  }
+  .site-lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: var(--radius-md);
+  }
+</style>
+
+</head>
+
+
+
+<body class="has-site-search">
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  
+
+  <div class="site-shell">
+    <header class="site-header site-header-has-menu">
+  <div class="site-header-inner">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a class="site-logo" href="/pr-preview/pr-77">
+  
+  
+  <img
+    class="site-logo-mark site-logo-mark-image"
+    src="/pr-preview/pr-77/images/icon.png"
+    alt=""
+    width="32"
+    height="32"
+  >
+  
+  
+
+  
+  <span class="site-logo-text">Asset Tap</span>
+  
+</a>
+
+
+    
+    <nav class="site-nav" aria-label="Main navigation">
+      
+      
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-nav-link "
+  href="/pr-preview/pr-77"
+  
+>
+  Home
+</a>
+
+
+      
+      
+
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-nav-link is-active"
+  href="/pr-preview/pr-77/docs"
+  aria-current="location"
+>
+  Docs
+</a>
+
+
+
+      
+      
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-nav-link "
+  href="/pr-preview/pr-77/download"
+  
+>
+  Download
+</a>
+
+
+      
+    </nav>
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+<div
+  class="site-search"
+  data-search
+  data-search-index-format="elasticlunr_javascript"
+  data-search-start-label="Start typing to search."
+  data-search-no-results-label="No results found."
+  data-search-unavailable-label="Search is currently unavailable."
+  data-search-results-count-label="Results found: {count}."
+>
+  <label class="site-search-label" for="site-search-input">
+    Search
+  </label>
+
+  <input
+    id="site-search-input"
+    class="site-search-input"
+    type="search"
+    placeholder="Search..."
+    autocomplete="off"
+    role="combobox"
+    aria-autocomplete="list"
+    aria-controls="site-search-results"
+    aria-expanded="false"
+    aria-haspopup="listbox"
+    data-search-input
+  >
+
+  <kbd class="site-search-shortcut" data-search-shortcut aria-hidden="true">Ctrl+K</kbd>
+
+  <div class="site-search-results" data-search-results hidden>
+    <div
+      id="site-search-results"
+      class="site-search-list"
+      role="listbox"
+      aria-label="Search results"
+      data-search-list
+    ></div>
+    <p class="site-search-empty" data-search-message hidden></p>
+  </div>
+
+  <p
+    class="site-search-status"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-search-status
+  ></p>
+</div>
+
+
+    
+
+
+
+
+<button
+  class="theme-toggle"
+  type="button"
+  data-theme-toggle
+  aria-label="System theme"
+  title="System theme"
+>
+  <svg class="theme-toggle-svg system" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg>
+
+  <svg class="theme-toggle-svg sun" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2.5"></path><path d="M12 19.5V22"></path><path d="M2 12h2.5"></path><path d="M19.5 12H22"></path><path d="M4.93 4.93l1.77 1.77"></path><path d="M17.3 17.3l1.77 1.77"></path><path d="M4.93 19.07l1.77-1.77"></path><path d="M17.3 6.7l1.77-1.77"></path></svg>
+
+  <svg class="theme-toggle-svg moon" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path></svg>
+
+</button>
+
+
+
+    
+    <button
+      class="site-menu-button"
+      type="button"
+      aria-label="Open menu"
+      aria-controls="site-menu"
+      aria-expanded="false"
+      data-site-menu-toggle
+    >
+      <span class="site-menu-button-icon" aria-hidden="true"></span>
+    </button>
+    
+  </div>
+</header>
+
+    
+    <div class="site-menu-backdrop" data-site-menu-backdrop hidden></div>
+
+<div
+  id="site-menu"
+  class="site-menu"
+  role="dialog"
+  aria-label="Mobile navigation"
+  aria-modal="true"
+  aria-hidden="true"
+  data-site-menu
+  data-site-menu-initial-panel="docs"
+  inert
+>
+  <div class="site-menu-header">
+    <p class="site-menu-title">Menu</p>
+
+    <button
+      class="site-menu-close"
+      type="button"
+      aria-label="Close menu"
+      data-site-menu-close
+    >
+      &times;
+    </button>
+  </div>
+
+  
+
+<div id="site-menu-panel-main" class="site-menu-panel" data-site-menu-panel="main">
+  <nav class="site-menu-nav" aria-label="Main mobile navigation">
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-menu-link "
+  href="/pr-preview/pr-77"
+  
+>
+  Home
+</a>
+
+
+    
+    
+    
+    <div class="site-menu-link-row">
+      
+
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-menu-link is-active"
+  href="/pr-preview/pr-77/docs"
+  aria-current="location"
+>
+  <span>Docs</span>
+</a>
+
+
+
+      <button
+        class="site-menu-link-disclosure"
+        type="button"
+        aria-label="Open documentation navigation"
+        aria-controls="site-menu-panel-docs"
+        aria-expanded="false"
+        data-site-menu-panel-target="docs"
+      >
+        <span class="site-menu-link-indicator" aria-hidden="true">&rsaquo;</span>
+      </button>
+    </div>
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+<a
+  class="site-menu-link "
+  href="/pr-preview/pr-77/download"
+  
+>
+  Download
+</a>
+
+
+    
+    
+  </nav>
+</div>
+
+  
+
+<div id="site-menu-panel-docs" class="site-menu-panel" data-site-menu-panel="docs" hidden>
+  <button
+    class="site-menu-back"
+    type="button"
+    aria-controls="site-menu-panel-main"
+    data-site-menu-panel-target="main"
+  >
+    <span aria-hidden="true">&larr;</span>
+    Back to main menu
+  </button>
+
+  <nav class="site-menu-nav site-menu-docs-nav" aria-label="Documentation mobile navigation">
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<ul class="docs-nav-list">
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+<li
+  class="docs-nav-group"
+  data-docs-nav-group="/pr-preview/pr-77/docs/getting-started/"
+  
+>
+  <div class="docs-nav-group-row">
+    <a
+      class="docs-nav-link docs-nav-section-link "
+      href="/pr-preview/pr-77/docs/getting-started/"
+      
+    >
+      Getting started
+    </a>
+
+    <button
+      class="docs-nav-group-toggle"
+      type="button"
+      aria-label="Toggle section: Getting started"
+      aria-controls="site-menu-docs-section-1-children"
+      aria-expanded="false"
+      data-docs-nav-toggle
+      hidden
+    >
+      <span class="docs-nav-group-indicator" aria-hidden="true">&rsaquo;</span>
+    </button>
+  </div>
+
+  <ul
+    id="site-menu-docs-section-1-children"
+    class="docs-nav-list docs-nav-group-links"
+    data-docs-nav-children
+  >
+    
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/getting-started/installation/"
+    
+  >
+    Installation
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/getting-started/first-asset/"
+    
+  >
+    Your First Asset
+  </a>
+</li>
+
+
+
+
+
+  </ul>
+</li>
+
+
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+<li
+  class="docs-nav-group is-active-branch"
+  data-docs-nav-group="/pr-preview/pr-77/docs/guides/"
+  data-docs-nav-active-branch
+>
+  <div class="docs-nav-group-row">
+    <a
+      class="docs-nav-link docs-nav-section-link "
+      href="/pr-preview/pr-77/docs/guides/"
+      
+    >
+      Guides
+    </a>
+
+    <button
+      class="docs-nav-group-toggle"
+      type="button"
+      aria-label="Toggle section: Guides"
+      aria-controls="site-menu-docs-section-2-children"
+      aria-expanded="true"
+      data-docs-nav-toggle
+      hidden
+    >
+      <span class="docs-nav-group-indicator" aria-hidden="true">&rsaquo;</span>
+    </button>
+  </div>
+
+  <ul
+    id="site-menu-docs-section-2-children"
+    class="docs-nav-list docs-nav-group-links"
+    data-docs-nav-children
+  >
+    
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link is-active"
+    href="/pr-preview/pr-77/docs/guides/using-asset-tap/"
+    aria-current="page"
+  >
+    Using Asset Tap
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/cli-usage/"
+    
+  >
+    CLI Usage
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/mcp/"
+    
+  >
+    MCP Server
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/providers/"
+    
+  >
+    Providers
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/bundle-structure/"
+    
+  >
+    Bundle Structure
+  </a>
+</li>
+
+
+
+
+
+  </ul>
+</li>
+
+
+  
+  
+  
+</ul>
+
+
+  </nav>
+
+  
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<footer class="site-footer site-footer-compact">
+  <div class="site-footer-inner">
+    
+
+
+<p class="site-footer-note">The game-asset generation pipeline.</p>
+
+
+
+<p class="site-footer-copyright">&copy; 2026 Asset Tap | <a href="https://nightandwknd.com">Night and Wknd</a></p>
+
+
+<nav class="site-footer-links" aria-label="Footer links">
+  
+  
+  
+  
+  <a
+    class="site-footer-link site-footer-link-icon"
+    href="https://github.com/nightandwknd/asset-tap"
+    aria-label="GitHub"
+  >
+    
+    <span class="site-footer-link-mark" aria-hidden="true">
+      <svg focusable="false" class="social-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+
+    </span>
+    
+  </a>
+  
+  
+</nav>
+
+
+  </div>
+</footer>
+
+</div>
+
+
+</div>
+
+    
+    
+    <main id="main-content" class="site-main site-main-docs" tabindex="-1">
+      
+<div class="docs-shell">
+  
+<aside
+  id="docs-sidebar"
+  class="docs-sidebar"
+  aria-label="Documentation navigation"
+>
+  <nav class="docs-sidebar-nav" aria-label="Documentation">
+    <p class="docs-sidebar-title">Documentation</p>
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<ul class="docs-nav-list">
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+<li
+  class="docs-nav-group"
+  data-docs-nav-group="/pr-preview/pr-77/docs/getting-started/"
+  
+>
+  <div class="docs-nav-group-row">
+    <a
+      class="docs-nav-link docs-nav-section-link "
+      href="/pr-preview/pr-77/docs/getting-started/"
+      
+    >
+      Getting started
+    </a>
+
+    <button
+      class="docs-nav-group-toggle"
+      type="button"
+      aria-label="Toggle section: Getting started"
+      aria-controls="docs-sidebar-section-1-children"
+      aria-expanded="false"
+      data-docs-nav-toggle
+      hidden
+    >
+      <span class="docs-nav-group-indicator" aria-hidden="true">&rsaquo;</span>
+    </button>
+  </div>
+
+  <ul
+    id="docs-sidebar-section-1-children"
+    class="docs-nav-list docs-nav-group-links"
+    data-docs-nav-children
+  >
+    
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/getting-started/installation/"
+    
+  >
+    Installation
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/getting-started/first-asset/"
+    
+  >
+    Your First Asset
+  </a>
+</li>
+
+
+
+
+
+  </ul>
+</li>
+
+
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+<li
+  class="docs-nav-group is-active-branch"
+  data-docs-nav-group="/pr-preview/pr-77/docs/guides/"
+  data-docs-nav-active-branch
+>
+  <div class="docs-nav-group-row">
+    <a
+      class="docs-nav-link docs-nav-section-link "
+      href="/pr-preview/pr-77/docs/guides/"
+      
+    >
+      Guides
+    </a>
+
+    <button
+      class="docs-nav-group-toggle"
+      type="button"
+      aria-label="Toggle section: Guides"
+      aria-controls="docs-sidebar-section-2-children"
+      aria-expanded="true"
+      data-docs-nav-toggle
+      hidden
+    >
+      <span class="docs-nav-group-indicator" aria-hidden="true">&rsaquo;</span>
+    </button>
+  </div>
+
+  <ul
+    id="docs-sidebar-section-2-children"
+    class="docs-nav-list docs-nav-group-links"
+    data-docs-nav-children
+  >
+    
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link is-active"
+    href="/pr-preview/pr-77/docs/guides/using-asset-tap/"
+    aria-current="page"
+  >
+    Using Asset Tap
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/cli-usage/"
+    
+  >
+    CLI Usage
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/mcp/"
+    
+  >
+    MCP Server
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/providers/"
+    
+  >
+    Providers
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-77/docs/guides/bundle-structure/"
+    
+  >
+    Bundle Structure
+  </a>
+</li>
+
+
+
+
+
+  </ul>
+</li>
+
+
+  
+  
+  
+</ul>
+
+
+  </nav>
+
+  
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<footer class="site-footer site-footer-compact">
+  <div class="site-footer-inner">
+    
+
+
+<p class="site-footer-note">The game-asset generation pipeline.</p>
+
+
+
+<p class="site-footer-copyright">&copy; 2026 Asset Tap | <a href="https://nightandwknd.com">Night and Wknd</a></p>
+
+
+<nav class="site-footer-links" aria-label="Footer links">
+  
+  
+  
+  
+  <a
+    class="site-footer-link site-footer-link-icon"
+    href="https://github.com/nightandwknd/asset-tap"
+    aria-label="GitHub"
+  >
+    
+    <span class="site-footer-link-mark" aria-hidden="true">
+      <svg focusable="false" class="social-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+
+    </span>
+    
+  </a>
+  
+  
+</nav>
+
+
+  </div>
+</footer>
+
+</aside>
+
+
+  <article class="docs-content content">
+    
+
+
+
+
+
+
+
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+  <ol class="breadcrumbs-list">
+    <li class="breadcrumbs-item">
+      <a href="/pr-preview/pr-77/docs/">Documentation</a>
+    </li>
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <li class="breadcrumbs-item">
+      <a href="/pr-preview/pr-77/docs/guides/">Guides</a>
+    </li>
+    
+    
+    
+    
+    
+
+    <li class="breadcrumbs-item" aria-current="page">
+      <span>Using Asset Tap</span>
+    </li>
+  </ol>
+</nav>
+
+
+
+
+
+    <header class="page-header">
+      <h1>Using Asset Tap</h1>
+
+      
+      <p class="page-description">
+        Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.
+      </p>
+      
+    </header>
+
+    <p>This guide walks through the Asset Tap GUI from first launch to exporting your 3D models.</p>
+<h2 id="first-launch">First Launch<a class="zola-anchor" href="#first-launch" aria-label="Anchor link for: first-launch">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>When you open Asset Tap for the first time, the welcome screen asks for your API key. Enter a key from either supported provider -- a <a rel="external" href="https://fal.ai/dashboard/keys">fal.ai API key</a> or a <a rel="external" href="https://www.meshy.ai/settings/api">Meshy API key</a> -- and click <strong>Save</strong>. You only need one to run the full pipeline. You can add the other later (or swap between them) in Settings.</p>
+<h2 id="main-window">Main Window<a class="zola-anchor" href="#main-window" aria-label="Anchor link for: main-window">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>The main window has two areas: the <strong>sidebar</strong> on the left for inputs and controls, and the <strong>viewer</strong> on the right for previewing results.</p>
+<h3 id="sidebar">Sidebar<a class="zola-anchor" href="#sidebar" aria-label="Anchor link for: sidebar">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>The sidebar is where you configure and launch generations:</p>
+<ul>
+<li><strong>Prompt</strong> -- Type a text description of the 3D model you want (e.g., "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back")</li>
+<li><strong>Template</strong> -- Optionally select a prompt template to structure your input</li>
+<li><strong>Provider</strong> -- Select the AI provider to use</li>
+<li><strong>Image Model</strong> -- Choose which model generates the image from your text</li>
+<li><strong>Image Model Settings</strong> -- Per-model parameters declared by the provider (aspect ratio, resolution, seed, and so on), shown as sliders, checkboxes, and dropdowns. Values persist per provider and model.</li>
+<li><strong>3D Model</strong> -- Choose which model converts the image to 3D</li>
+<li><strong>3D Model Settings</strong> -- The same, for the image-to-3D model (topology, polycount, PBR, texture resolution, and so on)</li>
+<li><strong>Image only (skip 3D)</strong> -- Stop after the image; no GLB or FBX is written</li>
+<li><strong>Export FBX</strong> -- Convert the GLB to FBX (requires Blender)</li>
+<li><strong>Generate</strong> -- Start the generation pipeline</li>
+</ul>
+<h3 id="using-an-existing-image">Using an Existing Image<a class="zola-anchor" href="#using-an-existing-image" aria-label="Anchor link for: using-an-existing-image">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>If you already have an image, you can skip the text-to-image step. Use the image input in the sidebar to load a file directly -- Asset Tap will send it straight to the image-to-3D model.</p>
+<h2 id="generating-a-model">Generating a Model<a class="zola-anchor" href="#generating-a-model" aria-label="Anchor link for: generating-a-model">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Click <strong>Generate</strong> to start the pipeline. Asset Tap runs in stages:</p>
+<ol>
+<li><strong>Image Generation</strong> -- Your text prompt is sent to the AI provider, which returns an image</li>
+<li><strong>Image Approval</strong> -- Review the generated image before proceeding to 3D conversion</li>
+<li><strong>3D Generation</strong> -- The image is converted to a 3D model (GLB format)</li>
+</ol>
+<h3 id="image-approval">Image Approval<a class="zola-anchor" href="#image-approval" aria-label="Anchor link for: image-approval">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>After the image is generated, Asset Tap shows you a preview so you can decide whether to proceed. If the image doesn't match what you had in mind, you can go back and adjust your prompt.</p>
+<h2 id="3d-viewer">3D Viewer<a class="zola-anchor" href="#3d-viewer" aria-label="Anchor link for: 3d-viewer">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Once generation completes, the 3D model loads in the built-in viewer. You can interact with the model directly:</p>
+<p>Controls follow Blender's conventions.</p>
+<p><strong>Mouse:</strong></p>
+<ul>
+<li><strong>Rotate</strong> -- Left-drag, or middle-click drag, to orbit around the model</li>
+<li><strong>Pan</strong> -- Shift + left-drag, or Shift + middle-click drag</li>
+<li><strong>Zoom</strong> -- Scroll wheel (no modifier)</li>
+</ul>
+<p><strong>Trackpad:</strong></p>
+<ul>
+<li><strong>Rotate</strong> -- Two-finger scroll to orbit</li>
+<li><strong>Pan</strong> -- Shift + two-finger scroll</li>
+<li><strong>Zoom</strong> -- Pinch, or Ctrl/Cmd + two-finger scroll</li>
+</ul>
+<p>A <strong>Reset View</strong> button in the viewer toolbar restores the default camera position.</p>
+<p>The viewer supports models from all providers and handles vertex colors, textures, and node transforms automatically.</p>
+<h2 id="library">Library<a class="zola-anchor" href="#library" aria-label="Anchor link for: library">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>The Library view lets you browse all previously generated models. Each entry shows the prompt, timestamp, and a quick preview. Click any entry to load it in the 3D viewer.</p>
+<p>Bundles are loaded from your configured output directory. See <a href="/pr-preview/pr-77/docs/guides/bundle-structure/">Bundle Structure</a> for details on the output format.</p>
+<h2 id="importing-bundles">Importing Bundles<a class="zola-anchor" href="#importing-bundles" aria-label="Anchor link for: importing-bundles">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Bring bundles into your library from anywhere -- a CLI run that used a custom
+output directory, a bundle someone shared, or an exported archive:</p>
+<ul>
+<li><strong>Drag &amp; drop</strong> -- drop a bundle folder, a <code>.zip</code> archive, or a bundle's
+<code>bundle.json</code> anywhere on the window.</li>
+<li><strong>File → Import Bundle...</strong> -- pick a <code>.zip</code>, or navigate into a bundle
+folder and double-click its <code>bundle.json</code>.</li>
+<li><strong>File → Import Bundle Folder...</strong> -- single-click the folder, then Open
+(double-clicking navigates into it -- that's the OS file picker, not us).</li>
+</ul>
+<p>Imports are copied into your library; the source is left untouched. Zips made
+with macOS's built-in Compress work fine.</p>
+<h2 id="settings">Settings<a class="zola-anchor" href="#settings" aria-label="Anchor link for: settings">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Open Settings from the gear icon to configure:</p>
+<ul>
+<li><strong>API Keys</strong> -- Add or update provider API keys</li>
+<li><strong>Output Directory</strong> -- Choose where generated models are saved</li>
+<li><strong>FBX Export</strong> -- Enable automatic GLB-to-FBX conversion (requires <a rel="external" href="https://www.blender.org/download/">Blender</a>)</li>
+</ul>
+<h2 id="templates">Templates<a class="zola-anchor" href="#templates" aria-label="Anchor link for: templates">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Asset Tap includes prompt templates that help structure your text input for better results. Select a template from the sidebar dropdown, fill in the variables, and the template generates an optimized prompt.</p>
+<p>You can browse available templates with the template selector in the sidebar.</p>
+<h2 id="fbx-export">FBX Export<a class="zola-anchor" href="#fbx-export" aria-label="Anchor link for: fbx-export">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>If you have Blender installed, Asset Tap can automatically convert GLB models to FBX format for use in game engines like Unity and Unreal Engine. Enable FBX export in Settings.</p>
+<p>The exported FBX file is saved alongside the GLB in the same bundle directory.</p>
+<p>You can also convert existing bundles to FBX after generation. In the GUI, open a bundle that has a GLB and click <strong>Convert to FBX</strong>. From the CLI, use <code>asset-tap --convert-fbx &lt;path&gt;</code> with a bundle directory or GLB file.</p>
+<h2 id="what-s-next">What's Next<a class="zola-anchor" href="#what-s-next" aria-label="Anchor link for: what-s-next">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<ul>
+<li><a href="/pr-preview/pr-77/docs/guides/cli-usage/">CLI Usage</a> -- Automate generation from the command line</li>
+<li><a href="/pr-preview/pr-77/docs/guides/providers/">Providers</a> -- Available models and custom provider configuration</li>
+<li><a href="/pr-preview/pr-77/docs/guides/bundle-structure/">Bundle Structure</a> -- Understanding the output format</li>
+</ul>
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<nav
+  class="docs-prev-next"
+  aria-label="Documentation pagination"
+>
+  
+  <a
+    class="docs-prev-next-link docs-prev-next-link-previous"
+    href="/pr-preview/pr-77/docs/getting-started/first-asset/"
+  >
+    <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> Previous</span>
+    <span class="docs-prev-next-title">Your First Asset</span>
+  </a>
+  
+
+  
+  <a
+    class="docs-prev-next-link docs-prev-next-link-next"
+    href="/pr-preview/pr-77/docs/guides/cli-usage/"
+  >
+    <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
+    <span class="docs-prev-next-title">CLI Usage</span>
+  </a>
+  
+</nav>
+
+
+
+  </article>
+
+  
+  
+
+
+
+<aside class="docs-toc" aria-labelledby="docs-toc-title">
+  <p class="docs-toc-title" id="docs-toc-title">On this page</p>
+
+  <nav class="docs-toc-nav" aria-label="On this page">
+    
+  
+  <ul class="docs-toc-list">
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#first-launch">
+        First Launch
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <details class="docs-toc-group" data-docs-toc-group>
+        <summary class="docs-toc-group-toggle">
+          <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#main-window">
+            Main Window
+          </a>
+          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
+        </summary>
+
+        
+  
+  <ul class="docs-toc-list">
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#sidebar">
+        Sidebar
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#using-an-existing-image">
+        Using an Existing Image
+      </a>
+      
+    </li>
+    
+  </ul>
+  
+
+      </details>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <details class="docs-toc-group" data-docs-toc-group>
+        <summary class="docs-toc-group-toggle">
+          <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#generating-a-model">
+            Generating a Model
+          </a>
+          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
+        </summary>
+
+        
+  
+  <ul class="docs-toc-list">
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#image-approval">
+        Image Approval
+      </a>
+      
+    </li>
+    
+  </ul>
+  
+
+      </details>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#3d-viewer">
+        3D Viewer
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#library">
+        Library
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#importing-bundles">
+        Importing Bundles
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#settings">
+        Settings
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#templates">
+        Templates
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#fbx-export">
+        FBX Export
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-77/docs/guides/using-asset-tap/#what-s-next">
+        What&#39;s Next
+      </a>
+      
+    </li>
+    
+  </ul>
+  
+
+  </nav>
+</aside>
+
+
+
+</div>
+
+    </main>
+
+    
+  </div>
+  
+  
+
+
+
+
+
+<script src="/pr-preview/pr-77/elasticlunr.min.js"></script>
+<script src="/pr-preview/pr-77/search_index.en.js"></script>
+<script src="/pr-preview/pr-77/js/search.js"></script>
+
+<script src="/pr-preview/pr-77/js/theme.js"></script>
+
+
+
+
+
+
+<script
+  src="/pr-preview/pr-77/js/copy-button.js"
+  data-copy-label="Copy"
+  data-copied-label="Copied"
+  data-copy-failed-label="Failed"
+  data-copy-success-message="Code copied to clipboard."
+  data-copy-error-message="Unable to copy code."
+></script>
+
+<script src="/pr-preview/pr-77/js/docs-nav.js"></script>
+
+
+<script src="/pr-preview/pr-77/js/toc.js"></script>
+
+
+<script src="/pr-preview/pr-77/js/site-menu.js"></script>
+
+
+  
+<script>
+  (function () {
+    var hero = document.querySelector(".hero-media img");
+    if (!hero) return;
+    hero.setAttribute("tabindex", "0");
+    hero.setAttribute("role", "button");
+    hero.setAttribute("aria-label", "View screenshot full size");
+    function open() {
+      var overlay = document.createElement("div");
+      overlay.className = "site-lightbox";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.setAttribute("aria-label", "Screenshot, full size");
+      overlay.setAttribute("tabindex", "-1");
+      var img = document.createElement("img");
+      img.src = hero.currentSrc || hero.src;
+      img.alt = hero.alt;
+      overlay.appendChild(img);
+      function close() {
+        overlay.remove();
+        document.removeEventListener("keydown", onKey);
+        hero.focus();
+      }
+      function onKey(e) { if (e.key === "Escape") close(); }
+      overlay.addEventListener("click", close);
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(overlay);
+      overlay.focus();
+    }
+    hero.addEventListener("click", open);
+    hero.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  })();
+</script>
+
+  
+</body>
+</html>
