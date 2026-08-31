@@ -1,0 +1,4 @@
+User-agent: *
+Disallow:
+Allow: /
+Sitemap: /pr-preview/pr-76/sitemap.xml
