@@ -2,7 +2,7 @@
 title = "CLI Usage"
 description = "Command-line interface reference for automation and scripting."
 date = 2026-02-09
-weight = 4
+weight = 2
 in_search_index = true
 
 [extra]

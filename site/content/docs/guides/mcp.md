@@ -2,7 +2,7 @@
 title = "MCP Server"
 description = "Use Asset Tap from Claude Desktop, Cursor, and other MCP hosts. asset-tap mcp serves the Model Context Protocol over stdio."
 date = 2026-08-21
-weight = 5
+weight = 3
 in_search_index = true
 
 [extra]

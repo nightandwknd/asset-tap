@@ -2,7 +2,7 @@
 title = "Installation"
 description = "Download and install Asset Tap on macOS, Windows, or Linux."
 date = 2026-02-09
-weight = 2
+weight = 1
 in_search_index = true
 
 [extra]
@@ -102,3 +102,8 @@ The script is [readable on GitHub](https://github.com/nightandwknd/asset-tap/blo
 ## Requirements
 
 See [Download](@/download.md) for system requirements and building from source.
+
+## What's Next
+
+- [Your First Asset](@/docs/getting-started/first-asset.md) -- Add a provider key and generate a model in the desktop app
+- [CLI Usage](@/docs/guides/cli-usage.md) -- If you installed the CLI for terminals, scripts, or agents
