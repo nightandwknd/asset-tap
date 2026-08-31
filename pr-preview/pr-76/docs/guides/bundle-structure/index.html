@@ -1243,12 +1243,6 @@
 <span class="giallo-l"><span>      }</span></span>
 <span class="giallo-l"><span>    ]</span></span>
 <span class="giallo-l"><span>  }</span><span>,</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">  &quot;</span><span class="z-l-1 z-d-4">config</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span> {</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">    &quot;</span><span class="z-l-1 z-d-4">prompt</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a cowboy ninja with a leather duster and dual katanas</span><span class="z-l-2 z-d-6">&quot;</span><span>,</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">    &quot;</span><span class="z-l-1 z-d-4">image_model</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">fal-ai/nano-banana-2</span><span class="z-l-2 z-d-6">&quot;</span><span>,</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">    &quot;</span><span class="z-l-1 z-d-4">model_3d</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">fal-ai/trellis-2</span><span class="z-l-2 z-d-6">&quot;</span><span>,</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">    &quot;</span><span class="z-l-1 z-d-4">export_fbx</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span class="z-l-1 z-d-4"> false</span></span>
-<span class="giallo-l"><span>  }</span><span>,</span></span>
 <span class="giallo-l"><span class="z-l-1 z-d-4">  &quot;</span><span class="z-l-1 z-d-4">generator</span><span class="z-l-1 z-d-4">&quot;</span><span>:</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">asset-tap/26.8.17</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"><span>}</span></span></code></pre><h3 id="fields">Fields<a class="zola-anchor" href="#fields" aria-label="Anchor link for: fields">
   <span class="content-icon content-icon-sm" aria-hidden="true">
@@ -1270,23 +1264,7 @@
 <li><code>primary</code> -- Artifact id a viewer should open first</li>
 <li><code>category</code> -- reserved; omitted until a recipe can name the asset</li>
 </ul>
-<p><strong>config</strong> -- The generation settings used:</p>
-<ul>
-<li><code>prompt</code> -- Text prompt (after template expansion, if one was used)</li>
-<li><code>template</code> -- Template name, or <code>null</code></li>
-<li><code>existing_image</code> -- Source image when <code>--image</code> was used, or <code>null</code> (see <a href="/pr-preview/pr-76/docs/guides/bundle-structure/#privacy">Privacy</a>)</li>
-<li><code>image_model</code> -- Image generation model</li>
-<li><code>model_3d</code> -- 3D generation model</li>
-<li><code>export_fbx</code> -- Whether FBX export was requested</li>
-<li><code>image_model_params</code> / <code>model_3d_params</code> -- The <strong>effective</strong> parameters for each model: the model's declared defaults with any overrides applied. These record the full set, not just what you overrode, so a bundle can be reproduced later even if a default changes.</li>
-</ul>
-<p><strong>model_info</strong> -- 3D model statistics:</p>
-<ul>
-<li><code>file_size</code> -- Size in bytes</li>
-<li><code>format</code> -- Model format (GLB, FBX)</li>
-<li><code>vertex_count</code> -- Number of vertices</li>
-<li><code>triangle_count</code> -- Number of triangles</li>
-</ul>
+<p>Prompt, models, and params live on <code>pipeline.steps[]</code>. Mesh stats live on the model artifact. Version 1 files still load (<code>config</code> / <code>model_info</code>); they are not rewritten.</p>
 <h2 id="privacy">Privacy<a class="zola-anchor" href="#privacy" aria-label="Anchor link for: privacy">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
