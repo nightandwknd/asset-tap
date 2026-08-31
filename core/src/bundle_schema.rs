@@ -1,8 +1,8 @@
 //! Bundle manifest v2: artifacts + a linear pipeline of steps.
 //!
-//! v1 `bundle.json` stays readable forever. New writes emit `version: 2` with
-//! `artifacts` / `pipeline` / `primary`, and still write the v1
-//! `config` and `model_info` fields so existing readers keep working.
+//! v1 `bundle.json` stays readable forever (in-memory synthesize, never
+//! rewritten on load). New writes emit `version: 2` with `artifacts` /
+//! `pipeline` / `primary` only — no `config` / `model_info`.
 //! `category` is reserved on the struct and omitted until a recipe can
 //! actually name the asset.
 //!

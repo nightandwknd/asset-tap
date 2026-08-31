@@ -96,12 +96,6 @@ The `bundle.json` file contains complete information about the generation:
       }
     ]
   },
-  "config": {
-    "prompt": "a cowboy ninja with a leather duster and dual katanas",
-    "image_model": "fal-ai/nano-banana-2",
-    "model_3d": "fal-ai/trellis-2",
-    "export_fbx": false
-  },
   "generator": "asset-tap/26.8.17"
 }
 ```
@@ -121,22 +115,7 @@ The `bundle.json` file contains complete information about the generation:
 - `primary` -- Artifact id a viewer should open first
 - `category` -- reserved; omitted until a recipe can name the asset
 
-**config** -- The generation settings used:
-
-- `prompt` -- Text prompt (after template expansion, if one was used)
-- `template` -- Template name, or `null`
-- `existing_image` -- Source image when `--image` was used, or `null` (see [Privacy](#privacy))
-- `image_model` -- Image generation model
-- `model_3d` -- 3D generation model
-- `export_fbx` -- Whether FBX export was requested
-- `image_model_params` / `model_3d_params` -- The **effective** parameters for each model: the model's declared defaults with any overrides applied. These record the full set, not just what you overrode, so a bundle can be reproduced later even if a default changes.
-
-**model_info** -- 3D model statistics:
-
-- `file_size` -- Size in bytes
-- `format` -- Model format (GLB, FBX)
-- `vertex_count` -- Number of vertices
-- `triangle_count` -- Number of triangles
+Prompt, models, and params live on `pipeline.steps[]`. Mesh stats live on the model artifact. Version 1 files still load (`config` / `model_info`); they are not rewritten.
 
 ## Privacy
 

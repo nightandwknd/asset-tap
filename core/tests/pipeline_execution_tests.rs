@@ -307,14 +307,12 @@ async fn test_pipeline_creates_bundle_metadata() {
     let content = std::fs::read_to_string(&bundle_json).unwrap();
     let metadata: serde_json::Value = serde_json::from_str(&content).unwrap();
 
-    // Verify metadata has config
-    assert!(metadata.get("config").is_some(), "Should have config");
-    let config_json = &metadata["config"];
-    assert_eq!(config_json["prompt"], "test metadata");
-    assert_eq!(config_json["image_model"], "fal-ai/nano-banana");
-    assert_eq!(config_json["model_3d"], "fal-ai/trellis-2");
+    assert!(metadata.get("config").is_none(), "v2 writes omit config");
+    assert!(
+        metadata.get("model_info").is_none(),
+        "v2 writes omit model_info"
+    );
 
-    // v2 rails: inventory + steps, v1 fields still present
     assert_eq!(metadata["version"], 2);
     assert_eq!(metadata["primary"], "model");
     assert!(metadata.get("category").is_none());
@@ -324,8 +322,11 @@ async fn test_pipeline_creates_bundle_metadata() {
     let steps = metadata["pipeline"]["steps"].as_array().expect("steps");
     assert_eq!(steps[0]["kind"], "model");
     assert_eq!(steps[0]["modality"], "text_to_image");
+    assert_eq!(steps[0]["prompt"], "test metadata");
+    assert_eq!(steps[0]["model"], "fal-ai/nano-banana");
     assert_eq!(steps[1]["kind"], "model");
     assert_eq!(steps[1]["modality"], "image_to_3d");
+    assert_eq!(steps[1]["model"], "fal-ai/trellis-2");
 
     cleanup_mock_env();
 }

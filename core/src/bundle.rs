@@ -19,8 +19,8 @@
 //! The `bundle.json` file contains:
 //! - Custom display name
 //! - Creation timestamp
-//! - Generation configuration (prompt, models used)
-//! - Model statistics (vertex count, file size)
+//! - Artifact inventory and a linear pipeline of steps (v2)
+//! - v1 `config` / `model_info` are read on load only, never written
 //! - User tags and favorites
 //! - Generation duration
 //!
@@ -39,6 +39,8 @@ use crate::history::GenerationConfig;
 use crate::state::ModelInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
@@ -131,10 +133,13 @@ pub struct BundleMetadata {
     pub created_at: DateTime<Utc>,
 
     /// Generation configuration used (prompt, models, etc.).
+    /// Present on v1 files; omitted on new writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<GenerationConfig>,
 
     /// Model statistics (vertex count, file size, etc.).
-    /// Populated lazily on first view.
+    /// Present on v1 files; omitted on new writes (stats live on artifacts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_info: Option<ModelInfo>,
 
     /// Duration of generation in milliseconds.
@@ -176,6 +181,20 @@ pub struct BundleMetadata {
     pub pipeline: Option<BundlePipeline>,
 }
 
+/// Prompt, models, params, and mesh stats from v2 fields, or v1 fallback.
+#[derive(Debug, Default, Clone)]
+pub struct GenerationView {
+    pub prompt: Option<String>,
+    pub user_prompt: Option<String>,
+    pub template: Option<String>,
+    pub image_model: Option<String>,
+    pub model_3d: Option<String>,
+    pub image_params: HashMap<String, Value>,
+    pub model_3d_params: HashMap<String, Value>,
+    pub vertex_count: Option<usize>,
+    pub triangle_count: Option<usize>,
+}
+
 impl Default for BundleMetadata {
     fn default() -> Self {
         Self {
@@ -215,8 +234,8 @@ impl BundleMetadata {
 
     /// Build v2 metadata for a finished generation, from files already on disk.
     ///
-    /// Writes `artifacts` / `pipeline` and keeps v1 `config` / `model_info` so
-    /// older readers still work. Does not rewrite existing v1 bundles.
+    /// Writes `artifacts` / `pipeline` only. v1 `config` / `model_info` are
+    /// omitted. Does not rewrite existing v1 bundles.
     pub fn for_generation(
         bundle_dir: &Path,
         config: GenerationConfig,
@@ -225,8 +244,8 @@ impl BundleMetadata {
         model_3d_provider_id: Option<&str>,
     ) -> Self {
         let manifest = bundle_schema::GenerationManifest {
-            config: config.clone(),
-            model_info: model_info.clone(),
+            config,
+            model_info,
             image_provider_id: image_provider_id.map(str::to_string),
             model_3d_provider_id: model_3d_provider_id.map(str::to_string),
         };
@@ -234,14 +253,112 @@ impl BundleMetadata {
             bundle_schema::describe_generation(bundle_dir, &manifest);
         Self {
             version: SCHEMA_VERSION,
-            config: Some(config),
-            model_info,
             generator: Some(GENERATOR.to_string()),
             artifacts,
             primary,
             pipeline: Some(pipeline),
             ..Default::default()
         }
+    }
+
+    /// Prompt, models, params, and mesh stats — pipeline/artifacts first,
+    /// v1 `config` / `model_info` only to fill holes.
+    pub fn generation_view(&self) -> GenerationView {
+        let (artifacts, _, _, pipeline) = self.v2_view();
+        let mut out = GenerationView::default();
+        for step in &pipeline.steps {
+            let PipelineStep::Model {
+                model,
+                modality,
+                prompt,
+                user_prompt,
+                template,
+                params,
+                ..
+            } = step
+            else {
+                continue;
+            };
+            match modality.as_str() {
+                bundle_schema::modalities::TEXT_TO_IMAGE => {
+                    if out.image_model.is_none() {
+                        out.image_model = Some(model.clone());
+                    }
+                    if out.prompt.is_none() {
+                        out.prompt = prompt.clone();
+                    }
+                    if out.user_prompt.is_none() {
+                        out.user_prompt = user_prompt.clone();
+                    }
+                    if out.template.is_none() {
+                        out.template = template.clone();
+                    }
+                    if out.image_params.is_empty() {
+                        out.image_params = params.clone();
+                    }
+                }
+                bundle_schema::modalities::IMAGE_TO_3D | bundle_schema::modalities::TEXT_TO_3D => {
+                    if out.model_3d.is_none() {
+                        out.model_3d = Some(model.clone());
+                    }
+                    if out.prompt.is_none() {
+                        out.prompt = prompt.clone();
+                    }
+                    if out.user_prompt.is_none() {
+                        out.user_prompt = user_prompt.clone();
+                    }
+                    if out.template.is_none() {
+                        out.template = template.clone();
+                    }
+                    if out.model_3d_params.is_empty() {
+                        out.model_3d_params = params.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(cfg) = &self.config {
+            if out.prompt.is_none() {
+                out.prompt = cfg.prompt.clone();
+            }
+            if out.user_prompt.is_none() {
+                out.user_prompt = cfg.user_prompt.clone();
+            }
+            if out.template.is_none() {
+                out.template = cfg.template.clone();
+            }
+            if out.image_model.is_none() {
+                out.image_model = cfg.image_model.clone();
+            }
+            if out.model_3d.is_none() && !cfg.model_3d.is_empty() {
+                out.model_3d = Some(cfg.model_3d.clone());
+            }
+            if out.image_params.is_empty() {
+                out.image_params = cfg.image_model_params.clone();
+            }
+            if out.model_3d_params.is_empty() {
+                out.model_3d_params = cfg.model_3d_params.clone();
+            }
+        }
+        for art in &artifacts {
+            if art.role == roles::MODEL {
+                if out.vertex_count.is_none() {
+                    out.vertex_count = art.vertex_count;
+                }
+                if out.triangle_count.is_none() {
+                    out.triangle_count = art.triangle_count;
+                }
+            }
+        }
+        if let Some(info) = &self.model_info {
+            if out.vertex_count.is_none() {
+                out.vertex_count = Some(info.vertex_count);
+            }
+            if out.triangle_count.is_none() {
+                out.triangle_count = Some(info.triangle_count);
+            }
+        }
+        out
     }
 
     /// Full v2 projection: stored fields, or synthesized from v1 `config`.
@@ -2508,12 +2625,6 @@ mod tests {
                         "outputs": ["model"]
                     }
                 ]
-            },
-            "config": {
-                "prompt": "a cowboy ninja",
-                "image_model": "fal-ai/nano-banana-2",
-                "model_3d": "fal-ai/trellis-2",
-                "export_fbx": false
             }
         }"#;
 
@@ -2527,7 +2638,38 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].id(), "image");
         assert_eq!(steps[1].id(), "model");
-        assert!(parsed.config.is_some());
+        assert!(parsed.config.is_none());
+        assert!(parsed.model_info.is_none());
+        let view = parsed.generation_view();
+        assert_eq!(view.prompt.as_deref(), Some("a cowboy ninja"));
+        assert_eq!(view.image_model.as_deref(), Some("fal-ai/nano-banana-2"));
+        assert_eq!(view.model_3d.as_deref(), Some("fal-ai/trellis-2"));
+        assert_eq!(view.vertex_count, Some(27398));
+    }
+
+    #[test]
+    fn for_generation_omits_v1_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("image.png"), b"png").unwrap();
+        std::fs::write(dir.path().join("model.glb"), b"glb").unwrap();
+        let meta = BundleMetadata::for_generation(
+            dir.path(),
+            GenerationConfig {
+                prompt: Some("a crate".into()),
+                image_model: Some("fal-ai/nano-banana-2".into()),
+                model_3d: "fal-ai/trellis-2".into(),
+                ..GenerationConfig::default()
+            },
+            None,
+            Some("fal.ai"),
+            Some("fal.ai"),
+        );
+        let json = serde_json::to_value(&meta).unwrap();
+        assert_eq!(json["version"], 2);
+        assert!(json.get("config").is_none());
+        assert!(json.get("model_info").is_none());
+        assert!(json.get("category").is_none());
+        assert!(json["artifacts"].as_array().unwrap().len() >= 2);
     }
 
     #[test]

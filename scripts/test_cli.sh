@@ -605,7 +605,7 @@ if [ $BUNDLE_EXIT -eq 0 ]; then
     done
     # Validate bundle.json is valid JSON with required fields
     if [ -f "${BUNDLE_DIR}bundle.json" ]; then
-        if ! python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d.get('config',{}).get('prompt') or 'prompt' in d or 'metadata' in d" "${BUNDLE_DIR}bundle.json" 2>/dev/null; then
+        if ! python3 -c "import json,sys; d=json.load(open(sys.argv[1])); steps=d.get('pipeline',{}).get('steps',[]); assert d.get('version')==2 and any(s.get('prompt') for s in steps)" "${BUNDLE_DIR}bundle.json" 2>/dev/null; then
             echo "bundle.json missing expected fields" >> "$LOG_FILE"
             BUNDLE_OK=false
         fi
@@ -912,7 +912,8 @@ if [ $DEEP_EXIT -eq 0 ]; then
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d.get('version') == 2, 'expected version 2'
-assert d.get('config',{}).get('prompt') == 'deep validation prompt', 'prompt mismatch'
+assert 'config' not in d, 'v2 writes omit config'
+assert 'model_info' not in d, 'v2 writes omit model_info'
 assert 'created_at' in d, 'missing created_at'
 assert d.get('primary') == 'model', 'primary should be model'
 assert 'category' not in d, 'category must be omitted on generic writes'
@@ -920,6 +921,7 @@ arts = {a.get('id') for a in d.get('artifacts', [])}
 assert 'image' in arts and 'model' in arts, 'missing artifacts'
 steps = d.get('pipeline', {}).get('steps', [])
 assert len(steps) >= 2, 'expected image + model steps'
+assert steps[0].get('prompt') == 'deep validation prompt', 'prompt mismatch'
 assert steps[0].get('kind') == 'model' and steps[0].get('modality') == 'text_to_image'
 assert steps[1].get('kind') == 'model' and steps[1].get('modality') == 'image_to_3d'
 " "${DEEP_DIR}bundle.json" >> "$LOG_FILE" 2>&1; then
@@ -1034,59 +1036,59 @@ echo "=== 15. BUNDLE PARAM CAPTURE ===" | tee -a "$LOG_FILE"
 
 assert_bundle_json "Bundle: hunyuan-3d defaults captured (face_count=500000)" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d 'test'" \
-    '.config.model_3d_params.face_count == 500000 and .config.model_3d_params.generate_type == "Normal" and .config.model_3d_params.enable_pbr == false'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).face_count == 500000 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).generate_type == "Normal" and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).enable_pbr == false'
 
 assert_bundle_json "Bundle: trellis-2 full default set captured (19 params, seed stripped)" \
     "--3d-model fal-ai/trellis-2 'test'" \
-    '(.config.model_3d_params | length) == 19 and .config.model_3d_params.decimation_target == 500000 and .config.model_3d_params.resolution == 1024 and .config.model_3d_params.seed == null'
+    '((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | length) == 19 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).decimation_target == 500000 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).resolution == 1024 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).seed == null'
 
 assert_bundle_json "Bundle: nano-banana-2 defaults (all 8 text-to-image params, seed stripped)" \
     "--image-model fal-ai/nano-banana-2 'test'" \
-    '(.config.image_model_params | length) == 8 and .config.image_model_params.resolution == "1K" and .config.image_model_params.aspect_ratio == "auto" and .config.image_model_params.seed == null'
+    '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | length) == 8 and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).resolution == "1K" and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).aspect_ratio == "auto" and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).seed == null'
 
 assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)" \
     "--image-model fal-ai/flux-2-pro 'test'" \
-    '(.config.image_model_params | length) == 4 and .config.image_model_params.safety_tolerance == "2" and (.config.image_model_params | has("guidance_scale") | not)'
+    '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | length) == 4 and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).safety_tolerance == "2" and ((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | has("guidance_scale") | not)'
 
 assert_bundle_json "Bundle: meshy v6 via fal wrapper (8 params, should_remesh=false, texture_prompt stripped-null)" \
     "--3d-model fal-ai/meshy/v6/image-to-3d 'test'" \
-    '(.config.model_3d_params | length) == 8 and .config.model_3d_params.should_remesh == false and .config.model_3d_params.topology == "triangle" and .config.model_3d_params.texture_prompt == null'
+    '((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | length) == 8 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).should_remesh == false and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).topology == "triangle" and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).texture_prompt == null'
 
 # --- Overrides captured and merged with defaults ---
 
 assert_bundle_json "Bundle: hunyuan face_count override captured" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" \
-    '.config.model_3d_params.face_count == 60000 and .config.model_3d_params.generate_type == "Normal"'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).face_count == 60000 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).generate_type == "Normal"'
 
 assert_bundle_json "Bundle: trellis-2 decimation_target override (widget: input)" \
     "--3d-model fal-ai/trellis-2 --param decimation_target=80000 'test'" \
-    '.config.model_3d_params.decimation_target == 80000 and .config.model_3d_params.resolution == 1024'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).decimation_target == 80000 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).resolution == 1024'
 
 assert_bundle_json "Bundle: trellis-2 numeric-option select override (resolution=512)" \
     "--3d-model fal-ai/trellis-2 --param resolution=512 'test'" \
-    '.config.model_3d_params.resolution == 512'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).resolution == 512'
 
 assert_bundle_json "Bundle: trellis-2 seed override is recorded in bundle" \
     "--3d-model fal-ai/trellis-2 --param seed=42 'test'" \
-    '.config.model_3d_params.seed == 42'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).seed == 42'
 
 assert_bundle_json "Bundle: trellis-2 cleared seed (--param seed=) stays null" \
     "--3d-model fal-ai/trellis-2 --param seed= 'test'" \
-    '.config.model_3d_params.seed == null'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).seed == null'
 
 assert_bundle_json "Bundle: multiple overrides on same model" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=100000 --param generate_type=Geometry --param enable_pbr=true 'test'" \
-    '.config.model_3d_params.face_count == 100000 and .config.model_3d_params.generate_type == "Geometry" and .config.model_3d_params.enable_pbr == true'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).face_count == 100000 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).generate_type == "Geometry" and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).enable_pbr == true'
 
 assert_bundle_json "Bundle: image + 3D overrides both captured" \
     "--image-model fal-ai/flux-2 --3d-model fal-ai/trellis-2 --param guidance_scale=7.0 --param decimation_target=100000 'test'" \
-    '.config.image_model_params.guidance_scale == 7.0 and .config.model_3d_params.decimation_target == 100000'
+    '(.pipeline.steps[] | select(.modality == "text_to_image") | .params).guidance_scale == 7.0 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).decimation_target == 100000'
 
 # --- Null override (empty --param value) falls back to YAML default ---
 
 assert_bundle_json "Bundle: cleared param (--param face_count=) falls back to YAML default" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count= 'test'" \
-    '.config.model_3d_params.face_count == 500000'
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).face_count == 500000'
 
 # --- Meshy v6 parity check: same overrides produce identical bundle shape ---
 # Skipped because Meshy provider is hidden in mock mode. Parity is enforced

@@ -354,9 +354,8 @@ impl BundleInfoPanel {
                 (
                     b.metadata.name.clone(),
                     b.dir_name().to_string(),
-                    b.metadata.config.clone(),
+                    b.metadata.generation_view(),
                     b.metadata.created_at,
-                    b.metadata.model_info.clone(),
                     b.metadata.generator.clone(),
                     b.metadata.tags.clone(),
                     b.metadata.favorite,
@@ -366,9 +365,8 @@ impl BundleInfoPanel {
             if let Some((
                 custom_name,
                 dir_name,
-                config,
+                view,
                 created_at,
-                model_info,
                 generator,
                 tags,
                 favorite,
@@ -494,21 +492,20 @@ impl BundleInfoPanel {
                 // =================================================================
                 // Prompt Section
                 // =================================================================
-                if let Some(ref config) = config
-                    && let Some(ref prompt) = config.prompt
+                if let Some(ref prompt) = view.prompt
                 {
                     ui.label(egui::RichText::new("Prompt").strong());
                     ui.add_space(4.0);
 
                     // Show template and original input if present
-                    if let Some(ref template) = config.template {
+                    if let Some(ref template) = view.template {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Template:").size(12.0).weak());
                             ui.label(egui::RichText::new(template).size(12.0));
                         });
                         ui.add_space(2.0);
 
-                        if let Some(ref user_prompt) = config.user_prompt {
+                        if let Some(ref user_prompt) = view.user_prompt {
                             scrollable_prompt_field(
                                 ui,
                                 "Original input:",
@@ -520,7 +517,7 @@ impl BundleInfoPanel {
                         }
                     }
 
-                    let expanded_label = if config.template.is_some() {
+                    let expanded_label = if view.template.is_some() {
                         "Expanded prompt:"
                     } else {
                         "Prompt:"
@@ -530,7 +527,7 @@ impl BundleInfoPanel {
                     ui.add_space(4.0);
 
                     // Copy to Input — prefer original user input when a template was used
-                    let copy_text = config.user_prompt.as_deref().unwrap_or(prompt).to_string();
+                    let copy_text = view.user_prompt.as_deref().unwrap_or(prompt).to_string();
                     if ui
                         .button(format!("{} Copy to Input", icons::COPY))
                         .on_hover_text("Copy this prompt to the input field")
@@ -547,20 +544,20 @@ impl BundleInfoPanel {
                 // =================================================================
                 // Parameters Section (only shown when overrides were applied)
                 // =================================================================
-                if let Some(ref config) = config {
-                    let has_image_params = !config.image_model_params.is_empty();
-                    let has_model_3d_params = !config.model_3d_params.is_empty();
+                {
+                    let has_image_params = !view.image_params.is_empty();
+                    let has_model_3d_params = !view.model_3d_params.is_empty();
                     if has_image_params || has_model_3d_params {
                         ui.label(egui::RichText::new("Parameters").strong());
                         ui.add_space(4.0);
                         if has_image_params {
-                            render_parameter_list(ui, "Image model:", &config.image_model_params);
+                            render_parameter_list(ui, "Image model:", &view.image_params);
                         }
                         if has_model_3d_params {
                             if has_image_params {
                                 ui.add_space(4.0);
                             }
-                            render_parameter_list(ui, "3D model:", &config.model_3d_params);
+                            render_parameter_list(ui, "3D model:", &view.model_3d_params);
                         }
                         ui.add_space(18.0);
                         ui.separator();
@@ -600,42 +597,43 @@ impl BundleInfoPanel {
                 ui.add_space(4.0);
 
                 // Model information (if available)
-                if let Some(ref model_info) = model_info {
+                if let Some(vertex_count) = view.vertex_count {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Vertices:").size(13.0).weak());
                         ui.label(
-                            egui::RichText::new(format_number(model_info.vertex_count as u32))
+                            egui::RichText::new(format_number(vertex_count as u32))
                                 .size(13.0),
                         );
                     });
                     ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Triangles:").size(13.0).weak());
-                        ui.label(
-                            egui::RichText::new(format_number(model_info.triangle_count as u32))
-                                .size(13.0),
-                        );
-                    });
+                    if let Some(triangle_count) = view.triangle_count {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Triangles:").size(13.0).weak());
+                            ui.label(
+                                egui::RichText::new(format_number(triangle_count as u32))
+                                    .size(13.0),
+                            );
+                        });
+                    }
                     ui.add_space(4.0);
                 }
 
-                // Model names (if available)
-                if let Some(ref config) = config {
-                    if let Some(ref image_model) = config.image_model
-                        && !image_model.is_empty()
-                    {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Image Model:").size(13.0).weak());
-                            ui.label(egui::RichText::new(image_model).size(13.0));
-                        });
-                        ui.add_space(2.0);
-                    }
-                    if !config.model_3d.is_empty() {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("3D Model:").size(13.0).weak());
-                            ui.label(egui::RichText::new(&config.model_3d).size(13.0));
-                        });
-                    }
+                if let Some(ref image_model) = view.image_model
+                    && !image_model.is_empty()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Image Model:").size(13.0).weak());
+                        ui.label(egui::RichText::new(image_model).size(13.0));
+                    });
+                    ui.add_space(2.0);
+                }
+                if let Some(ref model_3d) = view.model_3d
+                    && !model_3d.is_empty()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("3D Model:").size(13.0).weak());
+                        ui.label(egui::RichText::new(model_3d).size(13.0));
+                    });
                 }
 
                 ui.add_space(16.0);

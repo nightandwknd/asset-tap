@@ -16,9 +16,9 @@ output/
         └── ...
 ```
 
-**Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb`, `model.fbx`, and `textures/` are absent; `bundle.json` omits `model_3d`, `model_3d_params`, and `model_info`.
+**Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb`, `model.fbx`, and `textures/` are absent; the pipeline is one `text_to_image` step.
 
-New writes emit `version: 2` (`artifacts` + `pipeline`). Version 1 files remain readable; readers accept both. Filenames are unchanged.
+New writes emit `version: 2` (`artifacts` + `pipeline`) and omit v1 `config` / `model_info`. Version 1 files remain readable; they are not rewritten on load. Filenames are unchanged.
 
 ## Bundle Metadata (bundle.json)
 
@@ -69,12 +69,6 @@ Version 2 (current). Version 1 files remain readable — see [Version History](#
         "outputs": ["model"]
       }
     ]
-  },
-  "config": {
-    "prompt": "a cowboy ninja",
-    "image_model": "fal-ai/nano-banana-2",
-    "model_3d": "fal-ai/trellis-2",
-    "export_fbx": false
   }
 }
 ```
@@ -101,33 +95,9 @@ Version 2 (current). Version 1 files remain readable — see [Version History](#
 
 Identifies which application and version created this bundle (e.g. `"asset-tap/26.3.6"`). Useful for tracking, metrics, and certifying bundle origin. Omitted for bundles created before this field was added.
 
-### config
+### artifacts / pipeline / primary
 
-Generation configuration:
-
-- `prompt` - Text prompt sent to the API (after template expansion, if any)
-- `user_prompt` - Original user input before template expansion (omitted when no template was used)
-- `template` - Template name used for prompt expansion (omitted when no template was used)
-- `image_model` - Image generation model used
-- `model_3d` - 3D generation model used
-- `export_fbx` - Whether FBX export was requested
-- `image_model_params` - Effective parameters sent to the image provider: YAML-declared defaults with any user overrides merged in (omitted when the model declares no parameters or the stage was skipped)
-- `model_3d_params` - Effective parameters sent to the 3D provider: YAML-declared defaults with any user overrides merged in (omitted when the model declares no parameters)
-
-### model_info
-
-3D model statistics:
-
-- `file_size` - File size in bytes
-- `format` - Model format (GLB, FBX)
-- `vertex_count` - Number of vertices
-- `triangle_count` - Number of triangles
-
-### artifacts / pipeline / primary (version 2)
-
-New writes add an inventory and an ordered provenance list. The v1 `config` and `model_info` fields are still written so older readers keep working.
-
-- `artifacts[]` — every file that matters: `id`, `role` (`image`, `model`, `texture`, …), relative `path` (or `null` if dropped), `mime`, `sha256`, `produced_by` (step id), and role-specific stats
+- `artifacts[]` — every file that matters: `id`, `role` (`image`, `model`, `texture`, …), relative `path` (or `null` if dropped), `mime`, `sha256`, `produced_by` (step id), and role-specific stats (vertex/triangle counts on the model)
 - `primary` — artifact id a viewer should open first (`model` when a GLB is present, otherwise `image`)
 - `category` — reserved, omitted. Today's pipeline does not know if a mesh is a prop, character, or environment; a recipe can set this later
 - `pipeline.steps[]` — linear. Each step is `kind: model` (provider, model, modality, prompt, params) or `kind: op` (a named deterministic operation). Steps name `inputs` / `outputs` by artifact id.
@@ -144,7 +114,7 @@ A model-only bundle (no image) is the same shape: one `model` artifact and one `
 
 - `artifacts[]`, `pipeline.steps[]`, `primary`
 - `category` reserved and omitted until a recipe can name the asset
-- Writers still emit v1 `config` / `model_info` for compatibility
+- Writers omit v1 `config` / `model_info`
 - v1 files are not rewritten on load
 
 ### Version 1 (Legacy, still readable)

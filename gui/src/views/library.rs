@@ -4,6 +4,7 @@
 
 use crate::icons;
 use crate::style::RichTextExt;
+use asset_tap_core::bundle::BundleMetadata;
 use asset_tap_core::constants::files::bundle as bundle_files;
 use asset_tap_core::settings::get_output_dir;
 use eframe::egui;
@@ -438,26 +439,10 @@ impl LibraryBrowser {
                 let bundle_path = parent.join(bundle_files::METADATA);
                 std::fs::read_to_string(bundle_path).ok()
             })
-            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-            .map(|json| {
-                let custom_name = json
-                    .get("name")
-                    .and_then(|n| n.as_str())
-                    .map(|s| s.to_string());
-
-                let prompt = json
-                    .get("config")
-                    .and_then(|c| c.get("prompt"))
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.to_string());
-
-                let model_name = json
-                    .get("config")
-                    .and_then(|c| c.get("model_3d"))
-                    .and_then(|m| m.as_str())
-                    .map(|s| s.to_string());
-
-                (custom_name, prompt, model_name)
+            .and_then(|content| serde_json::from_str::<BundleMetadata>(&content).ok())
+            .map(|meta| {
+                let view = meta.generation_view();
+                (meta.name, view.prompt, view.model_3d)
             })
             .unwrap_or((None, None, None));
 
@@ -514,26 +499,10 @@ impl LibraryBrowser {
         let bundle_path = generation_dir.join(bundle_files::METADATA);
         let (custom_name, prompt, model_name) = std::fs::read_to_string(bundle_path)
             .ok()
-            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-            .map(|json| {
-                let custom_name = json
-                    .get("name")
-                    .and_then(|n| n.as_str())
-                    .map(|s| s.to_string());
-
-                let prompt = json
-                    .get("config")
-                    .and_then(|c| c.get("prompt"))
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.to_string());
-
-                let model_name = json
-                    .get("config")
-                    .and_then(|c| c.get("model_3d"))
-                    .and_then(|m| m.as_str())
-                    .map(|s| s.to_string());
-
-                (custom_name, prompt, model_name)
+            .and_then(|content| serde_json::from_str::<BundleMetadata>(&content).ok())
+            .map(|meta| {
+                let view = meta.generation_view();
+                (meta.name, view.prompt, view.model_3d)
             })
             .unwrap_or((None, None, None));
 
