@@ -894,7 +894,7 @@ echo "" | tee -a "$LOG_FILE"
 
 echo "=== 13. BUNDLE DEEP VALIDATION ===" | tee -a "$LOG_FILE"
 
-# Validate bundle.json has correct prompt, config structure, and non-zero file sizes
+# Validate bundle.json v2 (compat config + artifacts/pipeline) and non-zero file sizes
 DEEP_OUT="$TEST_OUTPUT/deep_bundle"
 rm -rf "$DEEP_OUT"
 TOTAL=$((TOTAL + 1))
@@ -911,10 +911,18 @@ if [ $DEEP_EXIT -eq 0 ]; then
         if ! python3 -c "
 import json,sys
 d=json.load(open(sys.argv[1]))
-assert d.get('version') == 1, 'missing version'
+assert d.get('version') == 2, 'expected version 2'
 assert d.get('config',{}).get('prompt') == 'deep validation prompt', 'prompt mismatch'
 assert 'created_at' in d, 'missing created_at'
-" "${DEEP_DIR}bundle.json" 2>/dev/null; then
+assert d.get('primary') == 'model', 'primary should be model'
+assert 'category' not in d, 'category must be omitted on generic writes'
+arts = {a.get('id') for a in d.get('artifacts', [])}
+assert 'image' in arts and 'model' in arts, 'missing artifacts'
+steps = d.get('pipeline', {}).get('steps', [])
+assert len(steps) >= 2, 'expected image + model steps'
+assert steps[0].get('kind') == 'model' and steps[0].get('modality') == 'text_to_image'
+assert steps[1].get('kind') == 'model' and steps[1].get('modality') == 'image_to_3d'
+" "${DEEP_DIR}bundle.json" >> "$LOG_FILE" 2>&1; then
             echo "bundle.json content validation failed" >> "$LOG_FILE"
             DEEP_OK=false
         fi

@@ -314,6 +314,52 @@ async fn test_pipeline_creates_bundle_metadata() {
     assert_eq!(config_json["image_model"], "fal-ai/nano-banana");
     assert_eq!(config_json["model_3d"], "fal-ai/trellis-2");
 
+    // v2 rails: inventory + steps, v1 fields still present
+    assert_eq!(metadata["version"], 2);
+    assert_eq!(metadata["primary"], "model");
+    assert!(metadata.get("category").is_none());
+    let artifacts = metadata["artifacts"].as_array().expect("artifacts");
+    assert!(artifacts.iter().any(|a| a["id"] == "image"));
+    assert!(artifacts.iter().any(|a| a["id"] == "model"));
+    let steps = metadata["pipeline"]["steps"].as_array().expect("steps");
+    assert_eq!(steps[0]["kind"], "model");
+    assert_eq!(steps[0]["modality"], "text_to_image");
+    assert_eq!(steps[1]["kind"], "model");
+    assert_eq!(steps[1]["modality"], "image_to_3d");
+
+    cleanup_mock_env();
+}
+
+#[tokio::test]
+async fn test_pipeline_image_only_writes_v2_without_model_step() {
+    let (_env, temp_dir) = setup_mock_env();
+
+    let config = PipelineConfig::new()
+        .with_prompt("test image only")
+        .with_image_model("fal-ai/nano-banana")
+        .with_skip_3d()
+        .with_output_dir(temp_dir.path().to_path_buf());
+
+    let registry = ProviderRegistry::new();
+    let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
+
+    while rx.recv().await.is_some() {}
+    let output = handle.await.unwrap().unwrap();
+
+    let bundle_json = output.output_dir.unwrap().join(bundle_files::METADATA);
+    let metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&bundle_json).unwrap()).unwrap();
+
+    assert_eq!(metadata["version"], 2);
+    assert_eq!(metadata["primary"], "image");
+    assert!(metadata.get("category").is_none() || metadata["category"].is_null());
+    let artifacts = metadata["artifacts"].as_array().expect("artifacts");
+    assert!(artifacts.iter().any(|a| a["id"] == "image"));
+    assert!(!artifacts.iter().any(|a| a["id"] == "model"));
+    let steps = metadata["pipeline"]["steps"].as_array().expect("steps");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["modality"], "text_to_image");
+
     cleanup_mock_env();
 }
 

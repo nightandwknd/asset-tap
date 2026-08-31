@@ -31,6 +31,7 @@
 //! - [`PipelineOutput`](crate::types::PipelineOutput) - Pipeline execution results
 //! - [`history`](crate::history) - Generation history tracking
 
+use crate::bundle_schema;
 use crate::constants::files::DEMO_BUNDLE_URL;
 use crate::constants::files::bundle as bundle_files;
 use crate::constants::validation;
@@ -64,6 +65,10 @@ pub fn generator_string() -> &'static str {
 pub mod files {
     pub use crate::constants::files::bundle::*;
 }
+
+pub use crate::bundle_schema::{
+    Artifact, BundlePipeline, PipelineStep, SCHEMA_VERSION, modalities, ops, roles,
+};
 
 /// Extract model statistics (vertex/triangle count, file size) from a GLB file.
 ///
@@ -153,6 +158,22 @@ pub struct BundleMetadata {
     /// Incremented when demo content changes; used to detect duplicates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub demo_version: Option<u32>,
+
+    /// Optional category. Omitted on write until a recipe can name the asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+
+    /// Inventory of files (and dropped intermediates) in this bundle.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<Artifact>,
+
+    /// Artifact id a viewer should open first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<String>,
+
+    /// Ordered provenance: model calls and deterministic ops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<BundlePipeline>,
 }
 
 impl Default for BundleMetadata {
@@ -169,6 +190,10 @@ impl Default for BundleMetadata {
             notes: None,
             generator: None,
             demo_version: None,
+            category: None,
+            artifacts: Vec::new(),
+            primary: None,
+            pipeline: None,
         }
     }
 }
@@ -186,6 +211,66 @@ impl BundleMetadata {
             generator: Some(GENERATOR.to_string()),
             ..Default::default()
         }
+    }
+
+    /// Build v2 metadata for a finished generation, from files already on disk.
+    ///
+    /// Writes `artifacts` / `pipeline` and keeps v1 `config` / `model_info` so
+    /// older readers still work. Does not rewrite existing v1 bundles.
+    pub fn for_generation(
+        bundle_dir: &Path,
+        config: GenerationConfig,
+        model_info: Option<ModelInfo>,
+        image_provider_id: Option<&str>,
+        model_3d_provider_id: Option<&str>,
+    ) -> Self {
+        let manifest = bundle_schema::GenerationManifest {
+            config: config.clone(),
+            model_info: model_info.clone(),
+            image_provider_id: image_provider_id.map(str::to_string),
+            model_3d_provider_id: model_3d_provider_id.map(str::to_string),
+        };
+        let (artifacts, primary, pipeline) =
+            bundle_schema::describe_generation(bundle_dir, &manifest);
+        Self {
+            version: SCHEMA_VERSION,
+            config: Some(config),
+            model_info,
+            generator: Some(GENERATOR.to_string()),
+            artifacts,
+            primary,
+            pipeline: Some(pipeline),
+            ..Default::default()
+        }
+    }
+
+    /// Full v2 projection: stored fields, or synthesized from v1 `config`.
+    ///
+    /// In-memory only — never used to rewrite a v1 file on load.
+    pub fn v2_view(
+        &self,
+    ) -> (
+        Vec<Artifact>,
+        Option<String>,
+        Option<String>,
+        BundlePipeline,
+    ) {
+        if !self.artifacts.is_empty() {
+            return (
+                self.artifacts.clone(),
+                self.primary.clone(),
+                self.category.clone(),
+                self.pipeline.clone().unwrap_or_default(),
+            );
+        }
+        let (artifacts, primary, pipeline) =
+            bundle_schema::synthesize_from_v1(self.config.as_ref(), self.model_info.as_ref());
+        (artifacts, primary, None, pipeline)
+    }
+
+    /// Artifact inventory as stored, or synthesized from v1 `config`.
+    pub fn artifact_inventory(&self) -> Vec<Artifact> {
+        self.v2_view().0
     }
 
     /// Load metadata from a bundle directory.
@@ -2288,8 +2373,8 @@ mod tests {
     /// caught before it ships.
     #[test]
     fn test_docs_bundle_example_matches_struct() {
-        // Mirrors docs/guides/BUNDLE_STRUCTURE.md and site/content/docs/bundle-structure.md.
-        // Keep this in sync with those examples.
+        // Mirrors the Version 1 example in docs/guides/BUNDLE_STRUCTURE.md.
+        // Keep this in sync with that block.
         let doc_example = r#"{
             "version": 1,
             "name": "a cowboy ninja",
@@ -2345,5 +2430,126 @@ mod tests {
             !cfg_obj.contains_key("provider"),
             "GenerationConfig must not serialize a `provider` field"
         );
+        // A loaded v1 example must not grow v2 keys on re-serialize (empty
+        // artifacts / missing pipeline are skip_serializing_if).
+        assert!(!top_level.contains_key("artifacts"));
+        assert!(!top_level.contains_key("pipeline"));
+        assert!(!top_level.contains_key("primary"));
+        assert!(!top_level.contains_key("category"));
+    }
+
+    #[test]
+    fn test_v1_projects_full_v2_view() {
+        let parsed: BundleMetadata = serde_json::from_str(
+            r#"{
+            "version": 1,
+            "created_at": "2024-12-29T15:30:45Z",
+            "config": {
+                "prompt": "a crate",
+                "image_model": "fal-ai/nano-banana-2",
+                "model_3d": "fal-ai/trellis-2",
+                "export_fbx": false
+            }
+        }"#,
+        )
+        .unwrap();
+        let (artifacts, primary, category, pipeline) = parsed.v2_view();
+        assert_eq!(primary.as_deref(), Some("model"));
+        assert!(category.is_none());
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(pipeline.steps.len(), 2);
+        assert!(parsed.artifacts.is_empty());
+    }
+
+    #[test]
+    fn test_docs_bundle_v2_example_matches_struct() {
+        // Mirrors the current (version 2) example in docs/guides/BUNDLE_STRUCTURE.md.
+        let doc_example = r#"{
+            "version": 2,
+            "name": "a cowboy ninja",
+            "created_at": "2024-12-29T15:30:45Z",
+            "primary": "model",
+            "artifacts": [
+                {
+                    "id": "image",
+                    "role": "image",
+                    "path": "image.png",
+                    "mime": "image/png",
+                    "produced_by": "image"
+                },
+                {
+                    "id": "model",
+                    "role": "model",
+                    "path": "model.glb",
+                    "mime": "model/gltf-binary",
+                    "produced_by": "model",
+                    "vertex_count": 27398,
+                    "triangle_count": 9132
+                }
+            ],
+            "pipeline": {
+                "steps": [
+                    {
+                        "id": "image",
+                        "kind": "model",
+                        "provider": "fal.ai",
+                        "model": "fal-ai/nano-banana-2",
+                        "modality": "text_to_image",
+                        "prompt": "a cowboy ninja",
+                        "outputs": ["image"]
+                    },
+                    {
+                        "id": "model",
+                        "kind": "model",
+                        "provider": "fal.ai",
+                        "model": "fal-ai/trellis-2",
+                        "modality": "image_to_3d",
+                        "inputs": ["image"],
+                        "outputs": ["model"]
+                    }
+                ]
+            },
+            "config": {
+                "prompt": "a cowboy ninja",
+                "image_model": "fal-ai/nano-banana-2",
+                "model_3d": "fal-ai/trellis-2",
+                "export_fbx": false
+            }
+        }"#;
+
+        let parsed: BundleMetadata = serde_json::from_str(doc_example)
+            .expect("v2 docs example JSON must deserialize into BundleMetadata");
+        assert_eq!(parsed.version, 2);
+        assert_eq!(parsed.primary.as_deref(), Some("model"));
+        assert!(parsed.category.is_none());
+        assert_eq!(parsed.artifacts.len(), 2);
+        let steps = &parsed.pipeline.as_ref().expect("pipeline").steps;
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].id(), "image");
+        assert_eq!(steps[1].id(), "model");
+        assert!(parsed.config.is_some());
+    }
+
+    #[test]
+    fn load_does_not_rewrite_v1_to_v2() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+            "version": 1,
+            "created_at": "2024-12-29T15:30:45Z",
+            "config": {
+                "prompt": "a crate",
+                "image_model": "fal-ai/nano-banana-2",
+                "model_3d": "fal-ai/trellis-2",
+                "export_fbx": false
+            }
+        }"#;
+        std::fs::write(dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
+        let loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.version, 1);
+        assert!(loaded.artifacts.is_empty());
+        let on_disk = std::fs::read_to_string(dir.path().join(BUNDLE_METADATA_FILE)).unwrap();
+        let disk_val: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(disk_val["version"], 1);
+        assert!(disk_val.get("artifacts").is_none());
     }
 }

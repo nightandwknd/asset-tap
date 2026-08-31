@@ -50,7 +50,6 @@ use crate::error_log::{ConfigSnapshot, ErrorLog, ErrorType};
 use crate::history::GenerationConfig;
 use crate::providers::{DynamicProvider, Provider, ProviderCapability, ProviderRegistry};
 use crate::types::{ApprovalResponse, Error, PipelineOutput, Progress, Result, Stage};
-use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1016,19 +1015,13 @@ async fn run_pipeline_internal(
         );
     }
 
-    let metadata = BundleMetadata {
-        version: 1,
-        name: None,
-        created_at: Utc::now(),
-        config: Some(gen_config),
+    let metadata = BundleMetadata::for_generation(
+        &gen_dir,
+        gen_config,
         model_info,
-        duration_ms: None,
-        tags: Vec::new(),
-        favorite: false,
-        notes: None,
-        generator: Some(crate::bundle::generator_string().to_string()),
-        demo_version: None,
-    };
+        Some(image_provider.id()),
+        Some(model_3d_provider.id()),
+    );
 
     if let Err(e) = metadata.save(&gen_dir) {
         tracing::warn!("Failed to save bundle metadata: {}", e);

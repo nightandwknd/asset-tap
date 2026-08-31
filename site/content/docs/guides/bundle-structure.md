@@ -44,46 +44,65 @@ File names are always consistent across all bundles:
 
 This predictable naming means you always know exactly where to find each file.
 
+New writes emit `bundle.json` version 2: an `artifacts` inventory and a `pipeline` of steps (the prompt and models used, in order). Version 1 files still load. The filenames above are unchanged.
+
 ## Bundle Metadata
 
 The `bundle.json` file contains complete information about the generation:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "My Robot",
   "created_at": "2024-12-29T15:30:45Z",
-
+  "primary": "model",
+  "artifacts": [
+    {
+      "id": "image",
+      "role": "image",
+      "path": "image.png",
+      "mime": "image/png",
+      "produced_by": "image"
+    },
+    {
+      "id": "model",
+      "role": "model",
+      "path": "model.glb",
+      "mime": "model/gltf-binary",
+      "produced_by": "model",
+      "vertex_count": 27398,
+      "triangle_count": 9132
+    }
+  ],
+  "pipeline": {
+    "steps": [
+      {
+        "id": "image",
+        "kind": "model",
+        "provider": "fal.ai",
+        "model": "fal-ai/nano-banana-2",
+        "modality": "text_to_image",
+        "prompt": "a cowboy ninja with a leather duster and dual katanas",
+        "outputs": ["image"]
+      },
+      {
+        "id": "model",
+        "kind": "model",
+        "provider": "fal.ai",
+        "model": "fal-ai/trellis-2",
+        "modality": "image_to_3d",
+        "inputs": ["image"],
+        "outputs": ["model"]
+      }
+    ]
+  },
   "config": {
     "prompt": "a cowboy ninja with a leather duster and dual katanas",
-    "template": null,
-    "existing_image": null,
     "image_model": "fal-ai/nano-banana-2",
     "model_3d": "fal-ai/trellis-2",
-    "export_fbx": true,
-    "image_model_params": {
-      "aspect_ratio": "auto",
-      "resolution": "1K",
-      "num_images": 1
-    },
-    "model_3d_params": {
-      "topology": "quad",
-      "target_polycount": 50000
-    }
+    "export_fbx": false
   },
-
-  "model_info": {
-    "file_size": 2739808,
-    "format": "GLB",
-    "vertex_count": 27398,
-    "triangle_count": 9132
-  },
-
-  "duration_ms": 184223,
-  "tags": [],
-  "favorite": false,
-  "notes": null,
-  "generator": "asset-tap/26.7.3"
+  "generator": "asset-tap/26.8.17"
 }
 ```
 
@@ -91,12 +110,16 @@ The `bundle.json` file contains complete information about the generation:
 
 **Top level:**
 
-- `version` -- Bundle format version
+- `version` -- Bundle format version (`2` for new writes; `1` still loads)
 - `name` -- Bundle name; `null` until set with `-n/--name` or from the GUI
 - `created_at` -- UTC timestamp
 - `duration_ms` -- Generation time in milliseconds, when recorded
 - `tags`, `favorite`, `notes` -- User-editable metadata from the GUI
 - `generator` -- The Asset Tap version that produced the bundle
+- `artifacts[]` -- Inventory of files (`id`, `role`, `path`, `mime`, `produced_by`)
+- `pipeline.steps[]` -- Ordered provenance: `kind: model` or `kind: op`
+- `primary` -- Artifact id a viewer should open first
+- `category` -- reserved; omitted until a recipe can name the asset
 
 **config** -- The generation settings used:
 

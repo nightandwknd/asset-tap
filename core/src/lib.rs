@@ -66,6 +66,7 @@
 
 pub mod api;
 pub mod bundle;
+mod bundle_schema;
 pub mod config;
 pub mod config_sync;
 pub mod constants;

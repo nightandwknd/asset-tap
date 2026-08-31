@@ -18,37 +18,63 @@ output/
 
 **Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb`, `model.fbx`, and `textures/` are absent; `bundle.json` omits `model_3d`, `model_3d_params`, and `model_info`.
 
+New writes emit `version: 2` (`artifacts` + `pipeline`). Version 1 files remain readable; readers accept both. Filenames are unchanged.
+
 ## Bundle Metadata (bundle.json)
+
+Version 2 (current). Version 1 files remain readable — see [Version History](#version-history).
 
 ```json
 {
-  "version": 1,
-  "name": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+  "version": 2,
+  "name": "a cowboy ninja",
   "created_at": "2024-12-29T15:30:45Z",
-
-  "generator": "asset-tap/26.3.6",
-
+  "primary": "model",
+  "artifacts": [
+    {
+      "id": "image",
+      "role": "image",
+      "path": "image.png",
+      "mime": "image/png",
+      "produced_by": "image"
+    },
+    {
+      "id": "model",
+      "role": "model",
+      "path": "model.glb",
+      "mime": "model/gltf-binary",
+      "produced_by": "model",
+      "vertex_count": 27398,
+      "triangle_count": 9132
+    }
+  ],
+  "pipeline": {
+    "steps": [
+      {
+        "id": "image",
+        "kind": "model",
+        "provider": "fal.ai",
+        "model": "fal-ai/nano-banana-2",
+        "modality": "text_to_image",
+        "prompt": "a cowboy ninja",
+        "outputs": ["image"]
+      },
+      {
+        "id": "model",
+        "kind": "model",
+        "provider": "fal.ai",
+        "model": "fal-ai/trellis-2",
+        "modality": "image_to_3d",
+        "inputs": ["image"],
+        "outputs": ["model"]
+      }
+    ]
+  },
   "config": {
-    "prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
-    "user_prompt": "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back",
+    "prompt": "a cowboy ninja",
     "image_model": "fal-ai/nano-banana-2",
     "model_3d": "fal-ai/trellis-2",
-    "export_fbx": true,
-    "image_model_params": {
-      "guidance_scale": 4.5,
-      "num_inference_steps": 32
-    },
-    "model_3d_params": {
-      "topology": "quad",
-      "target_polycount": 50000
-    }
-  },
-
-  "model_info": {
-    "file_size": 2739808,
-    "format": "GLB",
-    "vertex_count": 27398,
-    "triangle_count": 9132
+    "export_fbx": false
   }
 }
 ```
@@ -97,17 +123,63 @@ Generation configuration:
 - `vertex_count` - Number of vertices
 - `triangle_count` - Number of triangles
 
+### artifacts / pipeline / primary (version 2)
+
+New writes add an inventory and an ordered provenance list. The v1 `config` and `model_info` fields are still written so older readers keep working.
+
+- `artifacts[]` — every file that matters: `id`, `role` (`image`, `model`, `texture`, …), relative `path` (or `null` if dropped), `mime`, `sha256`, `produced_by` (step id), and role-specific stats
+- `primary` — artifact id a viewer should open first (`model` when a GLB is present, otherwise `image`)
+- `category` — reserved, omitted. Today's pipeline does not know if a mesh is a prop, character, or environment; a recipe can set this later
+- `pipeline.steps[]` — linear. Each step is `kind: model` (provider, model, modality, prompt, params) or `kind: op` (a named deterministic operation). Steps name `inputs` / `outputs` by artifact id.
+
+A model-only bundle (no image) is the same shape: one `model` artifact and one `text_to_3d` step.
+
 ### Privacy
 
 `existing_image` is sanitized before serialization: if the user provided a local file path, only the filename is recorded (e.g. `/Users/alice/secret-project/input.png` → `input.png`). URLs (`http://`, `https://`) and data URIs pass through unchanged. This keeps shared bundles free of the originating filesystem layout.
 
 ## Version History
 
-### Version 1 (Current)
+### Version 2 (Current)
+
+- `artifacts[]`, `pipeline.steps[]`, `primary`
+- `category` reserved and omitted until a recipe can name the asset
+- Writers still emit v1 `config` / `model_info` for compatibility
+- v1 files are not rewritten on load
+
+### Version 1 (Legacy, still readable)
 
 - Initial bundle structure
 - Metadata fields defined
 - Standard file naming
+
+```json
+{
+  "version": 1,
+  "name": "a cowboy ninja",
+  "created_at": "2024-12-29T15:30:45Z",
+  "config": {
+    "prompt": "a cowboy ninja",
+    "image_model": "fal-ai/nano-banana-2",
+    "model_3d": "fal-ai/trellis-2",
+    "export_fbx": true,
+    "image_model_params": {
+      "guidance_scale": 4.5,
+      "num_inference_steps": 32
+    },
+    "model_3d_params": {
+      "topology": "quad",
+      "target_polycount": 50000
+    }
+  },
+  "model_info": {
+    "file_size": 2739808,
+    "format": "GLB",
+    "vertex_count": 27398,
+    "triangle_count": 9132
+  }
+}
+```
 
 ## Usage in Code
 
