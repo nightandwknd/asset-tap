@@ -2,7 +2,7 @@
 title = "Providers"
 description = "Included AI providers, available models, and how to configure your own custom providers."
 date = 2026-02-10
-weight = 6
+weight = 4
 in_search_index = true
 
 [extra]

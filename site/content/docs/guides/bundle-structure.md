@@ -2,7 +2,7 @@
 title = "Bundle Structure"
 description = "Understanding the output format, metadata, and file naming conventions."
 date = 2026-02-09
-weight = 7
+weight = 5
 in_search_index = true
 
 [extra]

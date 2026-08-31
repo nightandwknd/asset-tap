@@ -2,7 +2,7 @@
 title = "Using Asset Tap"
 description = "Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings."
 date = 2026-02-10
-weight = 3
+weight = 1
 in_search_index = true
 
 [extra]

@@ -2,7 +2,7 @@
 title = "Your First Asset"
 description = "Set up your API key, launch the desktop app, and generate your first 3D model from a text prompt."
 date = 2026-02-09
-weight = 1
+weight = 2
 in_search_index = true
 
 [extra]
@@ -13,6 +13,8 @@ tags = ["guide"]
 +++
 
 **This guide walks the desktop app path.** Asset Tap is one pipeline with two interfaces: the desktop app (this page) and the CLI. If you live in a terminal or you're wiring up an agent, start with [CLI usage](@/docs/guides/cli-usage.md) instead; keys and configuration are shared either way.
+
+Install first if you haven't: [Installation](@/docs/getting-started/installation.md).
 
 ## Get an API Key
 
@@ -44,6 +46,5 @@ That's it! Your generated assets are saved to a timestamped output directory. Se
 ## What's Next
 
 - [Using Asset Tap](@/docs/guides/using-asset-tap.md) -- Full GUI guide with viewer, library, and settings
-- [Installation](@/docs/getting-started/installation.md) -- Download and install for your platform
 - [CLI Usage](@/docs/guides/cli-usage.md) -- Automate generation from the command line
 - [Providers](@/docs/guides/providers.md) -- Available models and custom provider configuration
