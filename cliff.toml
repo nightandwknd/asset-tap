@@ -1,5 +1,10 @@
 # git-cliff configuration
 # https://git-cliff.org/docs/configuration
+#
+# The repo squash-merges, so one PR becomes one commit and the changelog gets
+# one entry per PR. The squash body carries the branch's individual commit
+# messages, which is where the detail comes from; the preprocessors below
+# strip the trailers and separators GitHub adds around them.
 
 [changelog]
 header = "# Changelog\n\nAll notable changes to Asset Tap are documented here."
@@ -10,12 +15,34 @@ body = """
 {% else -%}
 ## Unreleased
 {% endif %}
+{% set breaking = commits | filter(attribute="breaking", value=true) -%}
+{% if breaking | length > 0 %}
+### ⚠ Breaking Changes
+
+{% for commit in breaking -%}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | trim }}
+{% if commit.breaking_description and commit.breaking_description != commit.message -%}
+{{ commit.breaking_description | indent(prefix="  ", first=true) }}
+{% endif -%}
+{% endfor %}
+{% endif -%}
 {% for group, commits in commits | group_by(attribute="group") -%}
-### {{ group | upper_first }}
+### {{ group | striptags | trim }}
 
 {% for commit in commits -%}
-- {{ commit.message | split(pat="\n") | first | trim }}\
-{%- if commit.scope %} *({{ commit.scope }})*{% endif %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | trim }}
+{%- if commit.body and commit.scope != "deps" -%}
+{% for para in commit.body | trim | split(pat="\n\n") -%}
+{% set p = para | trim -%}
+{% if p and not p is matching("^[a-z]+(\\(.+\\))?!?: ") %}
+
+{{ p | indent(prefix="  ", first=true) }}
+{%- endif -%}
+{% endfor -%}
+{% endif %}
+
 {% endfor %}
 {% endfor -%}
 """
@@ -26,28 +53,43 @@ footer = ""
 conventional_commits = true
 filter_unconventional = false
 split_commits = false
+
+# Applied to the whole commit message before parsing.
+commit_preprocessors = [
+  # Link PR numbers to GitHub.
+  { pattern = "\\(#([0-9]+)\\)", replace = "([#${1}](https://github.com/nightandwknd/asset-tap/pull/${1}))" },
+  # GitHub's squash body is a bulleted list of the branch's commits, wrapped in
+  # trailers and a rule. None of that belongs in release notes.
+  { pattern = "(?m)^Co-authored-by:.*$", replace = "" },
+  { pattern = "(?m)^Signed-off-by:.*$", replace = "" },
+  { pattern = "(?m)^Claude-Session:.*$", replace = "" },
+  { pattern = "(?m)^🤖 Generated with .*$", replace = "" },
+  { pattern = "(?m)^-{3,}$", replace = "" },
+  # Squashed sub-commits arrive as "* feat(x): ..."; keep the text, drop the
+  # bullet so it does not nest oddly under the entry.
+  { pattern = "(?m)^\\* ", replace = "" },
+  # Collapse the blank lines the strips leave behind.
+  { pattern = "\n{3,}", replace = "\n\n" },
+]
+
+# Ordered by how much a reader cares. The HTML comment sorts the group and is
+# stripped when rendered.
 commit_parsers = [
-  # Skip noise
   { message = "^Merge", skip = true },
   { message = "^Initial commit", skip = true },
   { message = "^release:", skip = true },
-  # Group by type
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^perf", group = "Performance" },
-  { message = "^refactor", group = "Refactoring" },
-  { message = "^doc|^docs", group = "Documentation" },
-  { message = "^test", group = "Testing" },
-  { message = "^chore\\(ci\\)", group = "CI/CD" },
-  { message = "^chore", group = "Chores" },
-  { message = "^style", group = "Styling" },
-  { message = "^build", group = "Build" },
-  { message = ".*", group = "Other" },
+  { message = "^feat", group = "<!-- 00 -->Features" },
+  { message = "^fix", group = "<!-- 01 -->Bug Fixes" },
+  { message = "^perf", group = "<!-- 02 -->Performance" },
+  { message = "^refactor", group = "<!-- 03 -->Refactoring" },
+  { message = "^doc|^docs", group = "<!-- 04 -->Documentation" },
+  { message = "^test", group = "<!-- 05 -->Testing" },
+  { message = "^build", group = "<!-- 06 -->Build" },
+  { message = "^chore\\(ci\\)|^ci", group = "<!-- 07 -->CI/CD" },
+  { message = "^style", group = "<!-- 08 -->Styling" },
+  { message = "^chore", group = "<!-- 09 -->Chores" },
+  { message = ".*", group = "<!-- 10 -->Other" },
 ]
 filter_commits = false
 tag_pattern = "v[0-9].*"
-
-# Link PR numbers to GitHub
-commit_preprocessors = [
-  { pattern = "\\(#([0-9]+)\\)", replace = "([#${1}](https://github.com/nightandwknd/asset-tap/pull/${1}))" },
-]
+protect_breaking_commits = true
