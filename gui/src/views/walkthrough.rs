@@ -44,7 +44,7 @@ fn step_content(step: WalkthroughStep) -> StepContent {
         },
         WalkthroughStep::PromptInput => StepContent {
             title: "Prompt",
-            body: "Describe what you want to create — a character, prop, or scene. Be descriptive for best results.",
+            body: "Describe what you want to create: a character, prop, or scene. Be descriptive for best results.",
         },
         WalkthroughStep::TemplateSelector => StepContent {
             title: "Templates",

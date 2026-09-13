@@ -120,7 +120,9 @@ use crate::views::library::LibraryBrowser;
 use crate::views::settings::SettingsModal;
 use crate::views::walkthrough::Walkthrough;
 use crate::views::welcome_modal::WelcomeModal;
-use asset_tap_core::constants::files::{DEMO_BUNDLE_SIZE_LABEL, bundle as bundle_files};
+use asset_tap_core::constants::files::{
+    CLIP_PACKS_SIZE_LABEL, DEMO_BUNDLE_SIZE_LABEL, bundle as bundle_files,
+};
 use asset_tap_core::{
     bundle::load_bundle,
     history::{ErrorInfo, GenerationHistory},
@@ -138,8 +140,25 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::runtime::Runtime;
 
-/// Result type for async FBX conversion (FBX path, optional textures dir).
-type FbxConversionResult = Result<(PathBuf, Option<PathBuf>), String>;
+enum WorkbenchDone {
+    Fit {
+        /// Placeable joints moved > 1 cm from the auto-fit, and the largest move.
+        moved_joints: usize,
+        max_moved_m: f32,
+    },
+    Bake {
+        count: usize,
+    },
+    Seed {
+        markers: Vec<asset_tap_core::BindMarker>,
+    },
+    Preview {
+        clip: Box<asset_tap_core::SkinnedClip>,
+    },
+    PackInstalled {
+        name: String,
+    },
+}
 
 /// A toast notification message shown briefly to the user.
 #[derive(Debug, Clone)]
@@ -279,8 +298,8 @@ pub struct App {
     /// Current parameter overrides for the selected 3D model.
     pub model_3d_params: std::collections::HashMap<String, serde_json::Value>,
 
-    /// Whether to export FBX.
-    pub export_fbx: bool,
+    /// Clip the Animation panel currently has selected for playback.
+    pub clip: String,
 
     /// Stop after image generation (image-only bundle, no 3D stage).
     pub skip_3d: bool,
@@ -317,6 +336,9 @@ pub struct App {
     /// 3D model viewer (shared for PaintCallback).
     pub model_viewer: SharedModelViewer,
 
+    /// Glow context for the native `three-d` viewport.
+    pub gl_context: Option<Arc<glow::Context>>,
+
     /// Library browser for selecting past generations.
     pub library_browser: LibraryBrowser,
 
@@ -331,8 +353,30 @@ pub struct App {
     /// is reset for a new image.
     pub approval_texture_failed: Option<PathBuf>,
 
-    /// Glow context for 3D rendering (exposed for model viewer).
-    pub gl_context: Option<Arc<glow::Context>>,
+    /// In-flight fit / bake / clip-download / rebake.
+    pending_workbench: Option<tokio::sync::oneshot::Receiver<Result<WorkbenchDone, String>>>,
+
+    /// Optional Animation panel. Off is inspect.
+    pub workbench_animate: bool,
+
+    /// Last Bones checkbox in the Animation panel. Default on.
+    pub workbench_show_bones: bool,
+
+    /// After Bind, wait for the reload then Preview the current clip so the
+    /// new weights are visible without another click.
+    /// Clips from every installed pack, cached because the panel reads it
+    /// while rendering and `list_clips` touches the filesystem.
+    pub clip_catalog: Vec<asset_tap_core::ClipCatalogEntry>,
+    /// Clips Bake will write. Seeded from what the model already contains, so
+    /// reopening a baked asset shows its set rather than an empty one.
+    pub bake_set: std::collections::BTreeSet<String>,
+    /// What the model on disk currently holds. Kept beside `bake_set` so the
+    /// panel can say what a Bake would add and remove before it runs.
+    pub model_clips: std::collections::BTreeSet<String>,
+    /// Awaiting confirmation to strip every animation from the model.
+    pub pending_clear_animation: bool,
+    /// Substring filter over the clip list — 85 rows is too many to scan.
+    pub clip_filter: String,
 
     /// Bundle info panel for displaying and editing current bundle metadata.
     pub bundle_info_panel: views::bundle_info::BundleInfoPanel,
@@ -357,9 +401,6 @@ pub struct App {
 
     /// App logo texture (loaded once at startup).
     pub logo_texture: Option<egui::TextureHandle>,
-
-    /// Cached Blender availability (checked at startup and on settings save).
-    pub blender_available: bool,
 
     // =========================================================================
     // State & History
@@ -389,18 +430,23 @@ pub struct App {
     /// Pending export result (from async zip creation).
     pending_export: Option<tokio::sync::oneshot::Receiver<Result<String, String>>>,
 
-    /// Pending FBX conversion result (from async Blender conversion).
-    pub pending_fbx_conversion: Option<tokio::sync::oneshot::Receiver<FbxConversionResult>>,
-
     /// Pending demo bundle download result (from async download).
     pending_demo_download:
         Option<tokio::sync::oneshot::Receiver<Result<asset_tap_core::DemoDownloadResult, String>>>,
+
+    /// Pending free Standard clip-pack download.
+    pending_clip_packs_download: Option<
+        tokio::sync::oneshot::Receiver<Result<asset_tap_core::ClipPacksDownloadResult, String>>,
+    >,
 
     /// Pending bundle import result (from async zip extraction).
     pending_import: Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
 
     /// Whether to show the demo download confirmation dialog.
     show_demo_download_confirm: bool,
+
+    /// Whether to show the clip-pack download confirmation dialog.
+    show_clip_packs_download_confirm: bool,
 
     /// Bundle path pending deletion (waiting for confirmation).
     pending_delete_bundle: Option<std::path::PathBuf>,
@@ -530,10 +576,8 @@ pub enum PreviewTab {
 pub fn pick_preview_tab_for_output(
     output: &asset_tap_core::types::PipelineOutput,
 ) -> Option<PreviewTab> {
-    // Either format counts as "we have a 3D model" — fbx_path is set when
-    // Blender conversion ran, model_path is the GLB and is set whenever the
-    // image-to-3D stage completed.
-    if output.model_path.is_some() || output.fbx_path.is_some() {
+    // `model_path` is the GLB, set when the image-to-3D stage completed.
+    if output.model_path.is_some() {
         Some(PreviewTab::Model3D)
     } else if output.image_path.is_some() {
         Some(PreviewTab::Image)
@@ -547,7 +591,6 @@ pub fn pick_preview_tab_for_output(
 impl App {
     /// Create a new application instance.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Get the glow context if available
         let gl_context = cc.gl.clone();
 
         // Load settings from disk, capturing whether the file was corrupt so we
@@ -689,7 +732,7 @@ impl App {
         let preview_tab = match (&output, restored_preview_tab) {
             (Some(out), tab) => {
                 let tab_has_asset = match tab {
-                    PreviewTab::Model3D => out.model_path.is_some() || out.fbx_path.is_some(),
+                    PreviewTab::Model3D => out.model_path.is_some(),
                     PreviewTab::Image => out.image_path.is_some(),
                     PreviewTab::Textures => out.textures_dir.is_some(),
                 };
@@ -717,7 +760,7 @@ impl App {
             model_3d,
             image_model_params: std::collections::HashMap::new(),
             model_3d_params: std::collections::HashMap::new(),
-            export_fbx: settings.export_fbx_default,
+            clip: "walk".into(),
             skip_3d: false,
             existing_image: None,
             existing_image_label: None,
@@ -731,15 +774,21 @@ impl App {
             available_templates: list_templates(),
             provider_registry, // Reuse the registry created above
             model_viewer: Arc::new(Mutex::new(ModelViewer::new())),
+            gl_context,
             library_browser: LibraryBrowser::new(),
             texture_cache: TextureCache::new(),
             approval_texture: None,
             approval_texture_failed: None,
             bundle_info_panel: views::bundle_info::BundleInfoPanel::new(),
             confirmation_dialog: views::confirmation_dialog::ConfirmationDialog::new(),
-
-            // Rendering
-            gl_context,
+            pending_workbench: None,
+            workbench_animate: false,
+            workbench_show_bones: true,
+            clip_catalog: asset_tap_core::list_clips(),
+            bake_set: std::collections::BTreeSet::new(),
+            model_clips: std::collections::BTreeSet::new(),
+            pending_clear_animation: false,
+            clip_filter: String::new(),
 
             // Settings
             settings,
@@ -747,7 +796,6 @@ impl App {
             settings_modal: SettingsModal::new(),
             about_modal: AboutModal::new(),
             logo_texture: None, // Loaded after context is available
-            blender_available: asset_tap_core::convert::find_blender().is_some(),
 
             // State & History
             app_state,
@@ -760,10 +808,11 @@ impl App {
             // Pending File Dialog
             pending_file_selection: None,
             pending_export: None,
-            pending_fbx_conversion: None,
             pending_demo_download: None,
+            pending_clip_packs_download: None,
             pending_import: None,
             show_demo_download_confirm: false,
+            show_clip_packs_download_confirm: false,
             pending_delete_bundle: None,
 
             // Toast Notifications
@@ -786,7 +835,6 @@ impl App {
             walkthrough: Walkthrough::new(),
         };
 
-        // Restore model info from state to viewer
         if let Some(ref state_info) = app.app_state.model_info {
             let mut viewer = app.model_viewer.lock().unwrap();
             viewer.model_info = Some(crate::viewer::model::ModelInfo {
@@ -837,6 +885,28 @@ impl App {
         self.toasts.push(Toast::info("Checking for demo bundle..."));
         self.runtime.spawn(async move {
             let result = asset_tap_core::download_demo_bundle(output_dir, |_progress| {}).await;
+            let _ = tx.send(result.map_err(|e| e.to_string()));
+        });
+    }
+
+    pub fn request_clip_packs_download(&mut self) {
+        self.show_clip_packs_download_confirm = true;
+    }
+
+    pub fn clip_packs_downloading(&self) -> bool {
+        self.pending_clip_packs_download.is_some()
+    }
+
+    fn start_clip_packs_download(&mut self) {
+        if self.pending_clip_packs_download.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_clip_packs_download = Some(rx);
+        self.toasts
+            .push(Toast::info("Checking for animation packs..."));
+        self.runtime.spawn(async move {
+            let result = asset_tap_core::download_clip_packs(false, |_progress| {}).await;
             let _ = tx.send(result.map_err(|e| e.to_string()));
         });
     }
@@ -926,7 +996,7 @@ impl App {
                 .is_some_and(|e| e.eq_ignore_ascii_case("json"))
         {
             self.add_toast(Toast::error(
-                "That JSON isn't a bundle.json — pick the bundle.json inside a bundle folder, or a .zip archive",
+                "That JSON isn't a bundle.json. Pick the bundle.json inside a bundle folder, or a .zip archive",
             ));
             return;
         }
@@ -1144,29 +1214,11 @@ impl App {
             prompt
         };
 
-        let has_custom_blender = self
-            .settings
-            .blender_path
-            .as_ref()
-            .is_some_and(|p| !p.is_empty());
-
-        // FBX is opt-in (core default is off): enable it only when the user
-        // checked the box AND Blender is actually reachable.
-        if self.export_fbx && (self.blender_available || has_custom_blender) {
-            config = config.with_fbx();
-        }
-
         // Honored as selected. `can_generate` blocks the one combination that
         // would produce nothing (image-only plus an input image), so there is
         // no contradictory state left to reconcile here.
         if self.skip_3d {
             config = config.with_skip_3d();
-        }
-
-        if let Some(ref blender) = self.settings.blender_path
-            && !blender.is_empty()
-        {
-            config = config.with_blender_path(blender);
         }
 
         // Enable approval if required by settings (and image is being
@@ -1422,7 +1474,6 @@ impl App {
                                         output_dir: r.image_path.parent().map(|p| p.to_path_buf()),
                                         image_path: Some(r.image_path.clone()),
                                         model_path: None,
-                                        fbx_path: None,
                                         textures_dir: None,
                                     }
                                 }),
@@ -1575,84 +1626,6 @@ impl App {
         }
     }
 
-    /// Start an async FBX conversion for the given GLB file.
-    ///
-    /// Spawns the conversion on the tokio runtime so the GUI remains responsive.
-    /// Results are polled via `pending_fbx_conversion` in the update loop.
-    pub fn start_fbx_conversion(&mut self, glb_path: PathBuf) {
-        let blender_path = self.settings.blender_path.clone();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_fbx_conversion = Some(rx);
-        self.add_toast(Toast::info("Converting to FBX..."));
-        self.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                asset_tap_core::convert::convert_glb_to_fbx(&glb_path, blender_path.as_deref())
-            })
-            .await;
-            let msg = match result {
-                Ok(Ok(Some((fbx, textures)))) => Ok((fbx, textures)),
-                Ok(Ok(None)) => {
-                    Err("Blender not found. Install Blender to enable FBX conversion.".to_string())
-                }
-                Ok(Err(e)) => Err(format!("FBX conversion failed: {}", e)),
-                Err(e) => Err(format!("FBX conversion task failed: {}", e)),
-            };
-            let _ = tx.send(msg);
-        });
-    }
-
-    /// Open an FBX file in Blender.
-    ///
-    /// Uses the same Blender detection logic as the FBX conversion process.
-    /// Shows a toast notification if Blender is not found.
-    pub fn open_fbx_in_blender(&mut self, fbx_path: &std::path::Path) {
-        use asset_tap_core::convert::find_blender;
-
-        match find_blender() {
-            Some(blender_cmd) => {
-                // Launch Blender with a Python script to import the FBX
-                // (Blender can't open FBX files directly, it needs to import them)
-                let fbx_path_str = fbx_path.to_string_lossy().to_string();
-
-                // Python script to import the FBX file
-                let import_script = format!(
-                    "import bpy; bpy.ops.wm.read_factory_settings(use_empty=True); bpy.ops.import_scene.fbx(filepath=r'{}')",
-                    fbx_path_str
-                );
-
-                // Handle both regular paths and flatpak commands
-                let result = if blender_cmd.starts_with("flatpak run ") {
-                    let parts: Vec<&str> = blender_cmd.split_whitespace().collect();
-                    std::process::Command::new(parts[0])
-                        .args(&parts[1..])
-                        .arg("--python-expr")
-                        .arg(&import_script)
-                        .spawn()
-                } else {
-                    std::process::Command::new(&blender_cmd)
-                        .arg("--python-expr")
-                        .arg(&import_script)
-                        .spawn()
-                };
-
-                match result {
-                    Ok(_) => {
-                        // Success - Blender is launching
-                    }
-                    Err(e) => {
-                        self.toasts
-                            .push(Toast::error(format!("Failed to launch Blender: {}", e)));
-                    }
-                }
-            }
-            None => {
-                self.toasts.push(Toast::info(
-                    "Blender not found. Please install Blender to open FBX files.",
-                ));
-            }
-        }
-    }
-
     /// Scan a generation directory for all associated assets.
     ///
     /// Returns a PipelineOutput with all found assets and a count of how many were found.
@@ -1687,11 +1660,6 @@ impl App {
                     // Check for model.glb (standard filename)
                     if name == bundle_files::MODEL_GLB {
                         output.model_path = Some(path.clone());
-                        asset_count += 1;
-                    }
-                    // Check for model.fbx (standard filename)
-                    if name == bundle_files::MODEL_FBX {
-                        output.fbx_path = Some(path.clone());
                         asset_count += 1;
                     }
                 }
@@ -1799,6 +1767,7 @@ impl App {
                             self.preview_tab = tab;
                         }
                         self.output = Some(single_output);
+                        self.reset_animate_for_new_asset();
                     }
                 }
             }
@@ -1840,6 +1809,7 @@ impl App {
 
         // Set output
         self.output = Some(output);
+        self.reset_animate_for_new_asset();
 
         // Show success toast
         if asset_count > 1 {
@@ -1879,6 +1849,7 @@ impl App {
                     self.preview_tab = tab;
                 }
                 self.output = Some(output);
+                self.reset_animate_for_new_asset();
                 self.app_state
                     .set_current_generation(Some(bundle_dir.clone()));
                 if let Err(e) = self.bundle_info_panel.load_bundle(bundle_dir.clone()) {
@@ -2126,10 +2097,424 @@ impl App {
                 });
             });
     }
+
+    pub fn workbench_busy(&self) -> bool {
+        self.pending_workbench.is_some()
+    }
+
+    /// Inspect is the default. Closing the Animation panel stops playback
+    /// and hides bones; it does not write the asset.
+    pub fn close_animate_panel(&mut self) {
+        self.workbench_animate = false;
+        let mut viewer = self.model_viewer.lock().unwrap();
+        self.workbench_show_bones = viewer.show_bones;
+        viewer.set_playing(false);
+        viewer.set_show_bones(false);
+    }
+
+    pub fn open_animate_panel(&mut self) {
+        self.workbench_animate = true;
+        self.refresh_clip_catalog();
+        self.sync_bake_set_from_model();
+        let mut viewer = self.model_viewer.lock().unwrap();
+        viewer.set_show_bones(self.workbench_show_bones);
+        viewer.ensure_clip();
+        // Unfitted: land in Rig. Playback is locked until Bind.
+        // Fitted (prior Bind / CLI --rig): stay on the clip viewer.
+        let entered = (!viewer.is_fitted()).then(|| viewer.enter_place());
+        let needs_seed = viewer.awaiting_seed();
+        drop(viewer);
+        if let Some(Err(e)) = entered {
+            self.toasts.push(Toast::error(e));
+            return;
+        }
+        // Rig opens with the shipped skeleton scaled to the mesh, never with an
+        // auto-fit. Solving on open meant the first thing anyone saw was either
+        // magic or nonsense, and when the solve failed there were no joints at
+        // all and no way to summon any: a monitor left the panel with an empty
+        // skeleton and a greyed-out Bind. Placing the skeleton is the user's
+        // job; Auto-fit is a button they reach for once they are in here.
+        if needs_seed {
+            self.start_default_skeleton();
+            // A skin we cannot name is one we cannot animate, so Bind replaces
+            // it. That is the right default and a poor surprise: say it before
+            // the author spends time arranging joints.
+            if let Some(path) = self.model_viewer.lock().unwrap().loaded_path()
+                && let Ok(Some(n)) = asset_tap_core::foreign_rig_joints(path)
+            {
+                self.toasts.push(Toast::info(format!(
+                    "This model already has a rig of {n} joints that Asset Tap cannot read. \
+                     Bind will replace it."
+                )));
+            }
+        }
+    }
+
+    fn reset_animate_for_new_asset(&mut self) {
+        self.model_viewer.lock().unwrap().exit_place();
+        self.close_animate_panel();
+    }
+
+    #[allow(dead_code)]
+    pub fn preview_obscured(&self) -> bool {
+        self.settings_modal.is_open
+            || self.welcome_modal.is_open()
+            || self.about_modal.is_open
+            || self.show_template_editor
+            || self.library_browser.is_open
+            || self.show_demo_download_confirm
+            || self.show_clip_packs_download_confirm
+            || self.pending_delete_bundle.is_some()
+            || self.pending_clear_animation
+            || self.show_clear_history_confirmation
+            || self.confirmation_dialog.is_open
+            || self.preview_tab != PreviewTab::Model3D
+    }
+
+    pub fn preview_clip(&mut self, id: &str) {
+        if self.refuse_if_placing() {
+            return;
+        }
+        let Some(model) = self.current_model_path() else {
+            self.toasts.push(Toast::error(
+                "No model loaded. Generate or open a bundle first",
+            ));
+            return;
+        };
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let clip_id = id.to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some(rx);
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                asset_tap_core::preview_skinned_clip(&clip_id, &model)
+                    .map(|clip| WorkbenchDone::Preview {
+                        clip: Box::new(clip),
+                    })
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Auto-fit in the Rig step: guess the skeleton off-thread, then drop it
+    /// into the open Rig session for review. Never writes. Goes through the
+    /// workbench channel so the panel shows busy while the mesh is re-read.
+    /// Auto-fit: solve the skeleton onto the mesh's landmarks.
+    pub fn start_reseed(&mut self) {
+        self.start_marker_job(asset_tap_core::seed_bind_markers);
+    }
+
+    /// The skeleton Rig opens with: shipped rest pose, scaled to the mesh.
+    pub fn start_default_skeleton(&mut self) {
+        self.start_marker_job(asset_tap_core::default_bind_markers);
+    }
+
+    /// Both skeleton sources bake the whole mesh, which is far too slow for the
+    /// UI thread, so both run off it and land through `WorkbenchDone::Seed`.
+    fn start_marker_job(
+        &mut self,
+        solve: fn(
+            &std::path::Path,
+        ) -> Result<Vec<asset_tap_core::BindMarker>, asset_tap_core::BindError>,
+    ) {
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let path = {
+            let viewer = self.model_viewer.lock().unwrap();
+            if !viewer.is_placing() {
+                return;
+            }
+            viewer.loaded_path().map(std::path::Path::to_path_buf)
+        };
+        let Some(path) = path else {
+            self.toasts.push(Toast::error("No model loaded"));
+            return;
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some(rx);
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let markers = solve(&path).map_err(|e| e.to_string())?;
+                if markers.is_empty() {
+                    return Err("That produced no joints to place".to_string());
+                }
+                Ok(WorkbenchDone::Seed { markers })
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+    }
+
+    pub fn start_fit(&mut self, model: PathBuf, heads: Option<Vec<(String, [f32; 3])>>) {
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some(rx);
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let options = asset_tap_core::BindOptions {
+                    fit_only: true,
+                    ..Default::default()
+                };
+                let report = match heads.as_deref() {
+                    Some(heads) if !heads.is_empty() => {
+                        asset_tap_core::fit_mesh_from_heads(&model, &model, heads, &options)
+                            .map_err(|e| e.to_string())?
+                    }
+                    _ => asset_tap_core::fit_mesh(&model, &model, &options)
+                        .map_err(|e| e.to_string())?,
+                };
+                if let Some(dir) = model.parent() {
+                    asset_tap_core::stamp_bind_step(dir, &[]).map_err(|e| e.to_string())?;
+                }
+                Ok(WorkbenchDone::Fit {
+                    moved_joints: report.moved_joints,
+                    max_moved_m: report.max_moved_m,
+                })
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+    }
+
+    pub fn start_bake(&mut self, model: PathBuf, clips: Vec<String>) {
+        if self.refuse_if_placing() {
+            return;
+        }
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some(rx);
+        self.runtime.spawn(async move {
+            let clips_for_stamp = clips.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let options = asset_tap_core::BindOptions {
+                    clips,
+                    fit_only: false,
+                    ..Default::default()
+                };
+                asset_tap_core::apply_clip(&model, &model, &options).map_err(|e| e.to_string())?;
+                if let Some(dir) = model.parent() {
+                    asset_tap_core::stamp_bind_step(dir, &clips_for_stamp)
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(WorkbenchDone::Bake {
+                    count: clips_for_stamp.len(),
+                })
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+    }
+
+    /// Re-read the merged clip catalog and keep the selection valid.
+    ///
+    /// Every listed clip is installed by definition, so a selection that is no
+    /// longer present means its pack was removed — fall back to the first clip
+    /// rather than leaving a name nothing can resolve.
+    /// Read the set already baked into the loaded model.
+    ///
+    /// Bake is declarative, so this is the starting point the author edits:
+    /// tick to add, untick to remove, Bake writes exactly what is ticked.
+    pub fn sync_bake_set_from_model(&mut self) {
+        let Some(model) = self.current_model_path() else {
+            self.bake_set.clear();
+            self.model_clips.clear();
+            return;
+        };
+        self.model_clips = asset_tap_core::baked_clip_names(&model)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        self.bake_set.clone_from(&self.model_clips);
+    }
+
+    /// Clips a Bake would add and remove, given what is on disk.
+    pub fn bake_delta(&self) -> (usize, usize) {
+        bake_delta_of(&self.bake_set, &self.model_clips)
+    }
+
+    /// Clips Bake will write, in catalog order so the file matches the list.
+    pub fn bake_clips(&self) -> Vec<String> {
+        self.clip_catalog
+            .iter()
+            .filter(|c| self.bake_set.contains(&c.id))
+            .map(|c| c.id.clone())
+            .collect()
+    }
+
+    pub fn refresh_clip_catalog(&mut self) {
+        self.clip_catalog = asset_tap_core::list_clips();
+        if self.clip_catalog.iter().any(|c| c.id == self.clip) {
+            return;
+        }
+        let resolved = asset_tap_core::find_clip(&self.clip)
+            .ok()
+            .map(|(_, name)| name)
+            .or_else(|| self.clip_catalog.first().map(|c| c.id.clone()));
+        if let Some(id) = resolved {
+            self.clip = id;
+        }
+    }
+
+    pub fn install_clip_pack(&mut self, dir: std::path::PathBuf) {
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some(rx);
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                asset_tap_core::install_pack_from(&dir, None)
+                    .map(|p| WorkbenchDone::PackInstalled { name: p.name })
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+    }
+
+    fn poll_workbench(&mut self) {
+        let Some(mut rx) = self.pending_workbench.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(done)) => match done {
+                WorkbenchDone::Fit {
+                    moved_joints,
+                    max_moved_m,
+                } => {
+                    // Say what the bind consumed, so "did my pose get in?"
+                    // is answered on screen rather than inferred from the walk.
+                    let msg = match moved_joints {
+                        0 => "Rig bound to the auto-fit pose".to_string(),
+                        1 => {
+                            format!("Rig bound, 1 joint moved from auto-fit ({max_moved_m:.2} m)")
+                        }
+                        n => format!(
+                            "Rig bound, {n} joints moved from auto-fit (max {max_moved_m:.2} m)"
+                        ),
+                    };
+                    self.toasts.push(Toast::success(msg));
+                    let mut viewer = self.model_viewer.lock().unwrap();
+                    viewer.exit_place();
+                    viewer.reload();
+                    drop(viewer);
+                    // Bind lands on the clip list with nothing playing. The
+                    // "N joints moved" toast is the confirmation the pose went
+                    // in; a walk cycle starting on its own is not.
+                    self.sync_bake_set_from_model();
+                }
+                WorkbenchDone::Bake { count } => {
+                    let msg = match count {
+                        0 => "Cleared animation from model.glb".to_string(),
+                        1 => "Baked 1 clip into model.glb".to_string(),
+                        n => format!("Baked {n} clips into model.glb"),
+                    };
+                    self.toasts.push(Toast::success(msg));
+                    self.model_viewer.lock().unwrap().reload();
+                    self.sync_bake_set_from_model();
+                }
+                WorkbenchDone::Seed { markers } => {
+                    self.model_viewer
+                        .lock()
+                        .unwrap()
+                        .apply_seeded_markers(markers);
+                }
+                WorkbenchDone::Preview { clip } => {
+                    self.model_viewer.lock().unwrap().set_clip(*clip);
+                }
+                WorkbenchDone::PackInstalled { name } => {
+                    self.refresh_clip_catalog();
+                    let n = self.clip_catalog.len();
+                    self.toasts
+                        .push(Toast::success(format!("Installed {name} ({n} clips)")));
+                }
+            },
+            Ok(Err(e)) => {
+                // Auto-fit failing is soft: Rig already holds the default
+                // skeleton, so the author simply keeps the joints they have and
+                // places them by hand. Only a session that never got a skeleton
+                // at all backs out, which now means the mesh had no geometry.
+                let mut viewer = self.model_viewer.lock().unwrap();
+                if viewer.awaiting_seed() {
+                    viewer.exit_place();
+                }
+                drop(viewer);
+                self.toasts.push(Toast::error(e));
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                self.pending_workbench = Some(rx);
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                tracing::warn!("workbench channel closed");
+            }
+        }
+    }
+
+    fn refuse_if_placing(&mut self) -> bool {
+        let placing = self.model_viewer.lock().unwrap().is_placing();
+        if placing {
+            self.toasts.push(Toast::error(
+                "Bind or Cancel the rig before Preview or Bake",
+            ));
+        }
+        placing
+    }
+
+    pub fn commit_place(&mut self) {
+        if self.pending_workbench.is_some() {
+            return;
+        }
+        let heads = self.model_viewer.lock().unwrap().place_world_heads();
+        if heads.is_empty() {
+            self.toasts
+                .push(Toast::error("Nothing to bind. Pose the skeleton first"));
+            return;
+        }
+        let Some(path) = self.current_model_path() else {
+            self.toasts.push(Toast::error("No model loaded"));
+            return;
+        };
+        self.start_fit(path, Some(heads));
+    }
+
+    fn current_model_path(&self) -> Option<PathBuf> {
+        self.output
+            .as_ref()
+            .and_then(|o| o.final_model_path().map(|p| p.to_path_buf()))
+    }
 }
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_workbench();
+        let dt = ctx.input(|i| i.stable_dt);
+        {
+            let mut viewer = self.model_viewer.lock().unwrap();
+            viewer.tick(dt);
+            if viewer.is_playing() {
+                ctx.request_repaint();
+            }
+        }
+
         // Window-level bundle drag & drop, before any panel reads input.
         self.handle_bundle_drops(ctx);
 
@@ -2163,6 +2548,7 @@ impl eframe::App for App {
                 }
 
                 self.output = Some(output);
+                self.workbench_animate = false;
 
                 // Refresh bundle list so the new bundle appears in the dropdown
                 self.bundle_info_panel
@@ -2258,31 +2644,6 @@ impl eframe::App for App {
             }
         }
 
-        // Check for completed FBX conversion
-        if let Some(mut rx) = self.pending_fbx_conversion.take() {
-            match rx.try_recv() {
-                Ok(Ok((fbx, textures))) => {
-                    self.add_toast(Toast::success("FBX conversion complete"));
-                    if let Some(ref mut output) = self.output {
-                        output.fbx_path = Some(fbx);
-                        if let Some(tex) = textures {
-                            output.textures_dir = Some(tex);
-                        }
-                    }
-                }
-                Ok(Err(msg)) => {
-                    self.toasts.push(Toast::error(msg));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_fbx_conversion = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("FBX conversion channel closed unexpectedly");
-                }
-            }
-        }
-
         // Check for completed demo bundle download
         if let Some(mut rx) = self.pending_demo_download.take() {
             match rx.try_recv() {
@@ -2309,6 +2670,37 @@ impl eframe::App for App {
             }
         }
 
+        if let Some(mut rx) = self.pending_clip_packs_download.take() {
+            match rx.try_recv() {
+                Ok(Ok(asset_tap_core::ClipPacksDownloadResult::Downloaded {
+                    installed, ..
+                })) => {
+                    self.refresh_clip_catalog();
+                    self.toasts.push(Toast::success(format!(
+                        "Installed {} animation pack{}",
+                        installed.join(", "),
+                        if installed.len() == 1 { "" } else { "s" }
+                    )));
+                }
+                Ok(Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { .. })) => {
+                    self.toasts
+                        .push(Toast::info("Animation packs already installed"));
+                }
+                Ok(Err(msg)) => {
+                    tracing::error!("Clip-pack download failed: {}", msg);
+                    self.toasts
+                        .push(Toast::error("Failed to download animation packs"));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_clip_packs_download = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("Clip-pack download channel closed unexpectedly");
+                }
+            }
+        }
+
         // Update library browser with current output directory
         self.library_browser
             .set_output_dir(self.settings.output_dir.clone());
@@ -2326,6 +2718,7 @@ impl eframe::App for App {
             self.settings_modal.is_open,
             self.logo_texture.as_ref(),
             self.pending_demo_download.is_some(),
+            self.pending_clip_packs_download.is_some(),
         ) {
             // Update settings and state from welcome modal
             self.settings.output_dir = output_dir;
@@ -2365,6 +2758,9 @@ impl eframe::App for App {
         // Handle demo download request from welcome modal
         if self.welcome_modal.download_requested {
             self.show_demo_download_confirm = true;
+        }
+        if self.welcome_modal.packs_download_requested {
+            self.show_clip_packs_download_confirm = true;
         }
 
         // Demo download confirmation dialog
@@ -2443,6 +2839,80 @@ impl eframe::App for App {
                 self.start_demo_download();
             } else if dismissed {
                 self.show_demo_download_confirm = false;
+            }
+        }
+
+        if self.show_clip_packs_download_confirm {
+            let backdrop_clicked = crate::views::modal_backdrop(
+                ctx,
+                "clip_packs_download_confirm_backdrop",
+                180,
+                crate::views::BackdropClick::Close,
+            );
+
+            let mut confirmed = false;
+            let mut dismissed = backdrop_clicked;
+
+            egui::Window::new("Download animation packs")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.set_width(400.0);
+                    ui.add_space(8.0);
+
+                    ui.label(
+                        egui::RichText::new(
+                            "Download Quaternius's free Standard libraries (CC0) so clip preview and bake work out of the box?",
+                        )
+                        .size(14.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "About {CLIP_PACKS_SIZE_LABEL}. Hash-verified. Already-installed packs are left alone."
+                        ))
+                        .size(12.0)
+                        .weak(),
+                    );
+
+                    ui.add_space(16.0);
+
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new(format!(
+                                        "{} Download",
+                                        crate::icons::DOWNLOAD
+                                    ))
+                                    .size(14.0),
+                                )
+                                .clicked()
+                            {
+                                confirmed = true;
+                            }
+                            if ui
+                                .button(egui::RichText::new("Cancel").size(14.0))
+                                .clicked()
+                            {
+                                dismissed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                });
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                dismissed = true;
+            }
+
+            if confirmed {
+                self.show_clip_packs_download_confirm = false;
+                self.start_clip_packs_download();
+            } else if dismissed {
+                self.show_clip_packs_download_confirm = false;
             }
         }
 
@@ -2553,6 +3023,84 @@ impl eframe::App for App {
             }
         }
 
+        // Clearing every animation is destructive and irreversible without
+        // re-baking, so it confirms rather than riding on the Bake button.
+        if self.pending_clear_animation {
+            let ctx = ui.ctx().clone();
+            let backdrop_clicked = crate::views::modal_backdrop(
+                &ctx,
+                "clear_animation_backdrop",
+                180,
+                crate::views::BackdropClick::Close,
+            );
+            let mut confirmed = false;
+            let mut dismissed = backdrop_clicked;
+            let count = self.model_clips.len();
+
+            egui::Window::new("Clear Animation")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.set_width(400.0);
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(match count {
+                            1 => "Remove 1 animation from this model?".to_string(),
+                            n => format!("Remove all {n} animations from this model?"),
+                        })
+                        .size(14.0)
+                        .strong(),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(
+                            "The rig and mesh are kept. Only the animation is removed. \
+                             You can bake clips again afterwards.",
+                        )
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(255, 150, 100)),
+                    );
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new("Clear animation")
+                                        .size(14.0)
+                                        .color(egui::Color32::from_rgb(255, 100, 100)),
+                                )
+                                .clicked()
+                            {
+                                confirmed = true;
+                            }
+                            if ui
+                                .button(egui::RichText::new("Cancel").size(14.0))
+                                .clicked()
+                            {
+                                dismissed = true;
+                            }
+                        });
+                    });
+                    ui.add_space(8.0);
+                });
+
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                dismissed = true;
+            }
+            // Intentionally no Enter-to-confirm for destructive actions
+
+            if confirmed {
+                self.pending_clear_animation = false;
+                self.bake_set.clear();
+                if let Some(path) = self.current_model_path() {
+                    self.start_bake(path, Vec::new());
+                }
+            } else if dismissed {
+                self.pending_clear_animation = false;
+            }
+        }
+
         // Menu bar
         egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -2634,6 +3182,19 @@ impl eframe::App for App {
                         .clicked()
                     {
                         self.show_demo_download_confirm = true;
+                        ui.close();
+                    }
+                    let packs_downloading = self.pending_clip_packs_download.is_some();
+                    let packs_label = if packs_downloading {
+                        "Downloading Animation Packs..."
+                    } else {
+                        "Download Animation Packs"
+                    };
+                    if ui
+                        .add_enabled(!packs_downloading, egui::Button::new(packs_label))
+                        .clicked()
+                    {
+                        self.show_clip_packs_download_confirm = true;
                         ui.close();
                     }
                     ui.separator();
@@ -2739,8 +3300,6 @@ impl eframe::App for App {
                 .set_output_dir(self.settings.output_dir.clone());
             // Refresh provider registry to pick up new API keys
             self.provider_registry = asset_tap_core::providers::ProviderRegistry::new();
-            // Re-check Blender availability (a custom path may have changed).
-            self.blender_available = asset_tap_core::convert::find_blender().is_some();
             // Show success toast
             self.add_toast(Toast::success("Settings saved successfully"));
         }
@@ -2833,7 +3392,7 @@ impl eframe::App for App {
         // Throttle to ~10 FPS — plenty for spinners/toasts — instead of
         // repainting at the display's max rate for the whole (minutes-long)
         // pipeline, which needlessly burns CPU/GPU.
-        if self.state.lock().unwrap().running || !self.toasts.is_empty() {
+        if self.state.lock().unwrap().running || !self.toasts.is_empty() || self.workbench_busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
@@ -2872,11 +3431,25 @@ impl eframe::App for App {
     }
 }
 
+/// How many clips a bake would add and remove.
+///
+/// Bake is declarative, so unticking a clip removes it. The panel states this
+/// before the author commits, which is the only warning they get.
+fn bake_delta_of(
+    bake_set: &std::collections::BTreeSet<String>,
+    model_clips: &std::collections::BTreeSet<String>,
+) -> (usize, usize) {
+    (
+        bake_set.difference(model_clips).count(),
+        model_clips.difference(bake_set).count(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        App, PreviewTab, ToastType, build_startup_toasts, is_no_op_run, is_remote_url,
-        pick_preview_tab_for_output,
+        App, PreviewTab, ToastType, bake_delta_of, build_startup_toasts, is_no_op_run,
+        is_remote_url, pick_preview_tab_for_output,
     };
 
     #[test]
@@ -2984,7 +3557,7 @@ mod tests {
         );
         assert!(
             !toast.message.contains("NOT be saved"),
-            "message must NOT claim changes won't be saved — they will; got {:?}",
+            "message must NOT claim changes won't be saved; they will. got {:?}",
             toast.message
         );
     }
@@ -3055,16 +3628,6 @@ mod tests {
         out.image_path = Some(PathBuf::from("/x/image.png"));
         out.model_path = Some(PathBuf::from("/x/model.glb"));
         out.textures_dir = Some(PathBuf::from("/x/textures"));
-        assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Model3D));
-    }
-
-    /// FBX-only outputs (Blender ran but the GLB got cleaned up, or some
-    /// alternate flow) still count as having a 3D model.
-    #[test]
-    fn test_pick_preview_tab_fbx_only_picks_model3d() {
-        let mut out = empty_output();
-        out.image_path = Some(PathBuf::from("/x/image.png"));
-        out.fbx_path = Some(PathBuf::from("/x/model.fbx"));
         assert_eq!(pick_preview_tab_for_output(&out), Some(PreviewTab::Model3D));
     }
 
@@ -3183,6 +3746,29 @@ mod tests {
             image_to_3d: vec![],
         };
         Arc::new(DynamicProvider::new(config))
+    }
+
+    fn set(items: &[&str]) -> std::collections::BTreeSet<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn bake_delta_reports_both_directions() {
+        let model = set(&["Walk_Loop", "Sword_Attack"]);
+        // Untouched.
+        assert_eq!(bake_delta_of(&model, &model), (0, 0));
+        // Adding one.
+        assert_eq!(
+            bake_delta_of(&set(&["Walk_Loop", "Sword_Attack", "Idle_Loop"]), &model),
+            (1, 0)
+        );
+        // Unticking one is a removal, which is the case an author can walk
+        // into without noticing.
+        assert_eq!(bake_delta_of(&set(&["Walk_Loop"]), &model), (0, 1));
+        // Swapping is both at once.
+        assert_eq!(bake_delta_of(&set(&["Idle_Loop"]), &model), (1, 2));
+        // Clearing everything.
+        assert_eq!(bake_delta_of(&set(&[]), &model), (0, 2));
     }
 
     /// Happy path: persisted selection still exists → return it unchanged.
