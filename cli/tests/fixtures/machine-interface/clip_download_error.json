@@ -1,0 +1,5 @@
+{
+  "status": "error",
+  "kind": "io_error",
+  "message": "Release manifest is missing a sha256 hash; refusing to install unverified download"
+}

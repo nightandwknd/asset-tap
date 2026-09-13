@@ -11,6 +11,7 @@
 //! | `list_catalog`   | `--list --json` (`machine::build_catalog`) |
 //! | `auth_status`    | `auth list --json` (`machine::AuthCatalog`) |
 //! | `inspect_bundle` | reads `bundle_dir/bundle.json`         |
+//! | `clip_download`  | `--json clip download`                 |
 //! | `generate`       | the generation run, exactly as `--json` |
 //!
 //! `generate` is deliberately implemented by building an **argv** from the
@@ -49,9 +50,13 @@ pub const INSTRUCTIONS: &str = "asset-tap generates game assets (image and 3D mo
     a reference image, on your own provider keys. Typical flow: `auth_status` (do I have a key?) → \
     `list_catalog` (models, templates, parameters) → `generate` (returns the bundle directory) → \
     `inspect_bundle` (what's in it). A generation takes tens of seconds to minutes; progress is \
-    reported via MCP progress notifications. Output is GLB; pass `fbx: true` only when FBX is \
-    required (needs Blender). Errors carry `kind`, `retryable`, and an `action` — retry only when \
-    retryable.";
+    reported via MCP progress notifications. Output is GLB. Pass `bind: true` to rig a humanoid; \
+    the skeleton \
+    is embedded, so rigging needs nothing installed. Add `clips: [...]` to bake animations in \
+    (one model, N animations); a clip no installed pack provides is a local error. \
+    Fetch the free Standard packs with `clip_download` (same document as \
+    `--json clip download`); paid Source zips still use `clip install --from` on the CLI. \
+    Errors carry `kind`, `retryable`, and an `action`. Retry only when retryable.";
 
 /// The server is stateless; registry + settings are (re)loaded per call.
 /// Provider keys are pushed into the process environment ONCE, at startup
@@ -89,13 +94,6 @@ pub struct GenerateArgs {
     /// Only parameters of the models that will actually run are accepted.
     #[serde(default)]
     pub params: Option<std::collections::BTreeMap<String, Value>>,
-    /// Also convert the model to FBX (requires Blender). Default false — GLB only.
-    #[serde(default)]
-    pub fbx: bool,
-    /// Deprecated: GLB-only is the default. Kept for older clients — passing
-    /// `no_fbx: false` still opts in to FBX, same as `fbx: true`.
-    #[serde(default = "default_true")]
-    pub no_fbx: bool,
     /// Stop after image generation: an image-only bundle, no 3D model.
     #[serde(default)]
     pub image_only: bool,
@@ -105,10 +103,22 @@ pub struct GenerateArgs {
     /// Bundle name to record in bundle.json (does not change the directory).
     #[serde(default)]
     pub name: Option<String>,
+    /// Rig the mesh to the embedded humanoid skeleton.
+    #[serde(default)]
+    pub bind: bool,
+    /// Clips to bake in. The model gets one animation per clip, as Mixamo and
+    /// Meshy do, rather than one export per clip. Ignored unless `bind`;
+    /// defaults to `walk`. Names come from `list_catalog`.
+    #[serde(default)]
+    pub clips: Option<Vec<String>>,
 }
 
-fn default_true() -> bool {
-    true
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ClipDownloadArgs {
+    /// Replace Standard packs previously installed by `clip download`.
+    /// Never overwrites a pack from `clip install` (Source or custom).
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -151,14 +161,20 @@ impl GenerateArgs {
             argv.push("--name".into());
             argv.push(n.clone());
         }
-        // FBX is opt-in. Old clients opted in by passing `no_fbx: false`;
-        // honor both spellings. `--no-fbx` is never emitted — GLB-only is
-        // the CLI default now.
-        if self.fbx || !self.no_fbx {
-            argv.push("--fbx".into());
-        }
         if self.image_only {
             argv.push("--image-only".into());
+        }
+        if self.bind {
+            argv.push("--rig".into());
+            // No clips named means no `--clip`: the default lives in
+            // `PipelineConfig::bind_clips`, so the two non-interactive front
+            // doors cannot drift onto different defaults. The GUI has no
+            // generation-time rig option at all; rigging there is the Animate
+            // panel, with the mesh on screen.
+            for clip in self.clips.iter().flatten() {
+                argv.push("--clip".into());
+                argv.push(clip.clone());
+            }
         }
         if let Some(params) = &self.params {
             for (k, v) in params {
@@ -241,6 +257,46 @@ impl AssetTapServer {
         Ok(tool_json(serde_json::to_value(doc).map_err(|e| {
             McpError::internal_error(e.to_string(), None)
         })?))
+    }
+
+    #[tool(
+        name = "clip_download",
+        description = "Fetch the free Standard animation packs from the latest GitHub Release (hash-verified). Same document as `asset-tap --json clip download`. Already-installed ids are left alone unless `force` is true, and force never replaces a pack installed via `clip install` (Source or custom).",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn clip_download(
+        &self,
+        Parameters(args): Parameters<ClipDownloadArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        match asset_tap_core::download_clip_packs(args.force, |_| {}).await {
+            Ok(asset_tap_core::ClipPacksDownloadResult::Downloaded { installed, version }) => {
+                Ok(tool_json(
+                    serde_json::to_value(machine::ClipDownloadDocument::success(
+                        installed, false, version,
+                    ))
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+                ))
+            }
+            Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { version }) => {
+                Ok(tool_json(
+                    serde_json::to_value(machine::ClipDownloadDocument::success(
+                        Vec::new(),
+                        true,
+                        version,
+                    ))
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+                ))
+            }
+            Err(err) => Ok(tool_error(
+                serde_json::to_value(machine::ClipDownloadErrorDocument::from_error(&err))
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+            )),
+        }
     }
 
     #[tool(
@@ -469,4 +525,41 @@ pub async fn serve_stdio() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("mcp: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn generate_args(clips: Option<Vec<&str>>) -> GenerateArgs {
+        serde_json::from_value(serde_json::json!({
+            "prompt": "a knight",
+            "bind": true,
+            "clips": clips,
+        }))
+        .unwrap()
+    }
+
+    /// `to_argv` builds a root invocation, so every option it emits has to be
+    /// one the root parser accepts. `clips` was shipped as an array while the
+    /// root `--clip` took a single value: two clips produced
+    /// "cannot be used multiple times" (exit 2) instead of a two-animation
+    /// model. Parsing the argv here is the only place that mismatch shows up
+    /// without a live host.
+    #[test]
+    fn every_clip_survives_the_round_trip_to_the_cli_parser() {
+        let argv = generate_args(Some(vec!["Walk_Loop", "Sword_Attack"])).to_argv();
+        let cli = crate::Cli::try_parse_from(&argv).expect("argv must parse");
+        assert_eq!(cli.clip, vec!["Walk_Loop", "Sword_Attack"]);
+        assert!(cli.rig);
+    }
+
+    #[test]
+    fn bind_without_clips_asks_for_a_rig_and_no_animation() {
+        let argv = generate_args(None).to_argv();
+        let cli = crate::Cli::try_parse_from(&argv).expect("argv must parse");
+        assert!(cli.rig);
+        assert!(cli.clip.is_empty());
+    }
 }

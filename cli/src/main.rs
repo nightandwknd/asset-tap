@@ -2,6 +2,7 @@
 //!
 //! Generate 3D models from text prompts.
 
+use asset_tap_core::constants::files::bundle as bundle_files;
 #[cfg(feature = "mock")]
 use asset_tap_core::constants::http::env;
 use asset_tap_core::{
@@ -9,7 +10,6 @@ use asset_tap_core::{
         get_default_image_to_3d_model, get_default_text_to_image_model, list_image_to_3d_models,
         list_text_to_image_models,
     },
-    convert::{convert_existing_models, convert_glb_to_fbx, is_blender_available},
     format_progress,
     pipeline::{PipelineConfig, run_pipeline},
     progress_fmt::stage_icon,
@@ -50,13 +50,16 @@ const AFTER_HELP: &str = concat!(
     "EXAMPLES:\n",
     "  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation (GLB)\n",
     "  asset-tap --image ref.png                    image-to-3D from an existing image\n",
-    "  asset-tap \"a crate\" --fbx                    also convert to FBX (requires Blender)\n",
     "  asset-tap \"a crate\" --json -o ./out          programmatic use: parse NDJSON events\n",
     "  asset-tap --list --json                      machine-readable model/template catalog\n",
     "  asset-tap auth list --json                   which providers have a key (preflight)\n",
     mock_example!(),
     "  echo $KEY | asset-tap auth set fal.ai        store a provider API key\n",
     "  asset-tap demo download                      fetch the showcase demo bundle\n",
+    "  asset-tap clip download                      fetch the free Standard clip packs\n",
+    "  asset-tap clip install --from DIR            install a Quaternius zip you already have\n",
+    "  asset-tap --rig --clip walk -y \"a knight\"    generate, bind, apply walk\n",
+    "  asset-tap bind --mesh model.glb --clip walk  bind an existing mesh\n",
     "\n",
     "AUTHENTICATION:\n",
     "  Provider keys resolve from stored settings first, then environment variables\n",
@@ -64,7 +67,7 @@ const AFTER_HELP: &str = concat!(
     "\n",
     "EXIT CODES:\n",
     "  0 ok · 1 other error · 2 usage · 3 auth/key · 4 provider · 5 canceled ·\n",
-    "  6 network/timeout · 7 local environment (Blender, filesystem)\n",
+    "  6 network/timeout · 7 local environment (filesystem)\n",
     "\n",
     "For the full machine interface (NDJSON events, result contract, catalog schema),\n",
     "run: asset-tap --machine-help",
@@ -84,21 +87,9 @@ struct Cli {
     #[arg(short = 'y', long)]
     yes: bool,
 
-    /// Also convert the 3D model to FBX (requires Blender)
-    #[arg(long, conflicts_with = "no_fbx")]
-    fbx: bool,
-
-    /// Deprecated: GLB-only is now the default; this flag is a no-op
-    #[arg(long, hide = true)]
-    no_fbx: bool,
-
-    /// Stop after image generation — produce an image-only bundle with no 3D model
+    /// Stop after image generation: an image-only bundle with no 3D model
     #[arg(long)]
     image_only: bool,
-
-    /// Only convert existing GLB files to FBX (no API calls)
-    #[arg(long)]
-    convert_only: bool,
 
     /// Provider to use (e.g., fal.ai)
     #[arg(short = 'p', long, value_name = "PROVIDER")]
@@ -162,9 +153,19 @@ struct Cli {
     #[arg(long, value_name = "BUNDLE_DIR")]
     export_bundle: Option<PathBuf>,
 
-    /// Convert a specific GLB file or bundle directory to FBX (requires Blender)
-    #[arg(long, value_name = "PATH")]
-    convert_fbx: Option<PathBuf>,
+    /// Bind the mesh to the shipped humanoid armature
+    #[arg(long, conflicts_with = "image_only")]
+    rig: bool,
+
+    /// Clip to bake after rigging (`walk`, `run`, `idle`, or a pack animation
+    /// name). Repeat for several: the model gets one animation per clip, as
+    /// Mixamo and Meshy do, rather than one export per clip.
+    #[arg(long, value_name = "NAME", conflicts_with = "image_only")]
+    clip: Vec<String>,
+
+    /// Clip-pack directory (overrides the installed pack)
+    #[arg(long, value_name = "DIR")]
+    clip_pack: Option<PathBuf>,
 
     /// Set model parameter overrides (repeatable, e.g. --param guidance_scale=7.0 --param topology=quad)
     #[arg(long = "param", value_name = "KEY=VALUE")]
@@ -172,7 +173,7 @@ struct Cli {
 
     /// Emit machine-readable NDJSON events on stdout (implies --yes; run --machine-help for the full contract)
     ///
-    /// Contract: stdout carries NDJSON only — one JSON object per line
+    /// Contract: stdout carries NDJSON only, one JSON object per line
     /// (`start`, `progress`, `log`, then exactly one `result`). All
     /// human-facing diagnostics go to stderr; never parse stderr. Implies
     /// --yes (fully non-interactive). Exit codes: 0 ok, 2 usage, 3 auth/key,
@@ -182,10 +183,8 @@ struct Cli {
         long,
         conflicts_with_all = [
             "approve",
-            "convert_only",
             "convert_webp",
             "export_bundle",
-            "convert_fbx",
             "inspect_template",
         ]
     )]
@@ -216,6 +215,73 @@ enum Command {
     /// tools are `list_catalog`, `auth_status`, `inspect_bundle`, `generate`.
     /// Add with e.g. `claude mcp add asset-tap -- asset-tap mcp`.
     Mcp,
+    /// Rig a mesh and bake clips into it.
+    ///
+    /// For machine-readable output the flag precedes the subcommand:
+    /// `asset-tap --json bind --mesh model.glb --clip walk`.
+    Bind {
+        /// Mesh GLB (or a bundle directory containing model.glb)
+        #[arg(long, value_name = "PATH")]
+        mesh: PathBuf,
+        /// Clip to bake in (`walk`, `Walk_Loop`, …). Repeat for several:
+        /// the model gets one animation per clip, as Mixamo and Meshy do,
+        /// rather than one export per clip.
+        #[arg(long, value_name = "NAME")]
+        clip: Vec<String>,
+        /// Fit and weight only: a skinned T-pose, no animation
+        #[arg(long)]
+        fit_only: bool,
+        /// Re-fit even if the mesh is already rigged, discarding its pose.
+        ///
+        /// By default a rigged mesh keeps its skeleton and weights, so adding
+        /// a clip cannot silently undo joints you arranged by hand.
+        #[arg(long)]
+        refit: bool,
+        /// Output GLB (default: overwrite the mesh, or write next to a bundle)
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+        /// Clip-pack directory
+        #[arg(long, value_name = "DIR")]
+        pack: Option<PathBuf>,
+    },
+    /// Manage humanoid clip packs
+    Clip {
+        #[command(subcommand)]
+        action: ClipAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ClipAction {
+    /// Download the free Standard packs from the latest GitHub Release
+    /// (hash-verified). Already-installed ids are left alone, so a Source
+    /// upgrade is never overwritten. `ASSET_TAP_CLIP_PACKS_DIR` skips the
+    /// network (used by tests and a source checkout).
+    Download {
+        /// Replace Standard packs previously installed by `clip download`.
+        /// Never overwrites a pack from `clip install` (Source or custom).
+        #[arg(long)]
+        force: bool,
+    },
+    /// Install an animation pack from a Quaternius download
+    Install {
+        /// `.zip`, extracted folder, or glTF/GLB. A directory is searched
+        /// for the animation library, ignoring mannequin meshes and `_RM`
+        /// root-motion variants. Packs:
+        /// https://quaternius.com/packs/universalanimationlibrary.html
+        /// https://quaternius.com/packs/universalanimationlibrary2.html
+        #[arg(long, value_name = "PATH")]
+        from: PathBuf,
+        /// Pack id (default: derived from the file name, e.g. `ual1`)
+        #[arg(long, value_name = "ID")]
+        id: Option<String>,
+    },
+    /// List the clips available from every installed pack
+    List {
+        /// Also mark which clips are baked into this model
+        #[arg(long, value_name = "PATH")]
+        model: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -252,7 +318,7 @@ enum AuthAction {
     /// List providers and the source of their currently-effective API key.
     List {
         /// Emit a single JSON document instead of human text (see --machine-help §3).
-        /// Key material is never included — only whether a key is present and where it comes from.
+        /// Key material is never included, only whether a key is present and where it comes from.
         #[arg(long)]
         json: bool,
     },
@@ -338,7 +404,13 @@ fn main() -> ExitCode {
                 eprintln!("error: {usage}");
                 return ExitCode::from(machine::EXIT_USAGE);
             }
-            eprintln!("Error: {:?}", err);
+            let wire = machine::classify_error(&err);
+            if wire.kind == machine::KIND_UNKNOWN {
+                // Nothing recognized it, so the cause chain is all we have.
+                eprintln!("Error: {:?}", err);
+            } else {
+                eprintln!("Error: {}", wire.message);
+            }
             let code = if machine::is_cancellation(&err) {
                 // Spec §2 exit codes govern --json; interactive cancellation
                 // keeps the shell convention (128 + SIGINT) so wrappers that
@@ -349,7 +421,7 @@ fn main() -> ExitCode {
                     machine::EXIT_SIGINT_HUMAN
                 }
             } else {
-                machine::exit_code_for_kind(machine::classify_error(&err).kind)
+                machine::exit_code_for_kind(wire.kind)
             };
             ExitCode::from(code)
         }
@@ -362,7 +434,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // still captures INFO for debugging.
     let quiet_console = matches!(
         cli.command,
-        Some(Command::Auth { .. }) | Some(Command::Demo { .. }) | Some(Command::Mcp)
+        Some(Command::Auth { .. })
+            | Some(Command::Demo { .. })
+            | Some(Command::Clip { .. })
+            | Some(Command::Bind { .. })
+            | Some(Command::Mcp)
     );
     let _guard = asset_tap_core::error_log::init_tracing(quiet_console);
 
@@ -397,6 +473,22 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         return handle_demo(action).await;
     }
 
+    if let Some(Command::Clip { action }) = cli.command {
+        return handle_clip(action, cli.json).await;
+    }
+
+    if let Some(Command::Bind {
+        mesh,
+        clip,
+        fit_only,
+        refit,
+        output,
+        pack,
+    }) = cli.command
+    {
+        return handle_bind(mesh, clip, fit_only, refit, output, pack, cli.json);
+    }
+
     // Show banner for main commands (not for --list, --inspect, or --json,
     // where stdout must stay machine-readable)
     if !cli.list
@@ -422,11 +514,6 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     if let Some(ref bundle_dir) = cli.export_bundle {
         return handle_export_bundle(bundle_dir, &cli.output, cli.name.as_deref())
             .map(|_| ExitCode::SUCCESS);
-    }
-
-    // Handle --convert-fbx flag (no registry needed)
-    if let Some(ref path) = cli.convert_fbx {
-        return handle_convert_fbx(path).map(|_| ExitCode::SUCCESS);
     }
 
     // Handle mock mode
@@ -495,11 +582,6 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         } else {
             println!("🔧 Running in development mode (using ./output/)");
         }
-    }
-
-    // Handle --convert-only mode
-    if cli.convert_only {
-        return handle_convert_only(!cli.no_fbx).map(|_| ExitCode::SUCCESS);
     }
 
     // Surface a warning for any provider that's still unconfigured AFTER
@@ -632,7 +714,7 @@ async fn run_generation(
     validate_api_keys(settings, registry)?;
 
     // Build pipeline configuration
-    let mut config = build_config(cli, settings)?;
+    let mut config = build_config(cli)?;
 
     // Validate remaining requirements (output dir, etc.)
     validate_requirements(&config)?;
@@ -778,7 +860,7 @@ async fn run_generation(
             let canon = |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
             if !canon(bundle_dir).starts_with(canon(&library)) {
                 println!(
-                    "  ℹ️  Saved outside your library ({}) — the GUI lists bundles from there.",
+                    "  ℹ️  Saved outside your library ({}). The GUI lists bundles from there.",
                     library.display()
                 );
                 println!(
@@ -1246,10 +1328,7 @@ fn unknown_param_error(key: &str, active: &ActiveModels) -> anyhow::Error {
     usage_error(format!("Unknown parameter '{key}'.\n\n{body}{hint}"))
 }
 
-fn build_config(
-    cli: &Cli,
-    settings: &asset_tap_core::settings::Settings,
-) -> anyhow::Result<PipelineConfig> {
+fn build_config(cli: &Cli) -> anyhow::Result<PipelineConfig> {
     // Get user input and expand template if specified.
     //
     // Prompt sources, in order:
@@ -1324,16 +1403,6 @@ fn build_config(
         config = config.with_3d_model(model);
     }
 
-    if cli.fbx {
-        config = config.with_fbx();
-    }
-    if cli.no_fbx {
-        // GLB-only has been the default since FBX became opt-in; keep the flag
-        // as a no-op so existing scripts and agent snippets don't break.
-        eprintln!("note: --no-fbx is deprecated (GLB-only is the default; use --fbx to opt in)");
-        config = config.without_fbx();
-    }
-
     if cli.image_only {
         // `--image-only` skips the 3D stage. Combined with `--image` (which
         // already skips image *generation*), that would leave a pipeline with
@@ -1349,11 +1418,13 @@ fn build_config(
         config = config.with_skip_3d();
     }
 
-    // Apply custom Blender path from settings
-    if let Some(ref blender) = settings.blender_path
-        && !blender.is_empty()
-    {
-        config = config.with_blender_path(blender);
+    // `--image-only` is rejected against these by clap itself, so there is no
+    // "rig what mesh?" case to handle here.
+    if cli.rig || !cli.clip.is_empty() {
+        config = config.with_clips(cli.clip.clone());
+        if let Some(dir) = cli.clip_pack.clone() {
+            config = config.with_clip_pack(dir);
+        }
     }
 
     Ok(config)
@@ -1432,6 +1503,228 @@ fn validate_api_keys(
     }
 
     Ok(())
+}
+
+async fn handle_clip_download(json: bool, force: bool) -> anyhow::Result<ExitCode> {
+    if !json {
+        println!("Checking clip packs...");
+    }
+    match asset_tap_core::download_clip_packs(force, |_progress| {}).await {
+        Ok(asset_tap_core::ClipPacksDownloadResult::Downloaded { installed, version }) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&machine::ClipDownloadDocument::success(
+                        installed.clone(),
+                        false,
+                        version,
+                    ))?
+                );
+            } else {
+                println!(
+                    "✅ Installed {} ({})",
+                    installed.join(", "),
+                    if version == 0 {
+                        "local".to_string()
+                    } else {
+                        format!("v{version}")
+                    }
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { version }) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&machine::ClipDownloadDocument::success(
+                        Vec::new(),
+                        true,
+                        version,
+                    ))?
+                );
+            } else {
+                println!("✅ Free Standard clip packs already installed");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            if json {
+                let doc = machine::ClipDownloadErrorDocument::from_error(&e);
+                println!("{}", serde_json::to_string_pretty(&doc)?);
+                return Ok(ExitCode::from(machine::exit_code_for_kind(doc.kind)));
+            }
+            eprintln!("error: clip download failed: {e:#}");
+            Ok(ExitCode::from(machine::exit_code_for_kind(
+                machine::clip_download_error_kind(&e),
+            )))
+        }
+    }
+}
+
+async fn handle_clip(action: ClipAction, json: bool) -> anyhow::Result<ExitCode> {
+    match action {
+        ClipAction::Download { force } => handle_clip_download(json, force).await,
+        ClipAction::Install { from, id } => {
+            if json {
+                return Err(machine::UsageError {
+                    message: "--json cannot be used with 'clip install'".into(),
+                }
+                .into());
+            }
+            let pack = asset_tap_core::install_pack_from(&from, id.as_deref())?;
+            println!(
+                "Installed {} ({}) with {} clips at {}",
+                pack.name,
+                pack.id,
+                pack.clips.len(),
+                pack.gltf_path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        ClipAction::List { model } => {
+            let clips = asset_tap_core::list_clips();
+            // What the model already holds, so `bake` is not guesswork.
+            let baked = match &model {
+                Some(path) => asset_tap_core::baked_clip_names(path)?,
+                None => Vec::new(),
+            };
+            if json {
+                let rows: Vec<serde_json::Value> = clips
+                    .iter()
+                    .map(|c| {
+                        let mut v = serde_json::to_value(c).unwrap_or_default();
+                        if model.is_some() {
+                            v["baked"] = serde_json::Value::Bool(baked.contains(&c.id));
+                        }
+                        v
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&rows)?);
+            } else if clips.is_empty() {
+                println!(
+                    "No animation packs installed.\n    \
+                     asset-tap clip download\n    \
+                     asset-tap clip install --from /path/to/download.zip\n    \
+                     {} \n    \
+                     {}",
+                    asset_tap_core::rig::UAL1_PAGE,
+                    asset_tap_core::rig::UAL2_PAGE
+                );
+            } else {
+                for c in &clips {
+                    let mark = if model.is_none() {
+                        ""
+                    } else if baked.contains(&c.id) {
+                        " baked"
+                    } else {
+                        ""
+                    };
+                    println!("{:<26} {:<26} {}{mark}", c.id, c.name, c.pack_id);
+                }
+            }
+            // Animations in the model that no installed pack provides: a
+            // declarative bake cannot re-source these, so say so plainly.
+            let orphans: Vec<&String> = baked
+                .iter()
+                .filter(|b| !clips.iter().any(|c| &c.id == *b))
+                .collect();
+            if !orphans.is_empty() && !json {
+                println!(
+                    "\n{} animation(s) in the model come from no installed pack: {}",
+                    orphans.len(),
+                    orphans
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+fn handle_bind(
+    mesh: PathBuf,
+    clip: Vec<String>,
+    fit_only: bool,
+    refit: bool,
+    output: Option<PathBuf>,
+    pack: Option<PathBuf>,
+    json: bool,
+) -> anyhow::Result<ExitCode> {
+    let started = std::time::Instant::now();
+    if json {
+        machine::emit(&machine::Event::start());
+    }
+    let mesh = if mesh.is_dir() {
+        let glb = mesh.join(bundle_files::MODEL_GLB);
+        if !glb.is_file() {
+            return Err(machine::KindedError {
+                kind: machine::KIND_IO_ERROR,
+                message: format!("no {} in {}", bundle_files::MODEL_GLB, mesh.display()),
+            }
+            .into());
+        }
+        glb
+    } else {
+        mesh
+    };
+    let out = output.unwrap_or_else(|| mesh.clone());
+    let clips: Vec<String> = if fit_only {
+        Vec::new()
+    } else if clip.is_empty() {
+        vec!["walk".to_string()]
+    } else {
+        clip
+    };
+    let options = asset_tap_core::BindOptions {
+        clips,
+        pack_dir: pack,
+        fit_only,
+        refit,
+    };
+    if !json {
+        println!("Binding {} …", mesh.display());
+    }
+    // Machine mode reports through the wire contract only: stdout is the
+    // transport, so a stray human line would corrupt the stream.
+    let report = match asset_tap_core::bind_mesh(&mesh, &out, &options) {
+        Ok(r) => r,
+        Err(e) if json => {
+            let wire = machine::classify_bind_error(&e);
+            let code = machine::exit_code_for_kind(wire.kind);
+            machine::emit(&machine::Event::result_error(wire, None));
+            return Ok(ExitCode::from(code));
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    if json {
+        machine::emit(&machine::Event::result_bind_success(
+            out.display().to_string(),
+            report.joint_count,
+            report.vertex_count,
+            report.clips.clone(),
+            started.elapsed().as_millis() as u64,
+        ));
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let clips = if report.clips.is_empty() {
+        "-".to_string()
+    } else {
+        report.clips.join(", ")
+    };
+    println!(
+        "Bound {} joints / {} verts, clips [{}], wrote {}",
+        report.joint_count,
+        report.vertex_count,
+        clips,
+        out.display()
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Handle `demo` subcommands.
@@ -1528,7 +1821,7 @@ fn handle_auth(action: AuthAction) -> anyhow::Result<()> {
                 let source = match (p.source, &p.env_var) {
                     (machine::KeySource::ENV, Some(var)) => format!("env: {var}"),
                     (machine::KeySource::STORED, _) => "stored".to_string(),
-                    _ => "—".to_string(),
+                    _ => "none".to_string(),
                 };
                 println!("\n{} ({})", p.name, p.id);
                 println!("  Status: {status}");
@@ -1679,83 +1972,6 @@ fn handle_export_bundle(
     Ok(())
 }
 
-fn handle_convert_fbx(path: &std::path::Path) -> anyhow::Result<()> {
-    use asset_tap_core::constants::files::bundle as bundle_files;
-
-    // Resolve path (could be relative)
-    let path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-
-    // Determine the GLB file to convert
-    let glb_path = if path.is_dir() {
-        // Bundle directory — look for model.glb
-        let glb = path.join(bundle_files::MODEL_GLB);
-        if !glb.exists() {
-            anyhow::bail!(
-                "No {} found in bundle directory: {}",
-                bundle_files::MODEL_GLB,
-                path.display()
-            );
-        }
-        glb
-    } else if path.extension().and_then(|e| e.to_str()) == Some("glb") {
-        if !path.exists() {
-            anyhow::bail!("GLB file not found: {}", path.display());
-        }
-        path
-    } else {
-        anyhow::bail!(
-            "Expected a .glb file or bundle directory, got: {}",
-            path.display()
-        );
-    };
-
-    // Check if FBX already exists
-    let fbx_path = glb_path.with_extension("fbx");
-    if fbx_path.exists() {
-        println!("\n  ⚠️  FBX already exists: {}", fbx_path.display());
-        println!("  Skipping conversion (delete the existing FBX to reconvert).");
-        return Ok(());
-    }
-
-    // Load settings for custom Blender path
-    let settings = asset_tap_core::settings::Settings::load();
-    let custom_blender = settings.blender_path.as_deref();
-    let has_custom_blender = custom_blender.is_some_and(|p| !p.is_empty());
-
-    // Check Blender availability (auto-detected or custom path)
-    if !is_blender_available() && !has_custom_blender {
-        anyhow::bail!(
-            "Blender is required for FBX conversion but was not found.\n\
-            Install Blender from https://www.blender.org/download/ and ensure it's on your PATH."
-        );
-    }
-
-    println!();
-    println!("{}", "=".repeat(60));
-    println!("  Convert GLB to FBX");
-    println!("{}", "=".repeat(60));
-    println!("\n  Source: {}", glb_path.display());
-
-    match convert_glb_to_fbx(&glb_path, custom_blender)? {
-        Some((fbx, textures_dir)) => {
-            println!("  ✓ FBX:      {}", fbx.display());
-            if let Some(ref tex) = textures_dir {
-                println!("  ✓ Textures: {}", tex.display());
-            }
-            println!();
-        }
-        None => {
-            anyhow::bail!("Blender is required for FBX conversion but was not found.");
-        }
-    }
-
-    Ok(())
-}
-
 /// Scan output directory and convert all GLB files with WebP textures.
 fn batch_convert_output_dir(output_dir: &std::path::Path) -> Result<BatchConvertReport, String> {
     let mut report = BatchConvertReport::default();
@@ -1832,30 +2048,6 @@ impl BatchConvertReport {
             }
         }
     }
-}
-
-fn handle_convert_only(export_fbx: bool) -> anyhow::Result<()> {
-    println!();
-    println!("{}", "=".repeat(60));
-    println!("  Convert Existing Models");
-    println!("{}", "=".repeat(60));
-
-    if !export_fbx {
-        println!("\n⚠️  FBX export disabled. Nothing to convert.");
-        return Ok(());
-    }
-
-    let output_dir = get_output_dir();
-    let (converted, skipped, failed) = convert_existing_models(&output_dir)?;
-
-    println!();
-    println!("{}", "-".repeat(40));
-    println!("  Converted: {}", converted);
-    println!("  Skipped:   {}", skipped);
-    println!("  Failed:    {}", failed);
-    println!();
-
-    Ok(())
 }
 
 fn print_available_providers(registry: &ProviderRegistry) {
@@ -2139,10 +2331,6 @@ fn print_summary(output: &asset_tap_core::PipelineOutput) {
 
     if let Some(ref path) = output.model_path {
         println!("  🧊 GLB:    {}", path.display());
-    }
-
-    if let Some(ref path) = output.fbx_path {
-        println!("  📦 FBX:    {}", path.display());
     }
 
     if let Some(ref path) = output.textures_dir {
