@@ -83,9 +83,6 @@ fn test_settings_defaults() {
 
     // Provider API keys start as empty HashMap
     assert!(settings.provider_api_keys.is_empty());
-
-    // Export FBX default is false
-    assert!(!settings.export_fbx_default);
 }
 
 #[test]
@@ -216,7 +213,7 @@ fn test_all_stages_have_display_names() {
     let stages = vec![
         Stage::ImageGeneration,
         Stage::Model3DGeneration,
-        Stage::FbxConversion,
+        Stage::Bind,
         Stage::Download,
     ];
 

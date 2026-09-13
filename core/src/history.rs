@@ -84,9 +84,6 @@ pub struct GenerationConfig {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model_3d: String,
 
-    /// Whether FBX export was enabled.
-    pub export_fbx: bool,
-
     /// User-tuned parameter overrides applied to the image model (e.g.
     /// `guidance_scale`, `num_inference_steps`). Empty when no overrides were
     /// set; serialized only when non-empty so older bundles stay clean.
@@ -108,7 +105,6 @@ impl From<&PipelineConfig> for GenerationConfig {
             existing_image: config.image_url.as_deref().map(sanitize_image_reference),
             image_model: config.image_model.clone(),
             model_3d: config.model_3d.clone(),
-            export_fbx: config.export_fbx,
             image_model_params: config.image_model_params.clone(),
             model_3d_params: config.model_3d_params.clone(),
         }
@@ -160,9 +156,6 @@ pub struct GenerationOutput {
     /// 3D model path (GLB).
     pub model_path: Option<PathBuf>,
 
-    /// FBX export path (if conversion succeeded).
-    pub fbx_path: Option<PathBuf>,
-
     /// Textures directory (if textures were extracted).
     pub textures_dir: Option<PathBuf>,
 }
@@ -173,7 +166,6 @@ impl From<&PipelineOutput> for GenerationOutput {
             output_dir: output.output_dir.clone(),
             image_path: output.image_path.clone(),
             model_path: output.model_path.clone(),
-            fbx_path: output.fbx_path.clone(),
             textures_dir: output.textures_dir.clone(),
         }
     }
@@ -429,7 +421,6 @@ mod tests {
                 existing_image: None,
                 image_model: Some("nano-banana".to_string()),
                 model_3d: "trellis-2".to_string(),
-                export_fbx: true,
                             image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -494,12 +485,11 @@ mod tests {
 
     #[test]
     fn test_generation_config_from_pipeline_config() {
-        let mut pipeline_config = PipelineConfig::new()
+        let pipeline_config = PipelineConfig::new()
             .with_prompt("a robot")
             .with_template("character")
             .with_3d_model("trellis-2")
             .with_image_model("nano-banana");
-        pipeline_config.export_fbx = true;
 
         let gen_config = GenerationConfig::from(&pipeline_config);
 
@@ -507,7 +497,6 @@ mod tests {
         assert_eq!(gen_config.template, Some("character".to_string()));
         assert_eq!(gen_config.model_3d, "trellis-2");
         assert_eq!(gen_config.image_model, Some("nano-banana".to_string()));
-        assert!(gen_config.export_fbx);
     }
 
     #[test]
@@ -516,7 +505,6 @@ mod tests {
         pipeline_output.output_dir = Some(PathBuf::from("/output/20241229"));
         pipeline_output.image_path = Some(PathBuf::from("/output/20241229/image.png"));
         pipeline_output.model_path = Some(PathBuf::from("/output/20241229/model.glb"));
-        pipeline_output.fbx_path = Some(PathBuf::from("/output/20241229/model.fbx"));
         pipeline_output.textures_dir = Some(PathBuf::from("/output/20241229/textures"));
 
         let gen_output = GenerationOutput::from(&pipeline_output);
@@ -524,7 +512,6 @@ mod tests {
         assert_eq!(gen_output.output_dir, pipeline_output.output_dir);
         assert_eq!(gen_output.image_path, pipeline_output.image_path);
         assert_eq!(gen_output.model_path, pipeline_output.model_path);
-        assert_eq!(gen_output.fbx_path, pipeline_output.fbx_path);
         assert_eq!(gen_output.textures_dir, pipeline_output.textures_dir);
     }
 
@@ -585,7 +572,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -606,7 +592,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -636,7 +621,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -678,7 +662,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -728,7 +711,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -763,7 +745,6 @@ mod tests {
                 existing_image: None,
                 image_model: None,
                 model_3d: "trellis-2".to_string(),
-                export_fbx: false,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },
@@ -787,7 +768,6 @@ mod tests {
                 output_dir: Some(PathBuf::from("/output/20241229")),
                 image_path: Some(PathBuf::from("/output/20241229/image.png")),
                 model_path: None,
-                fbx_path: None,
                 textures_dir: None,
             }),
         };

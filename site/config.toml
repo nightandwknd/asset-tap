@@ -32,7 +32,7 @@ anchors = "on"
 
 [extra]
 meta_description = "Asset Tap is the game-asset generation pipeline: prompt in, engine-ready bundle out via CLI, desktop app, and MCP."
-keywords = "3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust"
+keywords = "3d, ai, text-to-3d, asset generation, glb, gltf, rigging, animation, rust"
 home_layout = "wide"
 home_eyebrow = "Agent-native asset pipeline"
 home_primary_action_label = "Get started"

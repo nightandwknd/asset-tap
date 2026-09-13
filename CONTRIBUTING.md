@@ -40,7 +40,7 @@ Examples:
 
 ```
 feat(providers): add support for custom polling intervals
-fix(gui): prevent crash when Blender is not installed
+fix(gui): prevent crash when no animation pack is installed
 docs: clarify mock mode setup
 chore(deps): bump the rust-dependencies group
 ```

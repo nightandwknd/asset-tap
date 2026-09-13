@@ -55,8 +55,7 @@ async fn test_pipeline_text_to_3d_with_mock() {
         .with_prompt("a test robot")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx(); // Skip FBX to speed up test
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
 
@@ -99,8 +98,7 @@ async fn test_pipeline_with_existing_image() {
     let config = PipelineConfig::new()
         .with_existing_image(test_image_path.to_string_lossy())
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut progress_rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry)
@@ -130,8 +128,7 @@ async fn test_pipeline_progress_stages() {
         .with_prompt("test")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut progress_rx, handle, _approval_tx, _cancel_tx) =
@@ -162,22 +159,6 @@ fn test_pipeline_config_builder() {
     assert_eq!(config.image_model, Some("fal-ai/nano-banana".to_string()));
     assert_eq!(config.model_3d, "fal-ai/trellis-2");
     assert_eq!(config.output_dir, Some(PathBuf::from("/tmp/test")));
-    assert!(
-        !config.export_fbx,
-        "FBX export is opt-in (requires Blender) — off by default on every surface"
-    );
-}
-
-#[test]
-fn test_pipeline_config_fbx_opt_in() {
-    let config = PipelineConfig::new().with_fbx();
-    assert!(config.export_fbx, "with_fbx() should enable FBX export");
-}
-
-#[test]
-fn test_pipeline_config_without_fbx() {
-    let config = PipelineConfig::new().with_fbx().without_fbx();
-    assert!(!config.export_fbx, "FBX export should be disabled");
 }
 
 #[test]
@@ -207,8 +188,7 @@ async fn test_pipeline_with_specific_provider() {
         .with_3d_provider("fal.ai")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
 
@@ -256,8 +236,7 @@ async fn test_pipeline_creates_output_directory() {
         .with_prompt("test")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
@@ -289,8 +268,7 @@ async fn test_pipeline_creates_bundle_metadata() {
         .with_prompt("test metadata")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
@@ -372,8 +350,7 @@ async fn test_pipeline_creates_expected_files() {
         .with_prompt("test files")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
@@ -418,8 +395,7 @@ async fn test_multiple_pipelines_concurrent() {
             .with_prompt(format!("concurrent test {}", i))
             .with_image_model("fal-ai/nano-banana")
             .with_3d_model("fal-ai/trellis-2")
-            .with_output_dir(temp_dir.path().to_path_buf())
-            .without_fbx();
+            .with_output_dir(temp_dir.path().to_path_buf());
 
         let (mut rx, handle, _approval_tx, _cancel_tx) =
             run_pipeline(config, &registry).await.unwrap();
@@ -500,8 +476,7 @@ async fn test_pipeline_rejects_oversized_prompt() {
         .with_prompt(&long_prompt)
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
 
@@ -530,8 +505,7 @@ async fn test_pipeline_accepts_max_length_prompt() {
         .with_prompt(&max_prompt)
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
 
@@ -559,8 +533,7 @@ async fn test_pipeline_cancel_before_3d() {
         .with_prompt("cancel test")
         .with_image_model("fal-ai/nano-banana")
         .with_3d_model("fal-ai/trellis-2")
-        .with_output_dir(temp_dir.path().to_path_buf())
-        .without_fbx();
+        .with_output_dir(temp_dir.path().to_path_buf());
 
     let registry = ProviderRegistry::new();
     let (mut progress_rx, handle, _approval_tx, cancel_tx) =
@@ -624,8 +597,7 @@ async fn test_every_provider_runs_in_mock_mode() {
             .with_3d_provider(&id)
             .with_image_model(&image_model.id)
             .with_3d_model(&model_3d.id)
-            .with_output_dir(out_dir)
-            .without_fbx();
+            .with_output_dir(out_dir);
 
         let (mut progress_rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry)
             .await
