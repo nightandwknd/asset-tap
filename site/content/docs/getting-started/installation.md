@@ -95,10 +95,6 @@ $env:ASSET_TAP_INSTALL_DIR = "C:\tools\asset-tap"; irm https://assettap.dev/inst
 
 The script is [readable on GitHub](https://github.com/nightandwknd/asset-tap/blob/main/site/static/install.ps1).
 
-## Blender (Optional)
-
-[Blender](https://www.blender.org/download/) is required only for FBX export. On Linux, you can also install via `sudo apt install blender` or Snap/Flatpak.
-
 ## Requirements
 
 See [Download](@/download.md) for system requirements and building from source.

@@ -38,8 +38,12 @@ The most security-relevant surfaces of Asset Tap are:
 - **Bundle import & demo download** — Asset Tap extracts `.zip` archives when importing
   bundles or downloading the demo bundle. Report anything that could let a crafted archive
   write outside the intended directory or otherwise misbehave.
-- **Blender invocation** — the optional FBX export stage shells out to Blender. Report any
-  path or argument handling that could lead to unintended command execution.
+- **Animation pack install** — `clip install --from PATH` reads a Quaternius `.zip`,
+  directory, or glTF and writes it into the app's clip directory. `clip download`
+  fetches `clip-packs.zip` from GitHub Releases, verifies the SHA-256 in
+  `clip-packs-manifest.json`, then extracts with the same zip helper as the demo
+  bundle. Report anything that could let a crafted archive or glTF write outside
+  that directory, or skip the hash check.
 - **Provider/template YAML** — providers and templates are data-driven YAML configs loaded
   from disk. Report parsing behavior that could be abused.
 

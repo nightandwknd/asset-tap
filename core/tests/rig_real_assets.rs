@@ -10,9 +10,9 @@
 //!   cargo test -p asset-tap-core --test rig_real_assets -- --nocapture
 //! ```
 //!
-//! This is VIEWER_ANIMATE.md's Phase 2 exit criterion made executable: fit and
-//! bake must preserve geometry and image bytes, a bake must land exactly the
-//! set it was given, and re-baking must not grow the file.
+//! Fit and bake must preserve geometry and image bytes, a bake must land
+//! exactly the set it was given, and re-baking must not grow the file. See
+//! the write contract in `docs/architecture/VIEWER_ANIMATE.md`.
 
 use asset_tap_core::{
     BindOptions, SkinnedClip, apply_clip, bind_mesh, extract_model_info, fit_mesh,
@@ -338,7 +338,7 @@ fn a_dragged_marker_lands_inside_the_geometry_under_the_pointer() {
 fn adding_a_clip_keeps_a_hand_arranged_pose() {
     // Needs a mesh whose auto-fit seeds every joint on the body: Bind refuses
     // an off-mesh head, and some assets seed their shoulders outside (see the
-    // Phase 3 note in VIEWER_ANIMATE.md).
+    // VIEWER_ANIMATE.md Auto-fit / off-mesh retreat).
     let Some(src) = fixtures().into_iter().find(|f| {
         seed_bind_markers(f).is_ok_and(|markers| {
             let heads: Vec<(String, [f32; 3])> =

@@ -180,7 +180,6 @@ output/
     ├── bundle.json      # Metadata
     ├── image.png        # Generated image
     ├── model.glb        # 3D model
-    ├── model.fbx        # FBX (if Blender installed)
     └── textures/        # Extracted textures
 ```
 
@@ -197,22 +196,6 @@ asset-tap --export-bundle output/2024-12-29_153045 --name "My Robot"
 ```
 
 Exporting a bundle that has no name exits with an error telling you which command to run.
-
-## FBX Conversion
-
-By default, Asset Tap converts GLB models to FBX if Blender is installed.
-
-```bash
-# Skip FBX conversion (GLB output only)
-asset-tap --fbx "a robot"
-
-# Convert a specific bundle or GLB file to FBX after generation
-asset-tap --convert-fbx output/2024-12-29_153045
-asset-tap --convert-fbx output/2024-12-29_153045/model.glb
-
-# Batch convert all existing GLB files to FBX (no API calls)
-asset-tap --convert-only
-```
 
 ## Image Approval
 
@@ -232,6 +215,73 @@ Some 3D models contain WebP textures that aren't supported by all tools. Convert
 asset-tap --convert-webp
 ```
 
+## Rigging and Animation (experimental)
+
+> **Experimental.** Humanoid rig and clip bake -- the panel, flags, and clip
+> names may change. Fingers are not weighted. Full guide:
+> [Animation (experimental)](@/docs/guides/animation.md).
+
+Asset Tap rigs humanoid characters and bakes animation clips into the GLB. The
+skeleton ships inside the binary, so rigging itself needs nothing downloaded:
+
+```bash
+# Generate a character and rig it in one run
+asset-tap --rig -y -t humanoid "a knight in plate armor"
+
+# Rig an existing mesh and bake a walk cycle
+asset-tap bind --mesh model.glb --clip walk
+
+# Rig only: a skinned T-pose with no animation
+asset-tap bind --mesh model.glb --fit-only
+```
+
+`--clip` repeats, on both the generate path and `bind`. One model carries one
+animation per clip, the way Mixamo and Meshy work, rather than one export per
+clip:
+
+```bash
+asset-tap bind --mesh model.glb --clip walk --clip Sword_Attack --clip Idle_Loop
+```
+
+Bake is declarative: the model ends up with exactly the clips you named, so
+re-running with a shorter list removes the ones you dropped. Re-running `bind`
+on a mesh that is already rigged keeps its skeleton and weights, so adding a
+clip cannot undo joints you arranged by hand in the GUI. Pass `--refit` when
+you do want the pose discarded and recomputed.
+
+### Animation packs
+
+Clips come from [Quaternius](https://quaternius.com)' CC0
+[Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
+and
+[Universal Animation Library 2](https://quaternius.com/packs/universalanimationlibrary2.html).
+`asset-tap clip download` pulls the free Standard libraries from the latest
+Asset Tap release (hash-verified, not in the binary). The remaining paid
+Source clips on those pages install the same way as any other zip. Full
+note: [Animation (experimental)](@/docs/guides/animation.md#clip-packs).
+
+Install from a download's `.zip`, an extracted folder, or a single `.glb`:
+
+```bash
+# Free Standard packs from the latest Asset Tap release
+asset-tap clip download
+asset-tap --json clip download
+asset-tap clip download --force
+
+# A zip you already have (id is derived from the file name unless you pass --id)
+asset-tap clip install --from Universal-Animation-Library.zip
+
+# List every clip from every installed pack
+asset-tap clip list
+
+# ...and mark which of them are already baked into a model
+asset-tap clip list --model output/2026-09-08_120000/model.glb
+```
+
+Several packs can sit side by side. Clip names are matched across all of them,
+so `walk` resolves to whichever pack provides it, and a name that no installed
+pack provides is a clear local error rather than a silently empty animation.
+
 ## Complete Flag Reference
 
 | Flag                 | Short | Description                                                           |
@@ -248,9 +298,9 @@ asset-tap --convert-webp
 | `--list`             |       | List available models and templates                                   |
 | `--list-providers`   |       | List available providers and their models                             |
 | `--inspect-template` |       | Inspect a template's syntax and preview                               |
-| `--fbx`              |       | Also convert the model to FBX (requires Blender; GLB-only is default) |
-| `--convert-fbx`      |       | Convert a specific GLB file or bundle directory to FBX                |
-| `--convert-only`     |       | Batch convert all existing GLB files to FBX (no API calls)            |
 | `--convert-webp`     |       | Convert WebP textures in GLB files to PNG                             |
 | `--approve`          |       | Require image approval before 3D generation                           |
 | `--export-bundle`    |       | Export a bundle directory as a zip archive                            |
+| `--rig`              |       | Experimental: rig the mesh to the built-in humanoid skeleton          |
+| `--clip`             |       | Experimental: clip to bake after rigging (repeatable)                 |
+| `--clip-pack`        |       | Experimental: animation pack directory, overriding installed packs    |

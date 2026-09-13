@@ -22,7 +22,6 @@ output/
     ├── bundle.json            # Metadata
     ├── image.png              # AI-generated image
     ├── model.glb              # 3D model (GLB format)
-    ├── model.fbx              # FBX export (if Blender installed)
     └── textures/              # Extracted textures (if any)
         ├── texture_0.png
         └── ...
@@ -39,7 +38,6 @@ File names are always consistent across all bundles:
 | `bundle.json` | Generation metadata      |
 | `image.png`   | Generated or input image |
 | `model.glb`   | 3D model in GLB format   |
-| `model.fbx`   | FBX export (optional)    |
 | `textures/`   | Extracted texture files  |
 
 This predictable naming means you always know exactly where to find each file.
@@ -116,6 +114,22 @@ The `bundle.json` file contains complete information about the generation:
 - `category` -- reserved; omitted until a recipe can name the asset
 
 Prompt, models, and params live on `pipeline.steps[]`. Mesh stats live on the model artifact. Version 1 files still load (`config` / `model_info`); they are not rewritten.
+
+### The `bind` step (experimental)
+
+> **Experimental.** Humanoid rig and clip bake --
+> [Animation (experimental)](@/docs/guides/animation.md).
+
+Rigging a mesh appends one `kind: op` step with `op: "bind"`. It takes
+`model` and produces `model` (the GLB is rewritten in place). `params`:
+
+- `clips` -- the model's **full** animation set after the run, not the clips
+  this run added. An empty array is a skinned T-pose (`--fit-only`).
+- `skeleton` -- `atap-humanoid-1`. Joint names are
+  [VRM 1.0](https://vrm.dev/) humanoid bones.
+
+Re-binding updates this step rather than appending another. A bundle carries
+at most one `bind` step.
 
 ## Privacy
 

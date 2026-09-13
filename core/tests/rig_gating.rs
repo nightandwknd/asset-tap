@@ -1,10 +1,10 @@
 //! What the rig does with input auto-fit cannot read.
 //!
-//! VIEWER_ANIMATE.md's Phase 3 asks for actionable errors on incompatible
-//! input. Auto-fit is landmark-driven, so a prop fails at the landmark stage
-//! rather than silently producing a skeleton in the wrong place. These pin the
-//! messages, because "could not find hands" is the difference between a user
-//! knowing the asset is wrong and thinking the app is broken.
+//! Auto-fit must name incompatible input. It is landmark-driven, so a prop
+//! fails at the landmark stage rather than silently producing a skeleton in
+//! the wrong place. These pin the messages, because "could not find hands"
+//! is the difference between a user knowing the asset is wrong and thinking
+//! the app is broken.
 //!
 //! They also pin the other half: refusing to *guess* a pose is not refusing to
 //! rig. Rig opens with the shipped skeleton scaled to the mesh, so every asset

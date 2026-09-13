@@ -1055,7 +1055,7 @@ mod tests {
     /// metallic-roughness maps.
     ///
     /// The plain fixture is one mesh of two primitives with PNG base colors,
-    /// which leaves the shapes Phase 2 cares about untested: whether the
+    /// which leaves the preservation cases untested: whether the
     /// writer walks *every* mesh, keeps material references that are not
     /// base color, and copies WebP bytes through instead of re-encoding them.
     #[allow(clippy::type_complexity)]

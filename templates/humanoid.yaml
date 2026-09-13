@@ -1,14 +1,14 @@
 id: 'humanoid'
 name: 'Humanoid Character'
-description: 'Optimized for Mixamo and auto-rigging systems. Generates characters in T-pose with anatomically correct proportions for animation.'
+description: 'T-pose the auto-fit can read: separated limbs, hands the widest points.'
 category: 'character'
-template: 'A full body character illustration: ${description}. Standing in T-pose with arms extended horizontally at shoulder height, palms facing down, fingers spread. Legs apart in a neutral stance, feet shoulder-width. Symmetrical, front-facing view. Realistic human proportions with a clear head, torso, arms, and legs. Single figure, no extra limbs or floating objects. Vibrant colors, detailed clothing and skin textures. Clean solid background, studio lighting. Digital character art, high detail.'
+template: 'A full-body character reference, front view, square frame: ${description}. Strict T-pose: arms straight out at shoulder height, elbows locked, palms down, fingers slightly apart. Fingertips are the widest points and the top of the head is the highest; the figure fills the frame fingertip-to-fingertip and head-to-feet. Clear space between each arm and the torso, and a clear gap between the legs. Legs straight, feet flat and forward at shoulder width. Clothing, hair, coats, and capes follow the body and leave those gaps open. Weapons and gear stay against the body or on the back, below the head and inside the arm span. One complete figure, centered, even lighting, no cast shadows, plain flat background.'
 variables:
   - name: 'description'
     description: 'Character description (style, clothing, features)'
     required: true
 examples:
-  - 'a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back'
+  - 'a cowboy ninja in a fitted leather jacket, bandana mask, and dual katanas on the back'
   - 'a steampunk robot knight with brass armor and glowing eyes'
   - 'a muscular orc warrior with green skin and tribal tattoos'
   - 'a sleek android with white chassis and orange accents'
