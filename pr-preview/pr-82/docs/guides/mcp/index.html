@@ -701,6 +701,19 @@
 
 <li class="docs-nav-item">
   <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
     class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/mcp/"
     aria-current="page"
@@ -994,6 +1007,19 @@
 
 <li class="docs-nav-item">
   <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
     class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/mcp/"
     aria-current="page"
@@ -1200,7 +1226,8 @@ and the <code>env_var</code> name -- never key material.</p>
 Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 <p><strong><code>generate</code></strong> -- takes a <code>prompt</code> or an <code>image</code> path; optional <code>template</code>,
 <code>provider</code>, <code>image_model</code>, <code>model_3d</code>, <code>params{}</code>,
-<code>image_only</code>, <code>output_dir</code>, <code>name</code>. Runs the generation pipeline and returns
+<code>image_only</code>, <code>output_dir</code>, <code>name</code>, and the experimental <code>bind</code> /
+<code>clips[]</code> (see below). Runs the generation pipeline and returns
 <code>{status: "success", bundle_dir, duration_ms, bundle}</code>.</p>
 <p>Every tool returns <strong>structured content</strong> (JSON) plus the same JSON as text, so hosts that read either work. <code>list_catalog</code> and <code>auth_status</code> make no API calls -- they're free to use as preflight checks.</p>
 <h2 id="generate-semantics"><code>generate</code> semantics<a class="zola-anchor" href="#generate-semantics" aria-label="Anchor link for: generate-semantics">
@@ -1217,6 +1244,21 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 <li><strong>Errors</strong> are tool errors (<code>isError: true</code>) carrying the wire error shape: <code>kind</code>, <code>message</code>, optional <code>provider</code> / <code>action</code> / <code>retryable</code> / <code>retry_after_secs</code>. Retry only when <code>retryable</code> is true; on <code>unauthorized</code>, ask the human for a key instead of looping.</li>
 <li>Prefer a fresh <code>output_dir</code> per project; runs never overwrite (timestamped bundle directories). <code>name</code> sets <code>bundle.json</code>'s <code>name</code>, not the directory.</li>
 </ul>
+<h2 id="animation-experimental">Animation (experimental)<a class="zola-anchor" href="#animation-experimental" aria-label="Anchor link for: animation-experimental">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<blockquote>
+<p><strong>Experimental.</strong> Same humanoid rig as the desktop app and CLI. Details and
+limits: <a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experimental)</a>.</p>
+</blockquote>
+<p><code>generate</code> accepts <code>bind: true</code> and <code>clips: ["walk", "Sword_Attack"]</code>. The
+skeleton is embedded, so rigging needs nothing installed. A clip no installed
+pack provides is a local error -- <code>clip list</code> / <code>clip install</code> from the CLI.
+Older clients passing <code>fbx</code> or <code>no_fbx</code> are ignored; FBX was removed.</p>
 <h2 id="not-this">Not this<a class="zola-anchor" href="#not-this" aria-label="Anchor link for: not-this">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1326,6 +1368,13 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 
 
 
+
+
+
+
+
+
+
 <nav
   class="docs-prev-next"
   aria-label="Documentation pagination"
@@ -1333,10 +1382,10 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
   
   <a
     class="docs-prev-next-link docs-prev-next-link-previous"
-    href="/pr-preview/pr-82/docs/guides/cli-usage/"
+    href="/pr-preview/pr-82/docs/guides/animation/"
   >
     <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> Previous</span>
-    <span class="docs-prev-next-title">CLI Usage</span>
+    <span class="docs-prev-next-title">Animation (experimental)</span>
   </a>
   
 
@@ -1388,6 +1437,14 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
       
       <a href="/pr-preview/pr-82/docs/guides/mcp/#generate-semantics">
         generate semantics
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-82/docs/guides/mcp/#animation-experimental">
+        Animation (experimental)
       </a>
       
     </li>

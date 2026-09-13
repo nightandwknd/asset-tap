@@ -14,7 +14,7 @@
   
   
   
-  <title>Installation | Asset Tap</title>
+  <title>Animation (experimental) | Asset Tap</title>
   
 <script>
   (function () {
@@ -59,20 +59,20 @@
 
 
 
-<meta name="description" content="Download and install Asset Tap on macOS, Windows, or Linux.">
-<link rel="canonical" href="/pr-preview/pr-82/docs/getting-started/installation/">
+<meta name="description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips. No Blender.">
+<link rel="canonical" href="/pr-preview/pr-82/docs/guides/animation/">
 
-<meta property="og:title" content="Installation">
-<meta property="og:description" content="Download and install Asset Tap on macOS, Windows, or Linux.">
+<meta property="og:title" content="Animation (experimental)">
+<meta property="og:description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips. No Blender.">
 <meta property="og:type" content="article">
-<meta property="og:url" content="/pr-preview/pr-82/docs/getting-started/installation/">
+<meta property="og:url" content="/pr-preview/pr-82/docs/guides/animation/">
 <meta property="og:site_name" content="Asset Tap">
-<meta property="article:published_time" content="2026-02-09">
+<meta property="article:published_time" content="2026-09-13">
 <meta property="og:image" content="/pr-preview/pr-82/images/og-card.png">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Installation">
-<meta name="twitter:description" content="Download and install Asset Tap on macOS, Windows, or Linux.">
+<meta name="twitter:title" content="Animation (experimental)">
+<meta name="twitter:description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips. No Blender.">
 <meta name="twitter:image" content="/pr-preview/pr-82/images/og-card.png">
 
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -560,9 +560,9 @@
 
 
 <li
-  class="docs-nav-group is-active-branch"
+  class="docs-nav-group"
   data-docs-nav-group="/pr-preview/pr-82/docs/getting-started/"
-  data-docs-nav-active-branch
+  
 >
   <div class="docs-nav-group-row">
     <a
@@ -578,7 +578,7 @@
       type="button"
       aria-label="Toggle section: Getting started"
       aria-controls="site-menu-docs-section-1-children"
-      aria-expanded="true"
+      aria-expanded="false"
       data-docs-nav-toggle
       hidden
     >
@@ -597,9 +597,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link is-active"
+    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/getting-started/installation/"
-    aria-current="page"
+    
   >
     Installation
   </a>
@@ -638,9 +638,9 @@
 
 
 <li
-  class="docs-nav-group"
+  class="docs-nav-group is-active-branch"
   data-docs-nav-group="/pr-preview/pr-82/docs/guides/"
-  
+  data-docs-nav-active-branch
 >
   <div class="docs-nav-group-row">
     <a
@@ -656,7 +656,7 @@
       type="button"
       aria-label="Toggle section: Guides"
       aria-controls="site-menu-docs-section-2-children"
-      aria-expanded="false"
+      aria-expanded="true"
       data-docs-nav-toggle
       hidden
     >
@@ -701,9 +701,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
+    class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/animation/"
-    
+    aria-current="page"
   >
     Animation (experimental)
   </a>
@@ -866,9 +866,9 @@
 
 
 <li
-  class="docs-nav-group is-active-branch"
+  class="docs-nav-group"
   data-docs-nav-group="/pr-preview/pr-82/docs/getting-started/"
-  data-docs-nav-active-branch
+  
 >
   <div class="docs-nav-group-row">
     <a
@@ -884,7 +884,7 @@
       type="button"
       aria-label="Toggle section: Getting started"
       aria-controls="docs-sidebar-section-1-children"
-      aria-expanded="true"
+      aria-expanded="false"
       data-docs-nav-toggle
       hidden
     >
@@ -903,9 +903,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link is-active"
+    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/getting-started/installation/"
-    aria-current="page"
+    
   >
     Installation
   </a>
@@ -944,9 +944,9 @@
 
 
 <li
-  class="docs-nav-group"
+  class="docs-nav-group is-active-branch"
   data-docs-nav-group="/pr-preview/pr-82/docs/guides/"
-  
+  data-docs-nav-active-branch
 >
   <div class="docs-nav-group-row">
     <a
@@ -962,7 +962,7 @@
       type="button"
       aria-label="Toggle section: Guides"
       aria-controls="docs-sidebar-section-2-children"
-      aria-expanded="false"
+      aria-expanded="true"
       data-docs-nav-toggle
       hidden
     >
@@ -1007,9 +1007,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
+    class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/animation/"
-    
+    aria-current="page"
   >
     Animation (experimental)
   </a>
@@ -1158,7 +1158,7 @@
     
     
     <li class="breadcrumbs-item">
-      <a href="/pr-preview/pr-82/docs/getting-started/">Getting started</a>
+      <a href="/pr-preview/pr-82/docs/guides/">Guides</a>
     </li>
     
     
@@ -1167,7 +1167,7 @@
     
 
     <li class="breadcrumbs-item" aria-current="page">
-      <span>Installation</span>
+      <span>Animation (experimental)</span>
     </li>
   </ol>
 </nav>
@@ -1177,108 +1177,100 @@
 
 
     <header class="page-header">
-      <h1>Installation</h1>
+      <h1>Animation (experimental)</h1>
 
       
       <p class="page-description">
-        Download and install Asset Tap on macOS, Windows, or Linux.
+        Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips. No Blender.
       </p>
       
     </header>
 
-    <p>There are two things you can install; pick what you need (or both):</p>
-<ul>
-<li><strong>The desktop app</strong>: the GUI, installed per platform.</li>
-<li><strong>The CLI</strong>: <code>asset-tap</code> in your terminal, for scripting, automation, and agents.</li>
-</ul>
-<h2 id="install-the-desktop-app">Install the Desktop App<a class="zola-anchor" href="#install-the-desktop-app" aria-label="Anchor link for: install-the-desktop-app">
+    <div class="callout callout--warning">
+  <p class="callout-title">Experimental</p>
+  <p>Humanoid rigging and clip bake are new. The skeleton, weights, and bake
+contract are still being proven on real provider meshes. The panel, flags,
+and clip names may change. Fingers are not weighted. Root-motion clips
+are ignored.</p>
+</div>
+<p>Asset Tap can rig a humanoid mesh to an embedded 52-joint skeleton and bake
+animation clips into <code>model.glb</code>. No Blender, no download to rig: the
+skeleton ships in the binary. Packs only add clips.</p>
+<p>One model carries N animations, the way Mixamo and Meshy work, rather than
+one export per clip. Bake is declarative: the file ends up with exactly the
+clips you named or ticked. Unticking (or omitting) a clip removes it.</p>
+<p>Use the <a href="/pr-preview/pr-82/docs/guides/cli-usage/#templates">humanoid</a> template when you
+want a figure the auto-fit can read: T-pose, arms the widest points, a gap
+between each arm and the torso and between the legs.</p>
+<h2 id="desktop-app">Desktop app<a class="zola-anchor" href="#desktop-app" aria-label="Anchor link for: desktop-app">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>Grab your platform's installer from the <a href="/pr-preview/pr-82/download/">Download</a> page.</p>
-<h3 id="macos">macOS<a class="zola-anchor" href="#macos" aria-label="Anchor link for: macos">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p>All macOS downloads are universal binaries that run natively on both Intel and Apple Silicon Macs.</p>
+<p>Generate or open a character, switch to the 3D tab, and open <strong>Animate</strong>.
+The panel is optional; the viewer stays an inspector until you do.</p>
 <ol>
-<li>Open <a rel="external" href="https://github.com/nightandwknd/asset-tap/releases/latest/download/AssetTap-macos.dmg">AssetTap-macos.dmg</a></li>
-<li>Drag <strong>AssetTap</strong> to your Applications folder</li>
-<li>Launch from Applications or Spotlight</li>
+<li><strong>Rig</strong> -- pose the shipped skeleton on a frozen mesh. Dragging a joint
+never deforms the model. Markers are coloured by body part and labelled
+L or R; a legend sits beside the viewport, not over it. Rig always opens
+with joints you can drag.</li>
+<li><strong>Auto-fit</strong> -- a button, not something that runs on open. It guesses a
+T-pose on a readable humanoid and leaves the joints alone on a mesh it
+cannot read as a body. Review the result before you bind.</li>
+<li><strong>Bind</strong> -- skins the mesh to the posed heads. Every joint must sit on
+the body; a joint off the mesh is refused by name. The confirmation says
+how many joints you moved from the auto-fit.</li>
+<li><strong>Clips</strong> -- click a row to play it (preview never writes). Tick the set
+you want and press <strong>Bake</strong>. The panel shows what will be added and
+removed. An empty tick-set is a separate clear, not an overloaded Bake.</li>
 </ol>
-<p>The app carries its own copy of the CLI internally. To use <code>asset-tap</code> from your terminal, run the <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-cli-macos-linux">CLI install</a> below. It is the same binary, kept current independently of the app.</p>
-<h3 id="windows">Windows<a class="zola-anchor" href="#windows" aria-label="Anchor link for: windows">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<ol>
-<li>Run <a rel="external" href="https://github.com/nightandwknd/asset-tap/releases/latest/download/asset-tap-windows-setup.exe">asset-tap-windows-setup.exe</a></li>
-<li>Launch Asset Tap from the Start Menu</li>
-</ol>
-<p>For the terminal, run the <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-cli-windows">Windows CLI install</a> below.</p>
-<h3 id="linux">Linux<a class="zola-anchor" href="#linux" aria-label="Anchor link for: linux">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p><strong>Debian/Ubuntu (.deb)</strong></p>
-<p>The <code>.deb</code> package installs the GUI and the CLI together, system-wide:</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">sudo</span><span class="z-l-2 z-d-6"> dpkg</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">i</span><span class="z-l-2 z-d-6"> asset-tap-linux-amd64.deb</span></span></code></pre>
-<p>After installation, <code>asset-tap-gui</code>, <code>asset-tap</code>, and the <code>atap</code> alias are on your <code>PATH</code>; no separate CLI install needed.</p>
-<p><strong>AppImage (Universal)</strong></p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">chmod</span><span class="z-l-2 z-d-6"> +x</span><span class="z-l-2 z-d-6"> asset-tap-linux-x86_64.AppImage</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">./asset-tap-linux-x86_64.AppImage</span></span></code></pre>
-<p>The AppImage is the GUI only; pair it with the <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-cli-macos-linux">CLI install</a> below for terminal use.</p>
-<h2 id="install-the-cli-macos-linux">Install the CLI (macOS / Linux)<a class="zola-anchor" href="#install-the-cli-macos-linux" aria-label="Anchor link for: install-the-cli-macos-linux">
+<p>Animation packs add rows to the clip list: <strong>Add pack...</strong> takes a
+Quaternius <code>.zip</code>, an extracted folder, or a <code>.glb</code>. Several packs can sit
+side by side. Switching clips does not rewrite <code>model.glb</code> until Bake.</p>
+<h2 id="command-line">Command line<a class="zola-anchor" href="#command-line" aria-label="Anchor link for: command-line">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">curl</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">fsSL</span><span class="z-l-2 z-d-6"> https://assettap.dev/install</span><span class="z-l-8 z-d-10"> |</span><span class="z-l-6 z-d-7"> bash</span></span></code></pre>
-<p>This installs <code>asset-tap</code> and the <code>atap</code> alias to <code>~/.local/bin</code>, verifying the download against the release's <code>SHA256SUMS</code> first. Options:</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> pin a specific release</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">curl</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">fsSL</span><span class="z-l-2 z-d-6"> https://assettap.dev/install</span><span class="z-l-8 z-d-10"> |</span><span class="z-l-6 z-d-7"> bash</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">s</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-</span><span class="z-l-2 z-d-6"> v26.8.12</span></span>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Generate a character and rig it in one run</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-rig</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a knight in plate armour</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> install somewhere else</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">curl</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">fsSL</span><span class="z-l-2 z-d-6"> https://assettap.dev/install</span><span class="z-l-8 z-d-10"> |</span><span> ASSET_TAP_INSTALL_DIR</span><span class="z-l-8 z-d-10">=</span><span class="z-l-2 z-d-6">/</span><span class="z-l-2 z-d-6">u</span><span class="z-l-2 z-d-6">s</span><span class="z-l-2 z-d-6">r</span><span class="z-l-2 z-d-6">/</span><span class="z-l-2 z-d-6">l</span><span class="z-l-2 z-d-6">o</span><span class="z-l-2 z-d-6">c</span><span class="z-l-2 z-d-6">a</span><span class="z-l-2 z-d-6">l</span><span class="z-l-2 z-d-6">/</span><span class="z-l-2 z-d-6">b</span><span class="z-l-2 z-d-6">i</span><span class="z-l-2 z-d-6">n</span><span class="z-l-6 z-d-7"> bash</span></span></code></pre>
-<p>The script is <a rel="external" href="https://github.com/nightandwknd/asset-tap/blob/main/site/static/install.sh">readable on GitHub</a>, and every step it performs can be done by hand with the archives on the <a href="/pr-preview/pr-82/download/">Download</a> page.</p>
-<h2 id="install-the-cli-windows">Install the CLI (Windows)<a class="zola-anchor" href="#install-the-cli-windows" aria-label="Anchor link for: install-the-cli-windows">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="powershell"><span class="giallo-l"><span>irm https:</span><span class="z-l-8 z-d-10">/</span><span class="z-l-8 z-d-10">/</span><span>assettap.dev</span><span class="z-l-8 z-d-10">/</span><span>install.ps1 </span><span class="z-l-8 z-d-10">|</span><span> iex</span></span></code></pre>
-<p>This installs <code>asset-tap.exe</code> and the <code>atap</code> alias to <code>%LOCALAPPDATA%\AssetTap\bin</code>, adds that directory to your user <code>PATH</code>, and verifies the download against the release's <code>SHA256SUMS</code> first. Works in Windows PowerShell and PowerShell 7. Options:</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="powershell"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> pin a specific release</span></span>
-<span class="giallo-l"><span>$</span><span class="z-l-1 z-d-4">env:</span><span>ASSET_TAP_VERSION</span><span class="z-l-8 z-d-10"> =</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">v26.8.12</span><span class="z-l-2 z-d-6">&quot;</span><span>;</span><span> irm https:</span><span class="z-l-8 z-d-10">/</span><span class="z-l-8 z-d-10">/</span><span>assettap.dev</span><span class="z-l-8 z-d-10">/</span><span>install.ps1 </span><span class="z-l-8 z-d-10">|</span><span> iex</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Rig an existing mesh and bake a walk</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span></span>
 <span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> install somewhere else</span></span>
-<span class="giallo-l"><span>$</span><span class="z-l-1 z-d-4">env:</span><span>ASSET_TAP_INSTALL_DIR</span><span class="z-l-8 z-d-10"> =</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">C:\tools\asset-tap</span><span class="z-l-2 z-d-6">&quot;</span><span>;</span><span> irm https:</span><span class="z-l-8 z-d-10">/</span><span class="z-l-8 z-d-10">/</span><span>assettap.dev</span><span class="z-l-8 z-d-10">/</span><span>install.ps1 </span><span class="z-l-8 z-d-10">|</span><span> iex</span></span></code></pre>
-<p>The script is <a rel="external" href="https://github.com/nightandwknd/asset-tap/blob/main/site/static/install.ps1">readable on GitHub</a>.</p>
-<h2 id="requirements">Requirements<a class="zola-anchor" href="#requirements" aria-label="Anchor link for: requirements">
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Several clips on one model</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Sword_Attack</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Idle_Loop</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Skinned T-pose, no animation</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-fit-only</span></span></code></pre>
+<p><code>--clip</code> repeats on both <code>--rig</code> and <code>bind</code>. Re-running <code>bind</code> on an
+already-rigged mesh keeps its skeleton and weights, so adding a clip cannot
+undo joints you arranged by hand. Pass <code>--refit</code> to discard the pose.</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Quaternius-Animations.zip</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-model</span><span class="z-l-2 z-d-6"> output/2026-09-08_120000/model.glb</span></span></code></pre>
+<p>A missing clip or pack is a local error (exit 7), not a retryable failure.
+<code>walk</code> is an alias for <code>Walk_Loop</code>; <code>clip list</code> shows the names the pack
+actually contains.</p>
+<p>Machine-readable: <code>asset-tap --json bind --mesh model.glb --clip walk</code>.
+The result names the written model and the full baked clip set -- see the
+<a rel="external" href="https://github.com/nightandwknd/asset-tap/blob/main/docs/CLI_MACHINE_INTERFACE.md">CLI machine interface</a>.</p>
+<h2 id="mcp">MCP<a class="zola-anchor" href="#mcp" aria-label="Anchor link for: mcp">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>See <a href="/pr-preview/pr-82/download/">Download</a> for system requirements and building from source.</p>
-<h2 id="what-s-next">What's Next<a class="zola-anchor" href="#what-s-next" aria-label="Anchor link for: what-s-next">
+<p><code>generate</code> takes <code>bind: true</code> and <code>clips: ["walk", "Sword_Attack"]</code>. The
+same rules as the CLI: no pack required to rig, a missing clip is a local
+error, older <code>fbx</code> / <code>no_fbx</code> fields are ignored. Full tool list:
+<a href="/pr-preview/pr-82/docs/guides/mcp/">MCP server</a>.</p>
+<h2 id="what-this-does-not-do">What this does not do<a class="zola-anchor" href="#what-this-does-not-do" aria-label="Anchor link for: what-this-does-not-do">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1286,12 +1278,22 @@
 </a>
 </h2>
 <ul>
-<li><a href="/pr-preview/pr-82/docs/getting-started/first-asset/">Your First Asset</a> -- Add a provider key and generate a model in the desktop app</li>
-<li><a href="/pr-preview/pr-82/docs/guides/cli-usage/">CLI Usage</a> -- If you installed the CLI for terminals, scripts, or agents</li>
+<li><strong>Fingers</strong> stay excluded. Hands will not curl with a grab or fist clip.</li>
+<li><strong>Root-motion</strong> (<code>_RM</code>) variants are ignored so preview does not walk the
+model out of the viewport. In-place loops only.</li>
+<li><strong>Props</strong> can be rigged by hand. Auto-fit will not invent a pose on a
+chest or crate; use the <a href="/pr-preview/pr-82/docs/guides/cli-usage/#templates">prop</a>
+template when you are not animating.</li>
+<li><strong>No weight painting, no invented bones, no full animation editor.</strong>
+Bind computes weights from the posed heads.</li>
 </ul>
+<p>A <code>bind</code> step is recorded on <code>bundle.json</code> when you bake -- see
+<a href="/pr-preview/pr-82/docs/guides/bundle-structure/#the-bind-step-experimental">Bundle structure</a>.</p>
 
 
     
+
+
 
 
 
@@ -1396,14 +1398,22 @@
   aria-label="Documentation pagination"
 >
   
+  <a
+    class="docs-prev-next-link docs-prev-next-link-previous"
+    href="/pr-preview/pr-82/docs/guides/cli-usage/"
+  >
+    <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> Previous</span>
+    <span class="docs-prev-next-title">CLI Usage</span>
+  </a>
+  
 
   
   <a
     class="docs-prev-next-link docs-prev-next-link-next"
-    href="/pr-preview/pr-82/docs/getting-started/first-asset/"
+    href="/pr-preview/pr-82/docs/guides/mcp/"
   >
     <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
-    <span class="docs-prev-next-title">Your First Asset</span>
+    <span class="docs-prev-next-title">MCP Server</span>
   </a>
   
 </nav>
@@ -1427,77 +1437,32 @@
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <details class="docs-toc-group" data-docs-toc-group>
-        <summary class="docs-toc-group-toggle">
-          <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-desktop-app">
-            Install the Desktop App
-          </a>
-          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
-        </summary>
-
-        
-  
-  <ul class="docs-toc-list">
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#macos">
-        macOS
-      </a>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#windows">
-        Windows
-      </a>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#linux">
-        Linux
-      </a>
-      
-    </li>
-    
-  </ul>
-  
-
-      </details>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-cli-macos-linux">
-        Install the CLI (macOS / Linux)
+      <a href="/pr-preview/pr-82/docs/guides/animation/#desktop-app">
+        Desktop app
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#install-the-cli-windows">
-        Install the CLI (Windows)
+      <a href="/pr-preview/pr-82/docs/guides/animation/#command-line">
+        Command line
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#requirements">
-        Requirements
+      <a href="/pr-preview/pr-82/docs/guides/animation/#mcp">
+        MCP
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="/pr-preview/pr-82/docs/getting-started/installation/#what-s-next">
-        What&#39;s Next
+      <a href="/pr-preview/pr-82/docs/guides/animation/#what-this-does-not-do">
+        What this does not do
       </a>
       
     </li>

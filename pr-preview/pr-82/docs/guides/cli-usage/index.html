@@ -702,6 +702,19 @@
 <li class="docs-nav-item">
   <a
     class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/guides/mcp/"
     
   >
@@ -986,6 +999,19 @@
     aria-current="page"
   >
     CLI Usage
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1355,13 +1381,18 @@
 </h2>
 <p>Some 3D models contain WebP textures that aren't supported by all tools. Convert them to PNG:</p>
 <pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Convert WebP textures in existing GLB files to PNG</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-webp</span></span></code></pre><h2 id="rigging-and-animation">Rigging and Animation<a class="zola-anchor" href="#rigging-and-animation" aria-label="Anchor link for: rigging-and-animation">
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-webp</span></span></code></pre><h2 id="rigging-and-animation-experimental">Rigging and Animation (experimental)<a class="zola-anchor" href="#rigging-and-animation-experimental" aria-label="Anchor link for: rigging-and-animation-experimental">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
+<blockquote>
+<p><strong>Experimental.</strong> Humanoid rig and clip bake -- the panel, flags, and clip
+names may change. Fingers are not weighted. Full guide:
+<a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experimental)</a>.</p>
+</blockquote>
 <p>Asset Tap rigs humanoid characters and bakes animation clips into the GLB. The
 skeleton ships inside the binary, so rigging itself needs nothing downloaded
 and no Blender install:</p>
@@ -1425,13 +1456,20 @@ pack provides is a clear local error rather than a silently empty animation.</p>
 <tr><td><code>--convert-webp</code></td><td></td><td>Convert WebP textures in GLB files to PNG</td></tr>
 <tr><td><code>--approve</code></td><td></td><td>Require image approval before 3D generation</td></tr>
 <tr><td><code>--export-bundle</code></td><td></td><td>Export a bundle directory as a zip archive</td></tr>
-<tr><td><code>--rig</code></td><td></td><td>Rig the generated mesh to the built-in humanoid skeleton</td></tr>
-<tr><td><code>--clip</code></td><td></td><td>Clip to bake after rigging (repeatable)</td></tr>
-<tr><td><code>--clip-pack</code></td><td></td><td>Animation pack directory, overriding the installed packs</td></tr>
+<tr><td><code>--rig</code></td><td></td><td>Experimental: rig the mesh to the built-in humanoid skeleton</td></tr>
+<tr><td><code>--clip</code></td><td></td><td>Experimental: clip to bake after rigging (repeatable)</td></tr>
+<tr><td><code>--clip-pack</code></td><td></td><td>Experimental: animation pack directory, overriding installed packs</td></tr>
 </tbody></table>
 
 
     
+
+
+
+
+
+
+
 
 
 
@@ -1543,10 +1581,10 @@ pack provides is a clear local error rather than a silently empty animation.</p>
   
   <a
     class="docs-prev-next-link docs-prev-next-link-next"
-    href="/pr-preview/pr-82/docs/guides/mcp/"
+    href="/pr-preview/pr-82/docs/guides/animation/"
   >
     <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
-    <span class="docs-prev-next-title">MCP Server</span>
+    <span class="docs-prev-next-title">Animation (experimental)</span>
   </a>
   
 </nav>
@@ -1710,8 +1748,8 @@ pack provides is a clear local error rather than a silently empty animation.</p>
       
       <details class="docs-toc-group" data-docs-toc-group>
         <summary class="docs-toc-group-toggle">
-          <a href="/pr-preview/pr-82/docs/guides/cli-usage/#rigging-and-animation">
-            Rigging and Animation
+          <a href="/pr-preview/pr-82/docs/guides/cli-usage/#rigging-and-animation-experimental">
+            Rigging and Animation (experimental)
           </a>
           <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
         </summary>

@@ -702,6 +702,19 @@
 <li class="docs-nav-item">
   <a
     class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/guides/mcp/"
     
   >
@@ -995,6 +1008,19 @@
 <li class="docs-nav-item">
   <a
     class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/guides/mcp/"
     
   >
@@ -1246,9 +1272,23 @@
 <li><strong>Pan</strong> -- Shift + two-finger scroll</li>
 <li><strong>Zoom</strong> -- Pinch, or Ctrl/Cmd + two-finger scroll</li>
 </ul>
-<p>The 3D tab is an inspector (Grid, Axes, Reset View). <strong>Animate</strong> opens an optional panel beside the viewer. On an unbound mesh the first step is <strong>Rig</strong>: pose the skeleton on a frozen mesh, where dragging a joint never deforms the model. Markers are coloured by body part and labelled L or R, with a legend below the controls. Rig opens with the skeleton laid over your model, sized to fit it, so there is always something to drag. <strong>Auto-fit</strong> guesses the pose for you and stays in Rig so you can review it; it works well on a T-posed humanoid and does nothing on a mesh it cannot read as a body, leaving your joints where they were. Rigging a prop is allowed, and about as sensible as you would expect. <strong>Bind</strong> skins the mesh to the posed skeleton; every joint must sit on the body, a joint off the mesh is refused by name, and the confirmation says how many joints you moved from the auto-fit. Rigging needs nothing downloaded, because the skeleton ships with the app.</p>
-<p>After a bind you get the clip list. Click a clip to play it; tick the clips you want in the model and press <strong>Bake</strong>. A bundle holds one model with as many animations as you ticked, the way Mixamo and Meshy work, rather than one export per clip. Bake writes exactly the ticked set, so unticking a clip removes it; the panel says what will be added and removed before you commit. Clicking a clip only plays it and never rewrites the model. Animation packs add clips: install one from the download's <code>.zip</code>, an extracted folder, or a <code>.glb</code>, and several packs can sit side by side.</p>
-<p>A <strong>Reset View</strong> button in the viewer toolbar restores the default camera position.</p>
+<p>The 3D tab is an inspector (Grid, Axes, Reset View). A <strong>Reset View</strong> button in the viewer toolbar restores the default camera.</p>
+<h3 id="animation-experimental">Animation (experimental)<a class="zola-anchor" href="#animation-experimental" aria-label="Anchor link for: animation-experimental">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p><strong>Animate</strong> opens an optional panel beside the viewer: Rig, then Bind, then
+the clip list. This path is <a href="/pr-preview/pr-82/docs/guides/animation/">experimental</a> --
+fingers are not weighted, and the panel may change.</p>
+<p>On an unbound mesh the first step is <strong>Rig</strong>: pose the shipped skeleton on a
+frozen mesh. Dragging a joint never deforms the model. <strong>Auto-fit</strong> is a
+button, not something that runs on open. <strong>Bind</strong> skins the mesh; a joint
+off the body is refused by name. After a bind, click a clip to play it
+(preview never writes) and <strong>Bake</strong> the ticked set into <code>model.glb</code>.</p>
+<p>The full loop, CLI and MCP included: <a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experimental)</a>.</p>
 <p>The viewer supports models from all providers and handles vertex colors, textures, and node transforms automatically.</p>
 <h2 id="library">Library<a class="zola-anchor" href="#library" aria-label="Anchor link for: library">
   <span class="content-icon content-icon-sm" aria-hidden="true">
@@ -1307,6 +1347,7 @@ with macOS's built-in Compress work fine.</p>
 </a>
 </h2>
 <ul>
+<li><a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experimental)</a> -- Rig a humanoid and bake clips</li>
 <li><a href="/pr-preview/pr-82/docs/guides/cli-usage/">CLI Usage</a> -- Automate generation from the command line</li>
 <li><a href="/pr-preview/pr-82/docs/guides/providers/">Providers</a> -- Available models and custom provider configuration</li>
 <li><a href="/pr-preview/pr-82/docs/guides/bundle-structure/">Bundle Structure</a> -- Understanding the output format</li>
@@ -1314,6 +1355,13 @@ with macOS's built-in Compress work fine.</p>
 
 
     
+
+
+
+
+
+
+
 
 
 
@@ -1526,9 +1574,30 @@ with macOS's built-in Compress work fine.</p>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="/pr-preview/pr-82/docs/guides/using-asset-tap/#3d-viewer">
-        3D Viewer
+      <details class="docs-toc-group" data-docs-toc-group>
+        <summary class="docs-toc-group-toggle">
+          <a href="/pr-preview/pr-82/docs/guides/using-asset-tap/#3d-viewer">
+            3D Viewer
+          </a>
+          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
+        </summary>
+
+        
+  
+  <ul class="docs-toc-list">
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="/pr-preview/pr-82/docs/guides/using-asset-tap/#animation-experimental">
+        Animation (experimental)
       </a>
+      
+    </li>
+    
+  </ul>
+  
+
+      </details>
       
     </li>
     
