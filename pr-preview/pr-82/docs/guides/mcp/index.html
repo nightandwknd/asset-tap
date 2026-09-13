@@ -701,19 +701,6 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
-    href="/pr-preview/pr-82/docs/guides/animation/"
-    
-  >
-    Animation (experimental)
-  </a>
-</li>
-
-
-
-
-<li class="docs-nav-item">
-  <a
     class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/mcp/"
     aria-current="page"
@@ -745,6 +732,19 @@
     
   >
     Bundle Structure
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1007,19 +1007,6 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
-    href="/pr-preview/pr-82/docs/guides/animation/"
-    
-  >
-    Animation (experimental)
-  </a>
-</li>
-
-
-
-
-<li class="docs-nav-item">
-  <a
     class="docs-nav-link is-active"
     href="/pr-preview/pr-82/docs/guides/mcp/"
     aria-current="page"
@@ -1051,6 +1038,19 @@
     
   >
     Bundle Structure
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1224,6 +1224,10 @@ Returns, per provider: <code>configured</code>, <code>source</code> (<code>store
 and the <code>env_var</code> name -- never key material.</p>
 <p><strong><code>inspect_bundle</code></strong> -- takes <code>bundle_dir</code>. Reads the bundle's <code>bundle.json</code>.
 Returns <code>{bundle_dir, files[], bundle}</code>.</p>
+<p><strong><code>clip_download</code></strong> -- optional <code>force</code>. Backed by <code>asset-tap --json clip download</code>.
+Returns <code>{status, installed[], already_exists, packs_version}</code>. Fetches the
+free Standard packs (hash-verified). <code>force</code> refreshes only packs stamped by
+a previous download; it never replaces a Source / <code>clip install</code> pack.</p>
 <p><strong><code>generate</code></strong> -- takes a <code>prompt</code> or an <code>image</code> path; optional <code>template</code>,
 <code>provider</code>, <code>image_model</code>, <code>model_3d</code>, <code>params{}</code>,
 <code>image_only</code>, <code>output_dir</code>, <code>name</code>, and the experimental <code>bind</code> /
@@ -1257,7 +1261,9 @@ limits: <a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experiment
 </blockquote>
 <p><code>generate</code> accepts <code>bind: true</code> and <code>clips: ["walk", "Sword_Attack"]</code>. The
 skeleton is embedded, so rigging needs nothing installed. A clip no installed
-pack provides is a local error -- <code>clip list</code> / <code>clip install</code> from the CLI.
+pack provides is a local error -- <code>clip_download</code> here, or <code>clip list</code> /
+<code>clip install</code> from the CLI.
+Packs: <a href="/pr-preview/pr-82/docs/guides/animation/#clip-packs">Clip packs</a>.
 Older clients passing <code>fbx</code> or <code>no_fbx</code> are ignored; FBX was removed.</p>
 <h2 id="not-this">Not this<a class="zola-anchor" href="#not-this" aria-label="Anchor link for: not-this">
   <span class="content-icon content-icon-sm" aria-hidden="true">
@@ -1382,10 +1388,10 @@ Older clients passing <code>fbx</code> or <code>no_fbx</code> are ignored; FBX w
   
   <a
     class="docs-prev-next-link docs-prev-next-link-previous"
-    href="/pr-preview/pr-82/docs/guides/animation/"
+    href="/pr-preview/pr-82/docs/guides/cli-usage/"
   >
     <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> Previous</span>
-    <span class="docs-prev-next-title">Animation (experimental)</span>
+    <span class="docs-prev-next-title">CLI Usage</span>
   </a>
   
 

@@ -702,19 +702,6 @@
 <li class="docs-nav-item">
   <a
     class="docs-nav-link "
-    href="/pr-preview/pr-82/docs/guides/animation/"
-    
-  >
-    Animation (experimental)
-  </a>
-</li>
-
-
-
-
-<li class="docs-nav-item">
-  <a
-    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/guides/mcp/"
     
   >
@@ -745,6 +732,19 @@
     
   >
     Bundle Structure
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1008,19 +1008,6 @@
 <li class="docs-nav-item">
   <a
     class="docs-nav-link "
-    href="/pr-preview/pr-82/docs/guides/animation/"
-    
-  >
-    Animation (experimental)
-  </a>
-</li>
-
-
-
-
-<li class="docs-nav-item">
-  <a
-    class="docs-nav-link "
     href="/pr-preview/pr-82/docs/guides/mcp/"
     
   >
@@ -1051,6 +1038,19 @@
     
   >
     Bundle Structure
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="/pr-preview/pr-82/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1394,8 +1394,7 @@ names may change. Fingers are not weighted. Full guide:
 <a href="/pr-preview/pr-82/docs/guides/animation/">Animation (experimental)</a>.</p>
 </blockquote>
 <p>Asset Tap rigs humanoid characters and bakes animation clips into the GLB. The
-skeleton ships inside the binary, so rigging itself needs nothing downloaded
-and no Blender install:</p>
+skeleton ships inside the binary, so rigging itself needs nothing downloaded:</p>
 <pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Generate a character and rig it in one run</span></span>
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-rig</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a knight in plate armour</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
@@ -1420,10 +1419,22 @@ you do want the pose discarded and recomputed.</p>
   </span>
 </a>
 </h3>
-<p>Clips come from animation packs you install locally. Install from the
-download's <code>.zip</code>, an extracted folder, or a single <code>.glb</code>:</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Install a pack (id is derived from the file name unless you pass --id)</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Quaternius-Animations.zip</span></span>
+<p>Clips come from <a rel="external" href="https://quaternius.com">Quaternius</a>' CC0
+<a rel="external" href="https://quaternius.com/packs/universalanimationlibrary.html">Universal Animation Library</a>
+and
+<a rel="external" href="https://quaternius.com/packs/universalanimationlibrary2.html">Universal Animation Library 2</a>.
+<code>asset-tap clip download</code> pulls the free Standard libraries from the latest
+Asset Tap release (hash-verified, not in the binary). The remaining paid
+Source clips on those pages install the same way as any other zip. Full
+note: <a href="/pr-preview/pr-82/docs/guides/animation/#clip-packs">Animation (experimental)</a>.</p>
+<p>Install from a download's <code>.zip</code>, an extracted folder, or a single <code>.glb</code>:</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Free Standard packs from the latest Asset Tap release</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-json</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-force</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> A zip you already have (id is derived from the file name unless you pass --id)</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Universal-Animation-Library.zip</span></span>
 <span class="giallo-l"></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> List every clip from every installed pack</span></span>
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span></span>
@@ -1581,10 +1592,10 @@ pack provides is a clear local error rather than a silently empty animation.</p>
   
   <a
     class="docs-prev-next-link docs-prev-next-link-next"
-    href="/pr-preview/pr-82/docs/guides/animation/"
+    href="/pr-preview/pr-82/docs/guides/mcp/"
   >
     <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
-    <span class="docs-prev-next-title">Animation (experimental)</span>
+    <span class="docs-prev-next-title">MCP Server</span>
   </a>
   
 </nav>
