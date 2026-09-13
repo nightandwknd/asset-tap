@@ -258,13 +258,13 @@ mod tests {
                 y: 200,
                 width: 1024,
                 height: 768,
-                maximized: false,
+                maximized: false
             }),
             model_info: Some(ModelInfo {
                 file_size: 1024 * 1024,
                 format: "GLB".to_string(),
                 vertex_count: 5000,
-                triangle_count: 10000,
+                triangle_count: 10000
             }),
             show_welcome_on_startup: false,
             has_completed_walkthrough: true,

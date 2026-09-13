@@ -50,7 +50,6 @@ Next: [CLI usage](@/docs/guides/cli-usage.md).
 
 - **OS**: macOS 10.15+ (Intel or Apple Silicon), Windows 10+, Linux (glibc 2.31+)
 - **API key**: from a supported provider ([fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai)) or one you [configure yourself](@/docs/guides/providers.md#adding-custom-providers)
-- **Blender** (optional): required only for FBX export
 
 ## Build from source
 

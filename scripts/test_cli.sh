@@ -121,7 +121,7 @@ test_fail() { # <reason>
 # Runs a mock generation into a temp dir, then applies the jq assertion.
 #
 # Args: <test_name> <cli_args> <jq_expr>
-# `cli_args` runs after `--mock -y --no-fbx -o <tmpdir>`; don't pass -o or --mock yourself.
+# `cli_args` runs after `--mock -y -o <tmpdir>`; don't pass -o or --mock yourself.
 # `jq_expr` is evaluated against bundle.json; must yield `true` to pass.
 assert_bundle_json() {
     local test_name="$1"
@@ -130,7 +130,7 @@ assert_bundle_json() {
 
     local tmpdir
     tmpdir=$(mktemp -d)
-    local cli_cmd="$CLI --mock -y --no-fbx -o '$tmpdir' $cli_args"
+    local cli_cmd="$CLI --mock -y -o '$tmpdir' $cli_args"
     test_begin "$test_name" "$cli_cmd"
     echo "jq: $jq_expr" >> "$LOG_FILE"
 
@@ -224,8 +224,12 @@ if sum(e["event"] == "start" for e in events) != 1:
     sys.exit("expected exactly one start event")
 if sum(e["event"] == "result" for e in events) != 1:
     sys.exit("expected exactly one result event")
-if events[0].get("interface") != "1.0":
-    sys.exit("start event missing interface:\"1.0\"")
+# Pin the MAJOR, tolerate the MINOR: the contract says consumers reject an
+# unrecognized MAJOR and accept a higher MINOR, so hardcoding the full string
+# here would fail on every additive change.
+iface = events[0].get("interface")
+if not isinstance(iface, str) or iface.split(".")[0] != "1":
+    sys.exit(f"start event interface {iface!r}, expected major version 1")
 status = events[-1].get("status")
 if status != want_status:
     sys.exit(f"result status {status!r}, expected {want_status!r}")
@@ -293,8 +297,8 @@ run_test "Basic text-to-3D with mock mode" \
 run_test "Mock mode with delays" \
     "$CLI --mock --mock-delay -y 'test prompt'" 0
 
-run_test "Pipeline without FBX export" \
-    "$CLI --mock -y --no-fbx 'a spaceship'" 0
+run_test "Pipeline produces a GLB bundle" \
+    "$CLI --mock -y 'a spaceship'" 0
 
 run_test "Custom output directory" \
     "$CLI --mock -y -o '$TEST_OUTPUT/custom_out' 'test'" 0
@@ -303,20 +307,20 @@ echo "=== 3. IMAGE INPUT TESTS ===" | tee -a "$LOG_FILE"
 
 # First generate an image for reuse
 echo "Setting up test image..." >> "$LOG_FILE"
-$CLI --mock -y --no-fbx -o "$TEST_OUTPUT/setup_image" 'setup image' >> "$LOG_FILE" 2>&1 || true
+$CLI --mock -y -o "$TEST_OUTPUT/setup_image" 'setup image' >> "$LOG_FILE" 2>&1 || true
 SETUP_DIR=$(ls -td "$TEST_OUTPUT/setup_image"/*/ 2>/dev/null | head -1)
 if [ -n "$SETUP_DIR" ] && [ -f "${SETUP_DIR}image.png" ]; then
     TEST_IMAGE="${SETUP_DIR}image.png"
     echo "Test image: $TEST_IMAGE" >> "$LOG_FILE"
 
     run_test "Image-to-3D with local file" \
-        "$CLI --mock -y --no-fbx --image '$TEST_IMAGE'" 0
+        "$CLI --mock -y --image '$TEST_IMAGE'" 0
 
     run_test "Image-to-3D with local file and prompt" \
-        "$CLI --mock -y --no-fbx --image '$TEST_IMAGE' 'a robot knight'" 0
+        "$CLI --mock -y --image '$TEST_IMAGE' 'a robot knight'" 0
 
     run_test "Image-to-3D with custom 3D model" \
-        "$CLI --mock -y --no-fbx --image '$TEST_IMAGE' --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d" 0
+        "$CLI --mock -y --image '$TEST_IMAGE' --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d" 0
 else
     echo -e "${YELLOW}⚠ Skipping image tests - no test image available${NC}" | tee -a "$LOG_FILE"
 fi
@@ -338,14 +342,14 @@ run_test "Invalid template name" \
 echo "=== 5. PROVIDER & MODEL TESTS ===" | tee -a "$LOG_FILE"
 
 run_test "Specify provider" \
-    "$CLI --mock -y --no-fbx -p fal.ai 'test'" 0
+    "$CLI --mock -y -p fal.ai 'test'" 0
 
 # Meshy exercises the non-fal contract end to end: a bare task id, a poll URL
 # built from status_url_template, results outside a response envelope, and the
 # data-URI image handoff (no upload endpoint). It was invisible in mock mode
 # until the handlers became config-driven.
 run_test "Specify provider: meshy" \
-    "$CLI --mock -y --no-fbx -p meshy 'test'" 0
+    "$CLI --mock -y -p meshy 'test'" 0
 
 run_test "Meshy image-only with provider param" \
     "$CLI --mock -y --image-only -p meshy --param aspect_ratio=3:4 'test'" 0
@@ -364,50 +368,50 @@ run_test "Meshy nano-banana-pro rejects 2:3" \
 
 # texture_resolution/image_enhancement are meshy-6-or-later only.
 run_test "Meshy v6 accepts texture_resolution" \
-    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v6/image-to-3d --param texture_resolution=4k 'test'" 0
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param texture_resolution=4k 'test'" 0
 
 run_test "Meshy v5 rejects v6-only texture_resolution" \
-    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v5/image-to-3d --param texture_resolution=4k 'test'" 2
+    "$CLI --mock -y -p meshy --3d-model meshy/v5/image-to-3d --param texture_resolution=4k 'test'" 2
 
 # ultra_mode is meshy-7 only; remove_lighting is meshy-6 only.
 run_test "Meshy v7 accepts ultra_mode" \
-    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v7/image-to-3d --param ultra_mode=true 'test'" 0
+    "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param ultra_mode=true 'test'" 0
 
 run_test "Meshy v6 rejects v7-only ultra_mode" \
-    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v6/image-to-3d --param ultra_mode=true 'test'" 2
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param ultra_mode=true 'test'" 2
 
 run_test "Meshy v7 rejects v6-only remove_lighting" \
-    "$CLI --mock -y --no-fbx -p meshy --3d-model meshy/v7/image-to-3d --param remove_lighting=false 'test'" 2
+    "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param remove_lighting=false 'test'" 2
 
 run_test "fal nano-banana-pro accepts seed" \
     "$CLI --mock -y --image-only --image-model fal-ai/nano-banana-pro --param seed=42 'test'" 0
 
 run_test "Image model: nano-banana-2 (default)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/nano-banana-2 'test'" 0
 
 run_test "Image model: nano-banana-pro" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-pro 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/nano-banana-pro 'test'" 0
 
 run_test "Image model: flux-2" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 'test'" 0
 
 run_test "Image model: flux-2-pro" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2-pro 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2-pro 'test'" 0
 
 run_test "3D model: trellis-2" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/trellis-2 'test'" 0
 
 run_test "3D model: hunyuan-3d" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d 'test'" 0
 
 run_test "3D model: meshy" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/meshy/v6/image-to-3d 'test'" 0
 
-run_test "Combined: provider + models + output + no-fbx" \
-    "$CLI --mock -y --no-fbx -p fal.ai --image-model fal-ai/nano-banana-2 --3d-model fal-ai/trellis-2 -o '$TEST_OUTPUT/combined_test' 'a red cube'" 0
+run_test "Combined: provider + models + output" \
+    "$CLI --mock -y -p fal.ai --image-model fal-ai/nano-banana-2 --3d-model fal-ai/trellis-2 -o '$TEST_OUTPUT/combined_test' 'a red cube'" 0
 
 run_test "Combined: template + provider + model" \
-    "$CLI --mock -y --no-fbx -t humanoid -p fal.ai --image-model fal-ai/nano-banana-pro 'an orc warrior'" 0
+    "$CLI --mock -y -t humanoid -p fal.ai --image-model fal-ai/nano-banana-pro 'an orc warrior'" 0
 
 # Invalid provider/model resolve to a validation error → exit 4 (spec §2
 # exit-code table; codes apply in human mode too).
@@ -415,10 +419,10 @@ run_test "Invalid provider name" \
     "$CLI --mock -y -p nonexistent 'test'" 4
 
 run_test "Invalid image model name" \
-    "$CLI --mock -y --no-fbx --image-model totally-fake-model 'test'" 4
+    "$CLI --mock -y --image-model totally-fake-model 'test'" 4
 
 run_test "Invalid 3D model name" \
-    "$CLI --mock -y --no-fbx --3d-model totally-fake-model 'test'" 4
+    "$CLI --mock -y --3d-model totally-fake-model 'test'" 4
 
 echo "=== 6. ERROR HANDLING TESTS ===" | tee -a "$LOG_FILE"
 
@@ -432,13 +436,56 @@ run_test "Empty string prompt (should fail)" \
 run_test "Whitespace-only prompt (should fail)" \
     "$CLI --mock '   '" 4
 
-# FBX is opt-in (GLB-only default). --no-fbx is a deprecated no-op kept for
-# back-compat; combining it with --fbx is a contradiction clap rejects.
-run_test "FBX: --fbx and --no-fbx conflict (usage error)" \
-    "$CLI --mock -y --fbx --no-fbx 'test'" 2
+# FBX was removed; the flags must be gone, not silently accepted.
+run_test "FBX: --fbx is no longer a flag (usage error)" \
+    "$CLI --mock -y --fbx 'test'" 2
 
-run_test "FBX: deprecated --no-fbx still accepted (no-op)" \
-    "$CLI --mock -y --no-fbx --image-only 'test'" 0
+run_test "FBX: --convert-fbx is no longer a flag (usage error)" \
+    "$CLI --convert-fbx /tmp/whatever.glb" 2
+
+run_test "FBX: --convert-only is no longer a flag (usage error)" \
+    "$CLI --convert-only" 2
+
+# Rigging and animation. These are exit-code contracts, not rig behavior:
+# a human running `bind` must get the same differentiated code an agent gets
+# from --json, because "exit 1" reads as a retryable internal failure and an
+# agent will loop on a mesh that can never bind.
+run_test "Rig: --clip repeats (one model, N animations)" \
+    "$CLI --mock -y --rig --clip walk --clip Idle_Loop --list" 0
+
+run_test "Rig: --rig with --image-only is a usage error" \
+    "$CLI --mock -y --rig --image-only 'test'" 2
+
+run_test "Rig: --clip with --image-only is a usage error" \
+    "$CLI --mock -y --clip walk --image-only 'test'" 2
+
+run_test "Rig: binding a missing mesh is a local error, not exit 1" \
+    "$CLI bind --mesh /nonexistent-mesh.glb --clip walk" 7
+
+run_test "Rig: installing from a missing path is a local error, not exit 1" \
+    "$CLI clip install --from /nonexistent-pack-dir" 7
+
+run_test "Rig: 'clip install' rejects --json (usage error)" \
+    "$CLI --json clip install --from /tmp" 2
+
+run_test "Rig: 'clip list' succeeds with or without packs installed" \
+    "$CLI clip list" 0
+
+run_test "Rig: 'clip download --help' is available" \
+    "$CLI clip download --help" 0
+
+# Local shipped dir, no GitHub: empty clips root + packs/ from this checkout.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLIP_DL_CLIPS="$(mktemp -d "${TMPDIR:-/tmp}/atap-clips.XXXXXX")"
+run_test "Rig: 'clip download' installs from ASSET_TAP_CLIP_PACKS_DIR" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download" 0
+run_test "Rig: 'clip download' is a no-op when both packs are present" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download" 0
+run_test "Rig: '--json clip download' is a single JSON object, not NDJSON" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI --json clip download" 0
+run_test "Rig: 'clip download --force' refreshes stamped Standard packs" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download --force" 0
+rm -rf "$CLIP_DL_CLIPS"
 
 # Regression guard: when no API key is configured, the CLI must fail BEFORE
 # prompting for a text prompt (it used to read stdin first, then emit a terse
@@ -518,7 +565,7 @@ set +e
 CORRUPT_OUT=$(cd "$CORRUPT_HOME" && env \
     -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
     HOME="$CORRUPT_HOME" \
-    "$CLI_ABS" --mock --no-fbx -o "$CORRUPT_HOME/out" 'corruption test' < /dev/null 2>&1)
+    "$CLI_ABS" --mock -o "$CORRUPT_HOME/out" 'corruption test' < /dev/null 2>&1)
 CORRUPT_EXIT=$?
 set -e
 echo "$CORRUPT_OUT" >> "$LOG_FILE"
@@ -590,7 +637,7 @@ rm -rf "$BUNDLE_TEST_OUT"
 TOTAL=$((TOTAL + 1))
 echo -e "${BLUE}TEST $TOTAL: Output bundle structure validation${NC}" | tee -a "$LOG_FILE"
 set +e
-$CLI --mock -y -o "$BUNDLE_TEST_OUT" --no-fbx 'bundle validation test' >> "$LOG_FILE" 2>&1
+$CLI --mock -y -o "$BUNDLE_TEST_OUT" 'bundle validation test' >> "$LOG_FILE" 2>&1
 BUNDLE_EXIT=$?
 set -e
 if [ $BUNDLE_EXIT -eq 0 ]; then
@@ -631,14 +678,6 @@ run_test "Convert WebP on empty directory (no GLBs)" \
 run_test "Convert WebP with -o targeting test output" \
     "$CLI --convert-webp -o '$TEST_OUTPUT/bundle_validation'" 0
 
-run_test "Convert-only mode" \
-    "$CLI --convert-only -o '$TEST_OUTPUT/bundle_validation'" 0
-
-run_test "Convert FBX on non-existent path" \
-    "$CLI --convert-fbx /tmp/does_not_exist_xyz.glb" 1
-
-run_test "Convert FBX on non-GLB file" \
-    "$CLI --convert-fbx '$TEST_OUTPUT/bundle_validation'" 1
 
 echo "=== 10c. IMAGE-ONLY MODE ===" | tee -a "$LOG_FILE"
 
@@ -877,9 +916,9 @@ rm -rf "$MULTI_OUT"
 TOTAL=$((TOTAL + 1))
 echo -e "${BLUE}TEST $TOTAL: Multiple runs create separate timestamped dirs${NC}" | tee -a "$LOG_FILE"
 set +e
-$CLI --mock -y --no-fbx -o "$MULTI_OUT" 'run one' >> "$LOG_FILE" 2>&1
+$CLI --mock -y -o "$MULTI_OUT" 'run one' >> "$LOG_FILE" 2>&1
 EXIT1=$?
-$CLI --mock -y --no-fbx -o "$MULTI_OUT" 'run two' >> "$LOG_FILE" 2>&1
+$CLI --mock -y -o "$MULTI_OUT" 'run two' >> "$LOG_FILE" 2>&1
 EXIT2=$?
 set -e
 DIR_COUNT=$(ls -d "$MULTI_OUT"/*/ 2>/dev/null | wc -l | tr -d ' ')
@@ -900,7 +939,7 @@ rm -rf "$DEEP_OUT"
 TOTAL=$((TOTAL + 1))
 echo -e "${BLUE}TEST $TOTAL: Bundle.json deep content validation${NC}" | tee -a "$LOG_FILE"
 set +e
-$CLI --mock -y --no-fbx -o "$DEEP_OUT" 'deep validation prompt' >> "$LOG_FILE" 2>&1
+$CLI --mock -y -o "$DEEP_OUT" 'deep validation prompt' >> "$LOG_FILE" 2>&1
 DEEP_EXIT=$?
 set -e
 if [ $DEEP_EXIT -eq 0 ]; then
@@ -955,36 +994,36 @@ echo "" | tee -a "$LOG_FILE"
 echo "=== 14. PARAMETER OVERRIDE TESTS ===" | tee -a "$LOG_FILE"
 
 run_test "Param: float override (guidance_scale)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7.0 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param guidance_scale=7.0 'test'" 0
 
 run_test "Param: integer override (num_inference_steps)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param num_inference_steps=10 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param num_inference_steps=10 'test'" 0
 
 run_test "Param: multiple params" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7.0 --param num_inference_steps=10 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param guidance_scale=7.0 --param num_inference_steps=10 'test'" 0
 
 run_test "Param: 3D model select param (topology=quad)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/meshy/v6/image-to-3d --param topology=quad 'test'" 0
 
 run_test "Param: 3D model boolean param (enable_pbr=false)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param enable_pbr=false 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param enable_pbr=false 'test'" 0
 
 run_test "Param: integer coerced to float for float param" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=7 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param guidance_scale=7 'test'" 0
 
 # Bad --param is a usage error: exit 2 (spec §2), not 1. Exit 1 would tell a
 # consumer "internal error, worth retrying" about an invocation that can't work.
 run_test "Param: invalid param name (should fail)" \
-    "$CLI --mock -y --no-fbx --param totally_fake=42 'test'" 2
+    "$CLI --mock -y --param totally_fake=42 'test'" 2
 
 run_test "Param: malformed format without equals (should fail)" \
-    "$CLI --mock -y --no-fbx --param 'no_equals_sign' 'test'" 2
+    "$CLI --mock -y --param 'no_equals_sign' 'test'" 2
 
 run_test "Param: type mismatch string for float param (should fail)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale=high 'test'" 2
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param guidance_scale=high 'test'" 2
 
 run_test "Param: NaN rejected (should fail)" \
-    "$CLI --mock -y --no-fbx --param guidance_scale=NaN 'test'" 2
+    "$CLI --mock -y --param guidance_scale=NaN 'test'" 2
 
 # --image-only must not accept (or advertise) image-to-3D parameters.
 run_test "Param: 3D param rejected under --image-only" \
@@ -995,34 +1034,34 @@ run_test "Param: 3D param rejected under --image-only" \
 # select, string) to catch regressions where a declared param doesn't wire up.
 
 run_test "Param: nano-banana-2 aspect_ratio (select)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 --param aspect_ratio=16:9 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/nano-banana-2 --param aspect_ratio=16:9 'test'" 0
 
 run_test "Param: nano-banana-2 resolution (select)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/nano-banana-2 --param resolution=2K 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/nano-banana-2 --param resolution=2K 'test'" 0
 
 run_test "Param: flux-2-pro safety_tolerance (select, 1-5 range)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2-pro --param safety_tolerance=1 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2-pro --param safety_tolerance=1 'test'" 0
 
 run_test "Param: trellis-2 decimation_target (integer, widget: input)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param decimation_target=50000 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/trellis-2 --param decimation_target=50000 'test'" 0
 
 run_test "Param: trellis-2 resolution (select, numeric)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param resolution=512 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/trellis-2 --param resolution=512 'test'" 0
 
 run_test "Param: trellis-2 seed (integer, widget: input, null default)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/trellis-2 --param seed=42 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/trellis-2 --param seed=42 'test'" 0
 
 run_test "Param: hunyuan-3d face_count (integer, widget: input)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count=60000 'test'" 0
 
 run_test "Param: hunyuan-3d generate_type (select)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param generate_type=Geometry 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param generate_type=Geometry 'test'" 0
 
 run_test "Param: meshy v6 pose_mode (select)" \
-    "$CLI --mock -y --no-fbx --3d-model fal-ai/meshy/v6/image-to-3d --param pose_mode=t-pose 'test'" 0
+    "$CLI --mock -y --3d-model fal-ai/meshy/v6/image-to-3d --param pose_mode=t-pose 'test'" 0
 
 run_test "Param: empty value clears field (null)" \
-    "$CLI --mock -y --no-fbx --image-model fal-ai/flux-2 --param guidance_scale= 'test'" 0
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param guidance_scale= 'test'" 0
 
 echo "" | tee -a "$LOG_FILE"
 
@@ -1112,7 +1151,7 @@ assert_json_stream "JSON: image-only stream" \
 # succeeds — from a checkout the disk assets always win, so without this
 # override CI can never exercise the code path users actually hit.
 embedded_tmpdir=$(mktemp -d)
-embedded_cmd="ASSET_TAP_MOCK_EMBEDDED=1 $CLI --mock --json --no-fbx -o '$embedded_tmpdir' 'embedded fallback'"
+embedded_cmd="ASSET_TAP_MOCK_EMBEDDED=1 $CLI --mock --json -o '$embedded_tmpdir' 'embedded fallback'"
 test_begin "Mock succeeds without repo assets (embedded fallback)" "$embedded_cmd"
 set +e
 bash -c "$embedded_cmd" < /dev/null >> "$LOG_FILE" 2>&1
@@ -1155,7 +1194,7 @@ run_test "Demo download help" \
 
 # Catalog document: single valid JSON object with interface + providers.
 run_test "JSON: --list-providers --json is a single JSON document" \
-    "$CLI --mock --list-providers --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"interface\"]==\"1.0\" and isinstance(d[\"providers\"],list)'" 0
+    "$CLI --mock --list-providers --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"interface\"].split(\".\")[0]==\"1\" and isinstance(d[\"providers\"],list)'" 0
 
 # Catalog with templates.
 run_test "JSON: --list --json includes templates array" \

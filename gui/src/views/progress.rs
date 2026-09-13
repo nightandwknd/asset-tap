@@ -264,7 +264,7 @@ fn stage_icon(stage: &Stage) -> &'static str {
     match stage {
         Stage::ImageGeneration => icons::PALETTE,
         Stage::Model3DGeneration => icons::CUBE,
-        Stage::FbxConversion => icons::ROTATE,
+        Stage::Bind => icons::PERSON,
         Stage::Download => icons::DOWNLOAD,
     }
 }
@@ -273,7 +273,7 @@ fn stage_color(stage: &Stage) -> egui::Color32 {
     match stage {
         Stage::ImageGeneration => egui::Color32::from_rgb(255, 180, 100), // Orange
         Stage::Model3DGeneration => egui::Color32::from_rgb(150, 100, 255), // Purple
-        Stage::FbxConversion => egui::Color32::from_rgb(100, 255, 200),   // Cyan
+        Stage::Bind => egui::Color32::from_rgb(200, 180, 120),            // Bone
         Stage::Download => egui::Color32::from_rgb(100, 200, 255),        // Light blue
     }
 }

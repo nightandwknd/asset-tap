@@ -150,7 +150,7 @@ Optional hint that overrides the default widget for a given type:
 
 `min`/`max` still apply to `widget: input` — values submitted outside the range are clamped.
 
-On `type: string`, `widget: input` changes only the clearing behaviour: an emptied field stores null (key omitted) instead of `""`. Use it for optional free-text fields the provider documents no empty-string value for.
+On `type: string`, `widget: input` changes only the clearing behavior: an emptied field stores null (key omitted) instead of `""`. Use it for optional free-text fields the provider documents no empty-string value for.
 
 ### Clearing a Select (`allow_unset:`)
 

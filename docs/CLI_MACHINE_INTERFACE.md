@@ -1,6 +1,6 @@
 # Asset Tap CLI Machine Interface — Spec v1
 
-Status: **implemented in asset-tap** (`--json`, interface version 1.0) · Last updated: 2026-08-17
+Status: **implemented in asset-tap** (`--json`, interface version 1.0) · Last updated: 2026-09-13
 Consumers: first-party editor integrations, and any future external tooling.
 
 Implementation: the wire format lives in [cli/src/machine.rs](../cli/src/machine.rs);
@@ -71,7 +71,7 @@ First line emitted. Declares the interface version and generator.
 {"event":"progress","stage":"image_generation","state":"completed"}
 ```
 
-- `stage` (required): `image_generation` | `model_3d_generation` | `fbx_conversion` | `download`.
+- `stage` (required): `image_generation` | `model_3d_generation` | `bind` | `download`.
 - `state` (required): `started` | `queued` | `processing` | `downloading` | `retrying` | `completed` | `failed`.
 - State-specific optional fields: `position` (queued), `message` (processing/failed), `bytes_downloaded`/`total_bytes` (downloading; `total_bytes` may be absent), `attempt`/`max_attempts`/`delay_secs`/`reason` (retrying).
 - A `failed` progress state is informational; the authoritative outcome is the `result` event.
@@ -118,7 +118,7 @@ Error:
 }
 ```
 
-- `kind` (required), snake_case, one of: `missing_api_key`, `unauthorized`, `payment_required`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `server_error`, `timeout`, `model_error`, `network_error`, `blender_not_found`, `io_error`, `unknown`. New kinds may be added; consumers must treat unrecognized kinds as `unknown`.
+- `kind` (required), snake_case, one of: `missing_api_key`, `unauthorized`, `payment_required`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `server_error`, `timeout`, `model_error`, `network_error`, `io_error`, `unknown`. New kinds may be added; consumers must treat unrecognized kinds as `unknown`.
 - Optional: `provider`, `stage`, `action` (suggested user remedy), `retryable` (bool), `retry_after_secs` (int).
 
 Canceled:
@@ -126,6 +126,29 @@ Canceled:
 ```json
 { "event": "result", "status": "canceled", "stage": "model_3d_generation" }
 ```
+
+Bind success (`asset-tap --json bind ...`) reports the written model rather than a bundle, because `bind` rewrites one file and creates no bundle:
+
+```json
+{
+  "event": "result",
+  "status": "success",
+  "model": "/abs/path/output/2026-07-06_101500/model.glb",
+  "joints": 53,
+  "vertices": 317489,
+  "clips": ["Walk_Loop", "Sword_Attack"],
+  "duration_ms": 412
+}
+```
+
+- `model` (required): absolute path to the written GLB.
+- `clips` (required): the full baked set, in the model, after the run. Bake is declarative, so this is the model's complete animation list, not the clips this invocation added. Empty after `--fit-only`.
+- `joints` / `vertices`: mesh stats for the written model.
+
+Bind errors use the same error shape as a generation run:
+
+- `io_error` (exit 7) — the local setup is wrong: an unreadable mesh, no animation pack installed, or a clip name no installed pack provides. Fixed by `clip install`, never by retrying.
+- `validation_error` (exit 4) — the mesh itself is refused: joints sitting off the body, or an asset the rig cannot fit. The message names what was wrong.
 
 Cancellation is typed end-to-end: user signals, image rejection, and provider-side cancels (a job canceled server-side) all produce `status: canceled` — never a generic error.
 
@@ -138,16 +161,16 @@ Cancellation is typed end-to-end: user signals, image rejection, and provider-si
 
 ## 2. Exit codes
 
-| Code | Meaning                      | Typical `result.kind`                                                                                                                       |
-| ---- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Success                      | —                                                                                                                                           |
-| 1    | Internal/unexpected error    | `unknown`, `model_error`                                                                                                                    |
-| 2    | Usage error (bad args/flags) | — (clap default, plus invalid `--param`; exits before `start`, so no `result` is emitted)                                                   |
-| 3    | API key missing or rejected  | `missing_api_key`, `unauthorized`                                                                                                           |
-| 4    | Provider/API error           | `payment_required`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `server_error`                                            |
-| 5    | Canceled                     | — (`status: canceled`)                                                                                                                      |
-| 6    | Network/timeout              | `network_error`, `timeout`                                                                                                                  |
-| 7    | Local environment/filesystem | `io_error` (output dir not writable, etc.); `blender_not_found` is reserved — FBX conversion is currently best-effort and never fails a run |
+| Code | Meaning                      | Typical `result.kind`                                                                            |
+| ---- | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| 0    | Success                      | —                                                                                                |
+| 1    | Internal/unexpected error    | `unknown`, `model_error`                                                                         |
+| 2    | Usage error (bad args/flags) | — (clap default, plus invalid `--param`; exits before `start`, so no `result` is emitted)        |
+| 3    | API key missing or rejected  | `missing_api_key`, `unauthorized`                                                                |
+| 4    | Provider/API error           | `payment_required`, `forbidden`, `not_found`, `validation_error`, `rate_limited`, `server_error` |
+| 5    | Canceled                     | — (`status: canceled`)                                                                           |
+| 6    | Network/timeout              | `network_error`, `timeout`                                                                       |
+| 7    | Local environment/filesystem | `io_error` (output dir not writable, mesh unreadable, no animation pack installed)               |
 
 Exit codes apply in `--json` mode and (where feasible) in human mode, with one deliberate exception: **cancellation in human mode exits 130** (128+SIGINT, the shell convention) rather than 5, so interactive wrappers detecting interruption keep working. Consumers should prefer `result.kind` over the exit code when both are available.
 
@@ -252,6 +275,42 @@ the human listing:
   against 1.0 are unaffected. (Adding a field to an _existing_ document
   would be a MINOR bump.)
 
+### `clip list --json` — installed clips
+
+`asset-tap --json clip list` (optional `--model PATH`) emits a single JSON
+**array** (not NDJSON, not wrapped in `{event, …}`). Each row is
+`{id, name, pack_id, pack_name}`; with `--model` each row also has `baked`
+(bool).
+
+### `clip download --json` — free Standard packs
+
+`asset-tap --json clip download` emits a single JSON object (not NDJSON),
+the same shape MCP `clip_download` returns:
+
+```json
+{
+  "status": "success",
+  "installed": ["ual1", "ual2"],
+  "already_exists": false,
+  "packs_version": 1
+}
+```
+
+- `installed`: pack ids written this run (empty when `already_exists` is true).
+- `already_exists`: every release pack id is already present (and `--force`
+  has nothing stamped it is allowed to replace).
+- `packs_version`: the release/`packs/manifest.json` version stamped onto
+  packs this run wrote, or the max stamp already on disk for a no-op.
+- `--force` refreshes only packs stamped by a previous `clip download`. It
+  never replaces a pack from `clip install` (Source or custom).
+- On failure the document is `{status: "error", kind, message}` where `kind`
+  is `network_error` (exit 6) or `io_error` (exit 7). A missing `sha256` on
+  the release manifest is `io_error` (fail closed).
+- Added 2026-09-13 as a new document under interface `1.0`.
+
+`clip install` still rejects `--json` (exit 2): it writes a pack and has no
+wire result to report.
+
 ## 4. Cancellation
 
 - On SIGINT/SIGTERM, the CLI should attempt graceful cancel (the core pipeline already has a cancel channel), emit `{"event":"result","status":"canceled",...}`, and exit 5. Best-effort cleanup of the partial bundle dir is desirable but not required — the `bundle.json`-last invariant covers consumers.
@@ -306,6 +365,12 @@ and exit codes — they can't read the repo. The binary must be self-describing:
   source. This is a first-class path (integrations inject keys this way).
 - **stdout/stderr contract stated** in `--json`'s long help: NDJSON on stdout only;
   all diagnostics on stderr; consumers must never parse stderr.
+- **`--json` precedes a subcommand**: `asset-tap --json bind --mesh model.glb`, not
+  `asset-tap bind --json`. It is a root flag, so clap will not accept it after the
+  subcommand name. `clip list` and `clip download` accept `--json` and emit a
+  **single JSON document** (array / object), not an NDJSON `start`/`result`
+  stream. `clip install` rejects `--json` outright (exit 2): it writes a pack
+  and has no wire result to report.
 - Existing strengths to preserve: `--list --json` as the self-describing capability
   catalog, and per-flag one-line help with behavioral notes (e.g. "implies --yes").
 
@@ -313,12 +378,12 @@ and exit codes — they can't read the repo. The binary must be self-describing:
 
 `asset-tap mcp` (see [MCP.md](MCP.md)) exposes this interface's documents as
 MCP tools: `list_catalog` returns the §3 catalog, `auth_status` the §3 auth
-document, and `generate` returns the §1 `result` fields (`bundle_dir`,
-`duration_ms`; on error `kind`/`message`/`action`/`retryable`) as structured
-tool content, with §1 `progress` mapped to MCP progress notifications. It is
-implemented over the same code paths, so it follows this spec's versioning:
-a change here is a change there. No separate contract document exists on
-purpose.
+document, `clip_download` the §3 `clip download` document, and `generate`
+returns the §1 `result` fields (`bundle_dir`, `duration_ms`; on error
+`kind`/`message`/`action`/`retryable`) as structured tool content, with §1
+`progress` mapped to MCP progress notifications. It is implemented over the
+same code paths, so it follows this spec's versioning: a change here is a
+change there. No separate contract document exists on purpose.
 
 ## Implementation notes (non-normative)
 

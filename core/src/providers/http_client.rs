@@ -860,7 +860,7 @@ impl HttpProviderClient {
             // request that lands while we were sleeping (or before the loop
             // even starts) is honored before the next HTTP call.
             if self.cancel_flag.load(Ordering::Relaxed) {
-                tracing::info!("Cancel flag detected during polling — cancelling server request");
+                tracing::info!("Cancel flag detected during polling, cancelling server request");
                 self.send_cancel_request(&full_status_url, polling, auth_headers)
                     .await;
                 return Err(crate::types::Error::Cancelled.into());
@@ -1098,7 +1098,7 @@ impl HttpProviderClient {
 
         // Cancel the request on the server to avoid burning credits
         tracing::warn!(
-            "Polling timeout after {} attempts — cancelling request",
+            "Polling timeout after {} attempts, cancelling request",
             polling.max_attempts,
         );
         self.send_cancel_request(&full_status_url, polling, auth_headers)

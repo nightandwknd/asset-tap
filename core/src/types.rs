@@ -558,8 +558,8 @@ pub enum Stage {
     /// Converting an image to a 3D model.
     Model3DGeneration,
 
-    /// Converting GLB to FBX using Blender.
-    FbxConversion,
+    /// Binding the mesh to the humanoid armature and applying a clip.
+    Bind,
 
     /// Downloading a file from a URL.
     Download,
@@ -574,7 +574,7 @@ impl Stage {
         match self {
             Stage::ImageGeneration => "image_generation",
             Stage::Model3DGeneration => "model_3d_generation",
-            Stage::FbxConversion => "fbx_conversion",
+            Stage::Bind => "bind",
             Stage::Download => "download",
         }
     }
@@ -585,7 +585,7 @@ impl std::fmt::Display for Stage {
         match self {
             Stage::ImageGeneration => write!(f, "Image Generation"),
             Stage::Model3DGeneration => write!(f, "3D Model Generation"),
-            Stage::FbxConversion => write!(f, "FBX Conversion"),
+            Stage::Bind => write!(f, "Bind"),
             Stage::Download => write!(f, "Download"),
         }
     }
@@ -612,9 +612,6 @@ pub struct PipelineOutput {
     /// URL of the 3D model (from API).
     pub model_url: Option<String>,
 
-    /// Path to the FBX file (if converted).
-    pub fbx_path: Option<PathBuf>,
-
     /// Path to the textures directory (if extracted).
     pub textures_dir: Option<PathBuf>,
 }
@@ -640,7 +637,7 @@ mod tests {
     fn test_stage_display() {
         assert_eq!(Stage::ImageGeneration.to_string(), "Image Generation");
         assert_eq!(Stage::Model3DGeneration.to_string(), "3D Model Generation");
-        assert_eq!(Stage::FbxConversion.to_string(), "FBX Conversion");
+        assert_eq!(Stage::Bind.to_string(), "Bind");
         assert_eq!(Stage::Download.to_string(), "Download");
     }
 

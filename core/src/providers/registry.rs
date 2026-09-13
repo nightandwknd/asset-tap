@@ -194,7 +194,7 @@ impl ProviderRegistry {
                 .all(|(_, _, has_cache)| *has_cache)
         {
             tracing::info!(
-                "All {} provider(s) have cached models — skipping discovery API calls",
+                "All {} provider(s) have cached models, skipping discovery API calls",
                 providers_to_refresh.len()
             );
             return None;
@@ -210,7 +210,7 @@ impl ProviderRegistry {
         for (provider, capabilities, has_cache) in providers {
             if !force && has_cache {
                 tracing::debug!(
-                    "Skipping discovery for {} — using cached models",
+                    "Skipping discovery for {}, using cached models",
                     provider.id()
                 );
                 continue;

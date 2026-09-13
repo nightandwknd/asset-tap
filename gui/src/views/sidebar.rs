@@ -121,7 +121,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 [ui.available_width(), 80.0],
                 egui::TextEdit::multiline(&mut app.prompt)
                     .hint_text(if has_existing_image {
-                        "Prompt disabled — using existing image for 3D generation"
+                        "Prompt disabled. Using an existing image for 3D generation"
                     } else {
                         prompt_hint
                     })
@@ -635,7 +635,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         // clear it. Both selections are the user's; the app reports the
         // conflict below instead of resolving it for them.
         ui.checkbox(&mut app.skip_3d, "Image only (skip 3D)")
-            .on_hover_text("Stop after image generation. No GLB or FBX will be produced.");
+            .on_hover_text("Stop after image generation. No 3D model will be produced.");
 
         // An input image replaces image generation and this skips 3D, so
         // together they leave no stage to run. Say so where the choice was
@@ -768,45 +768,13 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         app.walkthrough
             .register_rect(WalkthroughStep::ProvidersSection, providers_rect);
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(4.0);
-
-        // =================================================================
-        // Post-Processing Section
-        // =================================================================
-        ui.label(egui::RichText::new("Post-Processing").strong());
-        ui.add_space(4.0);
-
-        // FBX toggle with Blender availability check
-        let prev_fbx = app.export_fbx;
-        ui.add_enabled_ui(!app.skip_3d, |ui| {
-            ui.checkbox(&mut app.export_fbx, "Export FBX (requires Blender)");
-        });
-        if app.export_fbx != prev_fbx {
-            app.settings.export_fbx_default = app.export_fbx;
-            if let Err(e) = app.settings.save() {
-                tracing::error!("Failed to save FBX setting: {}", e);
-            }
-        }
-
-        // Show warning if FBX is enabled but Blender is not available
-        if app.export_fbx && !app.blender_available {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    egui::Color32::from_rgb(255, 180, 100),
-                    format!("{} Blender not found", icons::WARNING),
-                );
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new("Install from:").small().secondary());
-                if ui.link("blender.org/download").clicked() {
-                    crate::app::open_with_system("https://www.blender.org/download/", None);
-                }
-            });
-        }
+        // Rigging is not a generation option. It used to be a "rig humanoid and
+        // bake a walk" checkbox here, ticked before the author had seen the
+        // image, let alone the mesh, which is the same unprompted-solve problem
+        // Auto-fit had inside Rig: a skeleton nobody looked at, on an asset that
+        // might not be a character. The Animate panel does it with the mesh in
+        // front of you, the whole clip catalog, and a preview before the write.
+        // The CLI keeps `--rig --clip`, where there is no review loop to skip.
 
         ui.add_space(12.0);
         ui.separator();

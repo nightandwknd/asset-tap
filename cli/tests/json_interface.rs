@@ -30,6 +30,8 @@ const NDJSON_FIXTURES: &[&str] = &[
     "provider_error.ndjson",
     "rate_limited_retry.ndjson",
     "canceled.ndjson",
+    "bind_success.ndjson",
+    "bind_error.ndjson",
 ];
 
 /// Every non-empty line of an NDJSON fixture must parse as a JSON object with a
@@ -93,7 +95,7 @@ fn fixtures_start_first_result_last() {
     }
 }
 
-/// The `start` event declares `interface: "1.0"` matching the module constant.
+/// The `start` event declares an `interface` matching the module constant.
 #[test]
 fn start_event_declares_interface_version() {
     let content = read_fixture("success.ndjson");
@@ -191,10 +193,27 @@ fn machine_events_match_fixture_lines() {
         r#"{"event":"result","status":"canceled","stage":"model_3d_generation"}"#
     );
 
+    // `bind` reports a written model, not a bundle. Its result carries four
+    // fields a generation result never does; without this the fixture and the
+    // serializer could rename any of them independently.
+    let bind = serde_json::to_string(&Event::result_bind_success(
+        "/abs/path/output/2026-07-06_101500/model.glb".to_string(),
+        53,
+        317_489,
+        vec!["Walk_Loop".to_string(), "Sword_Attack".to_string()],
+        412,
+    ))
+    .unwrap();
+    assert_eq!(
+        bind,
+        r#"{"event":"result","status":"success","model":"/abs/path/output/2026-07-06_101500/model.glb","joints":53,"vertices":317489,"clips":["Walk_Loop","Sword_Attack"],"duration_ms":412}"#
+    );
+
     // Every line asserted above appears verbatim in a fixture — belt and
     // suspenders against the fixture and the code diverging.
     let all_fixture_lines: String = NDJSON_FIXTURES.iter().map(|f| read_fixture(f)).collect();
     for line in [
+        r#"{"event":"result","status":"success","model":"/abs/path/output/2026-07-06_101500/model.glb","joints":53,"vertices":317489,"clips":["Walk_Loop","Sword_Attack"],"duration_ms":412}"#,
         r#"{"event":"progress","stage":"image_generation","state":"started"}"#,
         r#"{"event":"progress","stage":"image_generation","state":"queued","position":3}"#,
         r#"{"event":"progress","stage":"download","state":"downloading","bytes_downloaded":1048576,"total_bytes":36076232}"#,
@@ -323,7 +342,7 @@ fn stage_wire_names_match_spec() {
         machine::wire_stage(Stage::Model3DGeneration),
         "model_3d_generation"
     );
-    assert_eq!(machine::wire_stage(Stage::FbxConversion), "fbx_conversion");
+    assert_eq!(machine::wire_stage(Stage::Bind), "bind");
     assert_eq!(machine::wire_stage(Stage::Download), "download");
 }
 
@@ -435,10 +454,6 @@ fn exit_codes_match_spec_table() {
     assert_eq!(machine::exit_code_for_kind(machine::KIND_NETWORK_ERROR), 6);
     assert_eq!(machine::exit_code_for_kind(machine::KIND_TIMEOUT), 6);
     // 7: local environment/filesystem
-    assert_eq!(
-        machine::exit_code_for_kind(machine::KIND_BLENDER_NOT_FOUND),
-        7
-    );
     assert_eq!(machine::exit_code_for_kind(machine::KIND_IO_ERROR), 7);
     // 1: internal/unexpected
     assert_eq!(machine::exit_code_for_kind(machine::KIND_MODEL_ERROR), 1);
@@ -782,6 +797,39 @@ fn auth_catalog_fixture_matches_serialization() {
     assert_eq!(
         ours, fixture,
         "auth_catalog.json fixture drifted from the serializer"
+    );
+}
+
+#[test]
+fn clip_download_fixtures_match_serialization() {
+    let downloaded =
+        machine::ClipDownloadDocument::success(vec!["ual1".into(), "ual2".into()], false, 1);
+    assert_eq!(
+        serde_json::to_string_pretty(&downloaded)
+            .unwrap()
+            .trim_end(),
+        read_fixture("clip_download.json").trim_end(),
+        "clip_download.json drifted from ClipDownloadDocument serialization"
+    );
+
+    let exists = machine::ClipDownloadDocument::success(Vec::new(), true, 1);
+    assert_eq!(
+        serde_json::to_string_pretty(&exists).unwrap().trim_end(),
+        read_fixture("clip_download_already_exists.json").trim_end(),
+        "clip_download_already_exists.json drifted from ClipDownloadDocument"
+    );
+
+    let err = machine::ClipDownloadErrorDocument {
+        status: "error",
+        kind: machine::KIND_IO_ERROR,
+        message:
+            "Release manifest is missing a sha256 hash; refusing to install unverified download"
+                .into(),
+    };
+    assert_eq!(
+        serde_json::to_string_pretty(&err).unwrap().trim_end(),
+        read_fixture("clip_download_error.json").trim_end(),
+        "clip_download_error.json drifted from ClipDownloadErrorDocument"
     );
 }
 

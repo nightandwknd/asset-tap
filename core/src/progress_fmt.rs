@@ -146,7 +146,7 @@ pub fn stage_icon(stage: &Stage) -> &'static str {
     match stage {
         Stage::ImageGeneration => "🎨",
         Stage::Model3DGeneration => "🧊",
-        Stage::FbxConversion => "🔄",
+        Stage::Bind => "🦴",
         Stage::Download => "⬇️",
     }
 }
@@ -295,7 +295,7 @@ mod tests {
     fn test_stage_icons() {
         assert_eq!(stage_icon(&Stage::ImageGeneration), "🎨");
         assert_eq!(stage_icon(&Stage::Model3DGeneration), "🧊");
-        assert_eq!(stage_icon(&Stage::FbxConversion), "🔄");
+        assert_eq!(stage_icon(&Stage::Bind), "🦴");
         assert_eq!(stage_icon(&Stage::Download), "⬇️");
     }
 
@@ -313,11 +313,9 @@ mod tests {
                 stage: Stage::Model3DGeneration,
                 message: None,
             },
-            Progress::Completed {
-                stage: Stage::FbxConversion,
-            },
+            Progress::Completed { stage: Stage::Bind },
             Progress::Failed {
-                stage: Stage::FbxConversion,
+                stage: Stage::Bind,
                 error: "err".to_string(),
             },
             Progress::Downloading {

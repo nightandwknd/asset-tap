@@ -9,6 +9,4 @@
 {"event":"progress","stage":"download","state":"downloading","bytes_downloaded":1048576,"total_bytes":36076232}
 {"event":"progress","stage":"download","state":"downloading","bytes_downloaded":36076232,"total_bytes":36076232}
 {"event":"progress","stage":"model_3d_generation","state":"completed"}
-{"event":"progress","stage":"fbx_conversion","state":"started"}
-{"event":"progress","stage":"fbx_conversion","state":"completed"}
 {"event":"result","status":"success","bundle_dir":"/abs/path/output/2026-07-06_101500","duration_ms":184223}

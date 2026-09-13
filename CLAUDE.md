@@ -6,7 +6,7 @@ Guidance for Claude Code when working with this repository.
 
 **Asset Tap generates 3D models from text prompts using a two-step AI pipeline.**
 
-**Pipeline:** Text → Image (text-to-image AI) → 3D Model (image-to-3D AI) → FBX export (Blender)
+**Pipeline:** Text → Image (text-to-image AI) → 3D Model (image-to-3D AI) → optional humanoid rig + animation
 
 **Architecture:** Data-driven, YAML-based provider plugin system. Providers are discovered automatically - all `providers/*.yaml` files are embedded at compile time and can be edited by users at runtime.
 
@@ -14,7 +14,7 @@ Guidance for Claude Code when working with this repository.
 
 - `core/` - Core library (provider system, pipeline orchestration, API clients)
 - `cli/` - Command-line interface binary
-- `gui/` - GUI application (egui + three-d 3D viewer)
+- `gui/` - GUI application (egui chrome + native `three-d` 3D tab)
 - `providers/` - YAML provider configurations (embedded at compile time)
 - `templates/` - YAML prompt templates (embedded at compile time)
 - `bundles/` - Demo bundle assets (image + 3D model) — NOT compiled into the binary, read from disk in dev/mock mode and downloaded on demand in release
@@ -46,6 +46,15 @@ asset-tap auth list                  # Shows source: stored / env: VAR / missing
 
 # Fetch the showcase demo bundle without launching the GUI
 asset-tap demo download              # Into the configured output dir (or -o DIR)
+
+# Humanoid rig. The skeleton is embedded in the binary, so
+# rigging needs nothing downloaded; animation packs only add clips.
+asset-tap bind --mesh model.glb --fit-only               # rig only, no animation
+asset-tap bind --mesh model.glb --clip walk --clip Sword_Attack   # repeatable
+asset-tap clip download                                       # free Standard packs (on demand)
+asset-tap clip install --from Universal-Animation-Library.zip  # .zip, folder, or .glb
+asset-tap clip list
+asset-tap --rig --clip walk -y -t humanoid "a knight"
 
 # Quality
 make test                    # ALL tests (uses cargo-nextest, auto-installed if missing)
@@ -178,7 +187,7 @@ Parity is not blind equality — the test encodes **verified** asymmetries, each
 
 **Per-model, not per-provider.** Aspect ratios are the trap: Meshy's `gpt-image-2` takes `1:1/3:2/2:3` while the nano-banana family takes `1:1/16:9/9:16/4:3/3:4`, so `gpt-image-2` deliberately does **not** reuse the `x-meshy-t2i-params` anchor. Before extending a shared anchor, confirm every model aliasing it supports the values.
 
-**Verify against provider docs, not against sibling YAML.** Check every parameter against the provider's own API reference. Copying a knob from a neighbouring model because it looks similar leads to advertising fields the API rejects.
+**Verify against provider docs, not against sibling YAML.** Check every parameter against the provider's own API reference. Copying a knob from a neighboring model because it looks similar leads to advertising fields the API rejects.
 
 **Response types:**
 
@@ -199,6 +208,35 @@ Parity is not blind equality — the test encodes **verified** asymmetries, each
 - Some providers (e.g. Meshy) return only a task id on task creation (`{"result": "<id>"}`) rather than a full status URL.
 - Set `status_url_template` on `PollingConfig` to build the poll URL from the initial response. Supports `${field}`, `${field.nested}`, `${array[0]}` substitution.
 - Fal uses the simpler path — `status_field` is already a full URL. Leave `status_url_template` unset.
+
+### Rig and Animation
+
+Deep dive: [docs/architecture/VIEWER_ANIMATE.md](docs/architecture/VIEWER_ANIMATE.md).
+That file is the write contract for the 3D tab, the rig, and clips.
+
+**One canonical skeleton, VRM-named** (`core/src/rig/canon.rs`). 52 humanoid
+joints using [VRM 1.0](https://github.com/vrm-c/vrm-specification) bone names
+(`hips`, `leftUpperArm`, `leftLittleProximal`). The rest pose is embedded, so
+**Rig and Bind work with nothing installed**. A pack's own bone names are a
+lookup at the edges (`BoneScheme`); `skeleton::canonicalize` renames on load, so
+everything downstream is keyed by one vocabulary. Never reintroduce a
+scheme-specific string test: Quaternius renamed its rig once already, from
+Rigify `DEF-*` to the Unreal convention.
+
+**Packs supply clips, never bones.** One directory per pack under
+`packs_root()`, each with `pack.glb` and a `pack.json` caching the clip names,
+because `list_clips` is called while the GUI renders. Install accepts a `.zip`,
+an extracted folder, or a glTF, and finds the library by picking the file with
+the most animations. Additive across packs, replacing within one.
+
+**Bake is declarative and multi-clip.** The file ends up with exactly the ticked
+set, so it is idempotent and unticking removes; `prune_unused` reclaims the
+dropped clips' accessors. An empty set is a separate `Clear animation` action,
+never an overloaded Bake button.
+
+**Two provenance writers must agree.** `BundleMetadata::stamp_bind_step` and
+`bundle_schema::steps_from_config` both write the `bind` step
+(`clips` + `skeleton`); `both_bind_step_writers_agree_on_shape` guards the drift.
 
 ### Template System
 
@@ -256,7 +294,7 @@ PipelineConfig → ProviderRegistry → Provider → HttpProviderClient → API
 
 1. `ImageGeneration` - Text → Image (skip if image provided)
 2. `ImageTo3D` - Image → 3D (GLB format)
-3. `FBXConversion` - GLB → FBX (optional, requires Blender)
+3. `Bind` - Rig the mesh and bake animation clips (optional)
 
 **Progress tracking:** Tokio unbounded channels. Pipeline emits `Progress` enum, GUI/CLI receive.
 
@@ -269,11 +307,10 @@ output/YYYY-MM-DD_HHMMSS/
 ├── bundle.json      # Metadata (v2: artifacts + pipeline)
 ├── image.png        # Generated image
 ├── model.glb        # 3D model
-├── model.fbx        # FBX (if exported)
 └── textures/        # Extracted textures
 ```
 
-**CRITICAL:** Filenames are ALWAYS standard (`bundle.json`, `image.png`, `model.glb`, `model.fbx`). Don't create custom names - breaks loading logic.
+**CRITICAL:** Filenames are ALWAYS standard (`bundle.json`, `image.png`, `model.glb`). Don't create custom names - breaks loading logic.
 
 **`image.png` always contains real PNG bytes.** Providers serve other formats (Meshy's text-to-image returns JPEG), so `png_reencode()` in [core/src/pipeline.rs](core/src/pipeline.rs) re-encodes non-PNG bytes before the write. Two things depend on this: the fixed `.png` filename, and the data-URI fallback that hardcodes `data:image/png;base64,` when feeding the 3D stage. A failed re-encode is non-fatal — the original bytes are kept and a warning logged, since a usable image beats discarding a paid generation.
 
@@ -292,6 +329,8 @@ asset-tap --export-bundle output/2025-01-15_143022 --name "My Robot"  # Name + e
 - **Release builds:** Downloaded on demand via a button in the welcome modal or Help menu. The archive (`demo-bundle.zip`) is attached to each GitHub Release and fetched from `releases/latest/download/`. The download is atomic (temp dir + rename) to prevent partial state.
 
 Demo bundles include a `bundle.json` with a `demo_version` field (integer, incremented only when demo content changes) and are placed in normal timestamped directories. A small `demo-manifest.json` is fetched first to check the version without downloading the full 34 MB zip. `has_demo_version()` scans local bundles for duplicates. A confirmation dialog is shown before downloading. The release workflow stamps the generator version and generates the manifest (with SHA-256 hash) from `bundle.json`. The downloaded zip is verified against the manifest hash before extraction.
+
+**Clip packs:** The free Quaternius Standard libraries live in `packs/ual{1,2}/pack.glb` (trimmed animation GLBs only — no mannequin, no `_RM`, no Source). They are **never compiled into the binary**. The release workflow zips them as `clip-packs.zip` and writes `clip-packs-manifest.json` with a SHA-256. `asset-tap clip download` / Welcome / Help / Animate → Download free packs fetch that archive, verify the hash, and install missing ids into `packs_root()`. Already-installed ids are skipped so a user Source upgrade is not overwritten; `--force` refreshes only packs stamped by a previous download. MCP `clip_download` is the same document as `--json clip download`. Debug builds and tests can set `ASSET_TAP_CLIP_PACKS_DIR` (or, in debug, read `packs/` next to the source tree) to skip GitHub; `ASSET_TAP_CLIP_PACKS_MANIFEST_URL` / `ASSET_TAP_CLIP_PACKS_URL` override the release URLs (and skip the local dir).
 
 **Bundle import/export:** Bundles can be exported as `.zip` archives and imported back via File > Import Bundle or the import button in the bundle info panel. `import_bundle_zip()` extracts to a temp directory, validates contents (must have image or model), creates default metadata if missing, and atomically renames to a timestamped directory. The `extract_zip_to_dir()` helper handles both import and demo download, auto-detecting and stripping a common top-level directory prefix while preserving subdirectory structure (e.g., `textures/`).
 
@@ -323,7 +362,7 @@ Demo bundles include a `bundle.json` with a `demo_version` field (integer, incre
 **Main components:**
 
 - `App` - Main state, holds `Runtime` for async, manages pipeline state
-- `ModelViewer` - three-d 3D viewer (glow/OpenGL backend)
+- `ModelViewer` - native `three-d` viewport (glow FBO blit into egui)
 - Views (modules under `gui/src/views/`):
   - `sidebar` - Input panel, provider/model selection
   - `preview` - Image/model/texture preview tabs
@@ -338,7 +377,7 @@ Demo bundles include a `bundle.json` with a `demo_version` field (integer, incre
   - `image_approval` - Image approval dialog
   - `confirmation_dialog` - Confirmation prompts
 
-**Important:** `Arc<Mutex<SharedModelViewer>>` shares 3D viewer between egui and three-d contexts.
+**3D tab:** native `three-d` in the same window as egui. Inspect chrome is Grid / Axes / Reset. Animate is an optional panel: Rig (overlay only) → Bind (heads define the skeleton, weights follow — Meshy semantics; off-mesh heads are refused by name) → Preview/Bake. Auto-fit reseeds the pose in Rig and does not write. Dragging joints never deforms the mesh. Playback is `SkinnedClip` (CPU) uploaded as mesh positions. See [VIEWER_ANIMATE.md](docs/architecture/VIEWER_ANIMATE.md). Keep [using-asset-tap.md](site/content/docs/guides/using-asset-tap.md) aligned with the shipped camera.
 
 **Modal backdrops:** All modals use the shared `views::modal_backdrop()` helper with `BackdropClick` enum (`Close`, `CloseIf(bool)`, `Block`). Never hand-roll backdrop Area code — use the helper.
 
@@ -456,25 +495,23 @@ make test  # Uses cargo-nextest (runs in parallel)
    - Makefile explicitly builds before packaging
    - See "Packaging & Distribution" section below for details
 
-8. **FBX export and Blender:**
-   - GUI silently skips the FBX pipeline stage when Blender is not detected (and no custom path set)
-   - The user sees a "Blender not found" warning in the sidebar but the pipeline won't attempt and fail
-   - CLI still attempts FBX and reports the failure in its output (acceptable for CLI UX)
-   - `blender_available` is checked once at GUI startup via `find_blender()`
+8. **Textures come out of the GLB.** `core/src/textures.rs` reads the
+   embedded `images[]` and writes the bytes verbatim, so extraction needs no
+   external tool. Extensions follow the actual bytes, not the declared MIME
+   type.
 
 9. **Opening files/URLs from GUI:**
    - Always use `crate::app::open_with_system()` — never raw `open::that()`
    - Pass `Some(&mut app.toasts)` when `app` is accessible for user-visible error feedback
    - Pass `None` when inside structs without toast access (errors still log via tracing)
 
-10. **egui/three-d version compatibility:**
+10. **egui version compatibility:**
 
-- We use egui/eframe **0.34** (NOT the latest — 0.35 is available) with glow **0.17**, three-d **0.19**, three-d-asset **0.10**, and egui-phosphor **0.12** — all from crates.io, no git pins
-- The stack must move together: three-d 0.19 and egui-phosphor 0.12 both require egui ^0.34, and our direct `glow` dependency must match eframe's (0.34 → glow 0.17)
-- **glow must be the ONLY compiled renderer.** eframe's default features include `wgpu` (since 0.34), and at runtime eframe prefers wgpu when both renderers are compiled in — which hands the three-d viewer no glow context and silently breaks the 3D preview. Root `Cargo.toml` sets `default-features = false` on eframe (re-adding the native platform features) and `main.rs` pins `renderer: eframe::Renderer::Glow`. Dropping eframe's defaults also drops `winit/default`; the Wayland runtime features winit needs on Linux (`wayland-dlopen`, `wayland-csd-adwaita`) are re-enabled via a Linux-only direct `winit` dep in `gui/Cargo.toml` (ignored by cargo-udeps).
-- three-d is built with `default-features = false`: its `window` feature is three-d's own glutin/winit windowing, unused because eframe owns the window (it also drags in a second, older winit)
-- **Why not egui 0.35:** three-d 0.19 and egui-phosphor 0.12 cap at egui ^0.34. eframe 0.35 also removed all `#[deprecated]` APIs and regrouped glow config in `NativeOptions`, so the bump is not mechanical.
-- **Next upgrade path:** (1) Check for a three-d release supporting egui 0.35. (2) Check for an egui-phosphor release targeting egui 0.35. (3) Then bump egui 0.34 → 0.35 across the stack.
+- We use egui/eframe **0.34** (NOT the latest — 0.35 is available) with glow **0.17** and egui-phosphor **0.12** — all from crates.io
+- **glow must be the ONLY compiled renderer.** eframe's default features include `wgpu` (since 0.34). Root `Cargo.toml` sets `default-features = false` on eframe (re-adding the native platform features) and `main.rs` pins `renderer: eframe::Renderer::Glow`. Dropping eframe's defaults also drops `winit/default`; the Wayland runtime features winit needs on Linux (`wayland-dlopen`, `wayland-csd-adwaita`) are re-enabled via a Linux-only direct `winit` dep in `gui/Cargo.toml` (ignored by cargo-udeps).
+- The 3D tab is native `three-d` on eframe's glow context.
+- **Why not egui 0.35:** egui-phosphor 0.12 caps at egui ^0.34. eframe 0.35 also removed `#[deprecated]` APIs and regrouped glow config in `NativeOptions`.
+- **Next upgrade path:** an egui-phosphor release targeting egui 0.35, then bump the stack.
 - See https://github.com/emilk/egui/discussions/113 for integration approaches
 
 ## Packaging & Distribution
@@ -517,7 +554,7 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 - **CI** (`.github/workflows/ci.yaml`, PRs only): Layer 0 runs fmt, clippy, check, test, docs, audit, udeps, version-preview in parallel. Layer 1 builds macOS (arm64 + x86_64 matrix → lipo → DMG), Linux, and Windows after check passes — installer artifacts uploaded with `-pr-{N}` suffix (e.g., `asset-tap-macos-pr-7`), plus Linux binaries for CLI tests. Layer 2 runs CLI tests using the Linux binary artifact.
 - **Release** (`.github/workflows/release.yaml`, push to main): CalVer versioning → parallel builds from HEAD (macOS arm64 + x86_64 as matrix jobs, Linux .deb/AppImage, Windows NSIS) → macOS packaging job combines binaries with `lipo` + creates DMG → release commit (stamps `Cargo.toml` version + generates `CHANGELOG.md`) + tag + push → GitHub Release. The release commit and tag are only created after all builds succeed.
 
-**Dependabot** (`.github/dependabot.yaml`): Cargo updates weekly (Sunday noon CST), GitHub Actions weekly. Uses `lockfile-only` versioning to avoid `Cargo.toml` churn. The entire 3D rendering stack (three-d, three-d-asset, egui, eframe, egui_extras, egui-phosphor, glow) is ignored — these are version-locked for compatibility and must be upgraded together manually (see §10 above). All minor+patch updates are grouped into a single PR; major bumps surface as individual PRs.
+**Dependabot** (`.github/dependabot.yaml`): Cargo updates weekly (Sunday noon CST), GitHub Actions weekly. Uses `lockfile-only` versioning to avoid `Cargo.toml` churn. The egui stack (egui, eframe, egui_extras, egui-phosphor, glow) is ignored — these are version-locked for compatibility and must be upgraded together manually (see §10 above). All minor+patch updates are grouped into a single PR; major bumps surface as individual PRs.
 
 **Changelog:** Generated by [git-cliff](https://git-cliff.org/) from Conventional Commits. Config in `cliff.toml`. Release notes are grouped by type (Features, Bug Fixes, etc.) with merge commits and noise filtered out.
 
@@ -563,7 +600,7 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 
 The CLI has a machine-readable mode for external tools that drive `asset-tap` as a subprocess. Defined by [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md); implemented in [cli/src/machine.rs](cli/src/machine.rs).
 
-- **`--json`**: emits NDJSON events on stdout (one object per line), all human logs on stderr. First line is `start`, last is a single authoritative `result` (success/error/canceled). Implies `--yes`; conflicts with `--approve` and the conversion/inspection flags (`--convert-only`, `--convert-webp`, `--convert-fbx`, `--export-bundle`, `--inspect-template`) → exit 2. It **combines** with `--list`/`--list-providers` — that's the catalog mode.
+- **`--json`**: emits NDJSON events on stdout (one object per line), all human logs on stderr. First line is `start`, last is a single authoritative `result` (success/error/canceled). Implies `--yes`; conflicts with `--approve` and the conversion/inspection flags (`--convert-webp`, `--export-bundle`, `--inspect-template`) → exit 2. It **combines** with `--list`/`--list-providers` — that's the catalog mode.
 - **Catalog**: `--list-providers --json` and `--list --json` emit a single JSON document (not NDJSON) describing providers, models, tunable parameters, and (for `--list`) templates. The human `--list-providers` output renders from the same `machine::build_catalog` traversal — one source, no drift.
 - **`interface` field is a `"MAJOR.MINOR"` string** (e.g. `"1.0"`), Terraform `format_version`-style: MAJOR bumps on breaking wire changes (consumers must reject an unrecognized MAJOR), MINOR bumps on additive/backward-compatible changes (consumers ignore unknown fields, tolerate a higher MINOR). Single-sourced from `machine::INTERFACE_VERSION`. See [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md)'s Versioning section.
 - **`--version --json`** emits `{"version":"<calver>","interface":"1.0"}` instead of the plain human version line. Detected on raw `std::env::args()` in `main()` _before_ `Cli::parse()`, because clap's derived `#[command(version)]` handles bare `--version` and exits before application code runs. Plain `--version` (no `--json`) is untouched.
@@ -578,7 +615,7 @@ The CLI has a machine-readable mode for external tools that drive `asset-tap` as
 2. **Zero-cost testing:** Mock mode for development without API costs
 3. **Embedded defaults:** Configs compiled into binary, user overrides at runtime
 4. **Clean separation:** Core library (reusable) vs binaries (CLI/GUI)
-5. **Progressive enhancement:** GLB works without Blender, FBX optional
+5. **Progressive enhancement:** rigging and animation are optional, and need no external tools
 6. **User-friendly errors:** Template/provider errors are non-fatal, collected and displayed
 7. **No conversation artifacts:** NEVER create summary/report/review markdown files - just tell the user what you did
 

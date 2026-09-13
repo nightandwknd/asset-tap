@@ -1,0 +1,6 @@
+{
+  "packs_version": 1,
+  "name": "Quaternius Universal Animation Library Standard (CC0)",
+  "packs": ["ual1", "ual2"],
+  "size_label": "15 MB"
+}

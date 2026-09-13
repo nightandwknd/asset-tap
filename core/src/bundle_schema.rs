@@ -43,16 +43,15 @@ pub mod modalities {
 
 /// Deterministic op names we emit today. The rest of the catalog is later.
 pub mod ops {
-    pub const FBX_EXPORT: &str = "fbx_export";
+    pub const BIND: &str = "bind";
 }
 
 pub const ARTIFACT_IMAGE: &str = "image";
 pub const ARTIFACT_MODEL: &str = "model";
-pub const ARTIFACT_MODEL_FBX: &str = "model_fbx";
 
 pub const STEP_IMAGE: &str = "image";
 pub const STEP_MODEL: &str = "model";
-pub const STEP_FBX: &str = "fbx";
+pub const STEP_BIND: &str = "bind";
 
 /// One file (or a dropped intermediate) in the bundle inventory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,6 +153,9 @@ pub struct GenerationManifest {
     pub model_info: Option<ModelInfo>,
     pub image_provider_id: Option<String>,
     pub model_3d_provider_id: Option<String>,
+    pub bind: bool,
+    /// The full baked set. Empty after a fit-only bind.
+    pub clips: Vec<String>,
 }
 
 /// Infer a provider id from a model id (`fal-ai/trellis-2` → `fal.ai`).
@@ -197,10 +199,8 @@ pub fn describe_generation(
 
     let image_rel = bundle_files::IMAGE;
     let model_rel = bundle_files::MODEL_GLB;
-    let fbx_rel = bundle_files::MODEL_FBX;
     let has_image = bundle_dir.join(image_rel).is_file();
     let has_model = bundle_dir.join(model_rel).is_file();
-    let has_fbx = bundle_dir.join(fbx_rel).is_file();
 
     if has_image {
         let produced_by = config.image_model.as_ref().map(|_| STEP_IMAGE.to_string());
@@ -232,17 +232,6 @@ pub fn describe_generation(
         artifacts.push(art);
     }
 
-    if has_fbx {
-        artifacts.push(file_artifact(
-            bundle_dir,
-            ARTIFACT_MODEL_FBX,
-            roles::MODEL,
-            fbx_rel,
-            Some(STEP_FBX.to_string()),
-            None,
-        ));
-    }
-
     if let Some(textures) = list_textures(bundle_dir) {
         for rel in textures {
             let stem = Path::new(&rel)
@@ -261,7 +250,7 @@ pub fn describe_generation(
         }
     }
 
-    let pipeline = steps_from_config(manifest, has_image, has_model, has_fbx);
+    let pipeline = steps_from_config(manifest, has_image, has_model);
     let primary = primary_of(has_image, has_model);
 
     (artifacts, primary, pipeline)
@@ -281,7 +270,6 @@ pub fn synthesize_from_v1(
 
     let has_image = config.image_model.is_some() || config.existing_image.is_some();
     let has_model = !config.model_3d.is_empty();
-    let has_fbx = config.export_fbx && has_model;
 
     let mut artifacts = Vec::new();
     if has_image {
@@ -307,15 +295,6 @@ pub fn synthesize_from_v1(
         }
         artifacts.push(art);
     }
-    if has_fbx {
-        artifacts.push(logical_artifact(
-            ARTIFACT_MODEL_FBX,
-            roles::MODEL,
-            bundle_files::MODEL_FBX,
-            Some(STEP_FBX.to_string()),
-        ));
-    }
-
     let manifest = GenerationManifest {
         config: config.clone(),
         model_info: model_info.cloned(),
@@ -324,8 +303,10 @@ pub fn synthesize_from_v1(
             .as_deref()
             .and_then(provider_from_model_id),
         model_3d_provider_id: provider_from_model_id(&config.model_3d),
+        bind: false,
+        clips: Vec::new(),
     };
-    let pipeline = steps_from_config(&manifest, has_image, has_model, has_fbx);
+    let pipeline = steps_from_config(&manifest, has_image, has_model);
     let primary = primary_of(has_image, has_model);
 
     (artifacts, primary, pipeline)
@@ -345,7 +326,6 @@ fn steps_from_config(
     manifest: &GenerationManifest,
     has_image: bool,
     has_model: bool,
-    has_fbx: bool,
 ) -> BundlePipeline {
     let config = &manifest.config;
     let mut steps = Vec::new();
@@ -373,7 +353,7 @@ fn steps_from_config(
         });
     }
 
-    if !config.model_3d.is_empty() && (has_model || has_fbx) {
+    if !config.model_3d.is_empty() && has_model {
         let modality = if has_image || config.image_model.is_some() {
             modalities::IMAGE_TO_3D
         } else {
@@ -405,17 +385,30 @@ fn steps_from_config(
         });
     }
 
-    if has_fbx {
+    if manifest.bind && has_model {
+        // Must match `BundleMetadata::stamp_bind_step`: two code paths write
+        // this step, and a bundle's shape cannot depend on which one ran.
+        let mut params = HashMap::new();
+        params.insert(
+            "clips".into(),
+            Value::Array(
+                manifest
+                    .clips
+                    .iter()
+                    .map(|c| Value::String(c.clone()))
+                    .collect(),
+            ),
+        );
+        params.insert(
+            "skeleton".into(),
+            Value::String(crate::rig::SKELETON_ID.into()),
+        );
         steps.push(PipelineStep::Op {
-            id: STEP_FBX.to_string(),
-            op: ops::FBX_EXPORT.to_string(),
-            params: HashMap::new(),
-            inputs: if has_model {
-                vec![ARTIFACT_MODEL.to_string()]
-            } else {
-                Vec::new()
-            },
-            outputs: vec![ARTIFACT_MODEL_FBX.to_string()],
+            id: STEP_BIND.to_string(),
+            op: ops::BIND.to_string(),
+            params,
+            inputs: vec![ARTIFACT_MODEL.to_string()],
+            outputs: vec![ARTIFACT_MODEL.to_string()],
             duration_ms: None,
         });
     }
@@ -513,7 +506,6 @@ mod tests {
             existing_image: None,
             image_model: Some("fal-ai/nano-banana-2".into()),
             model_3d: "fal-ai/trellis-2".into(),
-            export_fbx: true,
             image_model_params: HashMap::new(),
             model_3d_params: HashMap::new(),
         }
@@ -533,15 +525,15 @@ mod tests {
     }
 
     #[test]
-    fn synthesize_v1_three_stage() {
+    fn synthesize_v1_two_stage() {
         let config = v1_config();
         let (artifacts, primary, pipeline) = synthesize_from_v1(Some(&config), None);
         assert_eq!(primary.as_deref(), Some(ARTIFACT_MODEL));
         assert_eq!(
             artifacts.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
-            [ARTIFACT_IMAGE, ARTIFACT_MODEL, ARTIFACT_MODEL_FBX]
+            [ARTIFACT_IMAGE, ARTIFACT_MODEL]
         );
-        assert_eq!(pipeline.steps.len(), 3);
+        assert_eq!(pipeline.steps.len(), 2);
         match &pipeline.steps[0] {
             PipelineStep::Model {
                 modality, model, ..
@@ -560,10 +552,6 @@ mod tests {
             }
             other => panic!("expected model step, got {other:?}"),
         }
-        match &pipeline.steps[2] {
-            PipelineStep::Op { op, .. } => assert_eq!(op, ops::FBX_EXPORT),
-            other => panic!("expected op step, got {other:?}"),
-        }
     }
 
     #[test]
@@ -571,7 +559,6 @@ mod tests {
         let config = GenerationConfig {
             image_model: Some("fal-ai/nano-banana-2".into()),
             model_3d: String::new(),
-            export_fbx: false,
             prompt: Some("icon".into()),
             ..Default::default()
         };
@@ -586,7 +573,6 @@ mod tests {
         let config = GenerationConfig {
             image_model: None,
             model_3d: "fal-ai/hunyuan-world".into(),
-            export_fbx: false,
             prompt: Some("a chair".into()),
             ..Default::default()
         };
@@ -612,13 +598,15 @@ mod tests {
             model_info: None,
             image_provider_id: Some("fal.ai".into()),
             model_3d_provider_id: Some("fal.ai".into()),
+            bind: false,
+            clips: Vec::new(),
         };
         let (artifacts, primary, pipeline) = describe_generation(dir.path(), &manifest);
         assert_eq!(primary.as_deref(), Some(ARTIFACT_MODEL));
         assert_eq!(artifacts.len(), 2);
         assert!(artifacts[0].sha256.is_some());
         assert_eq!(artifacts[0].mime.as_deref(), Some("image/png"));
-        assert_eq!(pipeline.steps.len(), 2); // no fbx file on disk
+        assert_eq!(pipeline.steps.len(), 2);
         match &pipeline.steps[0] {
             PipelineStep::Model { provider, .. } => {
                 assert_eq!(provider.as_deref(), Some("fal.ai"));
@@ -636,8 +624,7 @@ mod tests {
             "config": {
                 "prompt": "a crate",
                 "image_model": "fal-ai/nano-banana-2",
-                "model_3d": "fal-ai/trellis-2",
-                "export_fbx": false
+                "model_3d": "fal-ai/trellis-2"
             }
         }"#;
         let parsed: BundleMetadata = serde_json::from_str(json).unwrap();

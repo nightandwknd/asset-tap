@@ -54,9 +54,15 @@ and the `env_var` name -- never key material.
 **`inspect_bundle`** -- takes `bundle_dir`. Reads the bundle's `bundle.json`.
 Returns `{bundle_dir, files[], bundle}`.
 
+**`clip_download`** -- optional `force`. Backed by `asset-tap --json clip download`.
+Returns `{status, installed[], already_exists, packs_version}`. Fetches the
+free Standard packs (hash-verified). `force` refreshes only packs stamped by
+a previous download; it never replaces a Source / `clip install` pack.
+
 **`generate`** -- takes a `prompt` or an `image` path; optional `template`,
-`provider`, `image_model`, `model_3d`, `params{}`, `fbx` (default false),
-`image_only`, `output_dir`, `name`. Runs the generation pipeline and returns
+`provider`, `image_model`, `model_3d`, `params{}`,
+`image_only`, `output_dir`, `name`, and the experimental `bind` /
+`clips[]` (see below). Runs the generation pipeline and returns
 `{status: "success", bundle_dir, duration_ms, bundle}`.
 
 Every tool returns **structured content** (JSON) plus the same JSON as text, so hosts that read either work. `list_catalog` and `auth_status` make no API calls -- they're free to use as preflight checks.
@@ -67,8 +73,19 @@ Every tool returns **structured content** (JSON) plus the same JSON as text, so 
 - **Non-interactive**: a `prompt` or `image` is required (usage error otherwise); no approval steps.
 - **Long-running** (tens of seconds to minutes). If the host sends a progress token, progress arrives as `notifications/progress` -- the same stages the CLI streams as NDJSON, in order, all delivered before the tool result. Cancelling the request cancels the pipeline; the result then has `kind: "canceled"`.
 - **Errors** are tool errors (`isError: true`) carrying the wire error shape: `kind`, `message`, optional `provider` / `action` / `retryable` / `retry_after_secs`. Retry only when `retryable` is true; on `unauthorized`, ask the human for a key instead of looping.
-- `fbx` defaults to **false**: FBX conversion needs Blender; GLB is enough for three.js, Godot, Bevy, and most engines. Pass `fbx: true` to get FBX.
 - Prefer a fresh `output_dir` per project; runs never overwrite (timestamped bundle directories). `name` sets `bundle.json`'s `name`, not the directory.
+
+## Animation (experimental)
+
+> **Experimental.** Same humanoid rig as the desktop app and CLI. Details and
+> limits: [Animation (experimental)](@/docs/guides/animation.md).
+
+`generate` accepts `bind: true` and `clips: ["walk", "Sword_Attack"]`. The
+skeleton is embedded, so rigging needs nothing installed. A clip no installed
+pack provides is a local error -- `clip_download` here, or `clip list` /
+`clip install` from the CLI.
+Packs: [Clip packs](@/docs/guides/animation.md#clip-packs).
+Older clients passing `fbx` or `no_fbx` are ignored; FBX was removed.
 
 ## Not this
 

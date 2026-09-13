@@ -326,6 +326,42 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// Every embedded template must parse and validate.
+    ///
+    /// Template load failures are deliberately non-fatal: a bad *user* file
+    /// must not stop the app. The cost is that a typo in a **shipped** template
+    /// only ever surfaces as a `WARN` at runtime, so a broken one can pass
+    /// `make ci` and ship. A single stray apostrophe inside a single-quoted
+    /// YAML scalar is all it takes. These are compiled into the binary, so
+    /// they are checkable here, where the failure is loud.
+    #[test]
+    fn every_embedded_template_parses_and_validates() {
+        let mut seen = 0;
+        for file in EMBEDDED_TEMPLATES.files() {
+            let path = file.path();
+            if !matches!(
+                path.extension().and_then(|s| s.to_str()),
+                Some("yaml") | Some("yml")
+            ) || path.components().any(|c| c.as_os_str() == "archive")
+            {
+                continue;
+            }
+            let text = std::str::from_utf8(file.contents())
+                .unwrap_or_else(|e| panic!("{}: not UTF-8: {e}", path.display()));
+            let def: TemplateDefinition = serde_yaml_ng::from_str(text)
+                .unwrap_or_else(|e| panic!("{}: does not parse: {e}", path.display()));
+            def.validate()
+                .unwrap_or_else(|e| panic!("{}: does not validate: {e}", path.display()));
+            assert!(
+                def.template.contains("${description}"),
+                "{}: template body never interpolates ${{description}}",
+                path.display()
+            );
+            seen += 1;
+        }
+        assert!(seen >= 2, "expected the embedded templates, found {seen}");
+    }
+
     #[test]
     fn test_registry_creation() {
         let _dir = crate::test_support::templates_dir_lock();

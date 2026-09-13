@@ -1,0 +1,15 @@
+Animation clips by Quaternius (CC0).
+
+  Universal Animation Library
+  https://quaternius.com/packs/universalanimationlibrary.html
+
+  Universal Animation Library 2
+  https://quaternius.com/packs/universalanimationlibrary2.html
+
+These files are the free Standard libraries only. The paid Source remainder
+is not included; get it from those pages and install with
+`asset-tap clip install --from` or Add pack… in the desktop app.
+The rest pose shipped in Asset Tap is derived from the first library.
+
+Not compiled into the Asset Tap binary. Attached to GitHub Releases as
+clip-packs.zip and installed on demand (`asset-tap clip download`).

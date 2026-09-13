@@ -61,7 +61,7 @@ fn args(v: Value) -> Map<String, Value> {
 }
 
 #[tokio::test]
-async fn handshake_lists_the_four_tools_with_instructions() {
+async fn handshake_lists_the_tools_with_instructions() {
     let (svc, _h) = spawn(false).await;
     let info = svc.peer_info().expect("server info");
     assert_eq!(
@@ -84,7 +84,19 @@ async fn handshake_lists_the_four_tools_with_instructions() {
     names.sort();
     assert_eq!(
         names,
-        ["auth_status", "generate", "inspect_bundle", "list_catalog"]
+        [
+            "auth_status",
+            "clip_download",
+            "generate",
+            "inspect_bundle",
+            "list_catalog"
+        ]
+    );
+    assert!(
+        info.instructions
+            .as_deref()
+            .unwrap_or("")
+            .contains("clip_download")
     );
     svc.cancel().await.unwrap();
 }
@@ -192,8 +204,7 @@ async fn generate_in_mock_mode_streams_progress_and_returns_an_inspectable_bundl
         CallToolRequestParams::new("generate").with_arguments(args(serde_json::json!({
             "prompt": "a low-poly mug",
             "output_dir": out.path().to_string_lossy(),
-            "name": "mug",
-            "no_fbx": true
+            "name": "mug"
         })));
     // Ask for progress like a real host does.
     let mut meta = rmcp::model::RequestMetaObject::new();
@@ -242,5 +253,50 @@ async fn generate_in_mock_mode_streams_progress_and_returns_an_inspectable_bundl
         .collect();
     assert!(files.contains(&"bundle.json"));
     assert!(files.contains(&"model.glb"));
+    svc.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn clip_download_returns_the_cli_document() {
+    let clips = tempfile::tempdir().unwrap();
+    let packs = format!("{}/../packs", env!("CARGO_MANIFEST_DIR"));
+    let bin = env!("CARGO_BIN_EXE_asset-tap");
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.arg("mcp");
+    cmd.env("ASSET_TAP_CLIPS_DIR", clips.path());
+    cmd.env("ASSET_TAP_CLIP_PACKS_DIR", &packs);
+    cmd.stderr(std::process::Stdio::null());
+    let transport = TokioChildProcess::new(cmd).expect("spawn asset-tap mcp");
+    let handler = CountingClient::default();
+    let svc = handler
+        .clone()
+        .serve(transport)
+        .await
+        .expect("mcp handshake");
+
+    let r = svc
+        .call_tool(CallToolRequestParams::new("clip_download"))
+        .await
+        .unwrap();
+    assert_ne!(r.is_error, Some(true));
+    let sc = r.structured_content.expect("structured");
+    assert_eq!(sc["status"].as_str(), Some("success"));
+    assert_eq!(sc["already_exists"], false);
+    let installed: Vec<&str> = sc["installed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(installed.contains(&"ual1"));
+    assert!(installed.contains(&"ual2"));
+
+    let r = svc
+        .call_tool(CallToolRequestParams::new("clip_download"))
+        .await
+        .unwrap();
+    let sc = r.structured_content.expect("structured");
+    assert_eq!(sc["already_exists"], true);
+    assert_eq!(sc["installed"].as_array().map(|a| a.len()), Some(0));
     svc.cancel().await.unwrap();
 }

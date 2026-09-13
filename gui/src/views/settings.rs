@@ -2,7 +2,6 @@
 
 use crate::icons;
 use crate::style::RichTextExt;
-use asset_tap_core::convert::find_blender;
 use asset_tap_core::settings::{Settings, is_dev_mode, settings_file_path};
 use eframe::egui;
 use std::collections::HashMap;
@@ -30,8 +29,6 @@ pub struct SettingsModal {
 #[derive(Clone, Default)]
 pub struct SettingsDraft {
     pub output_dir: String,
-    pub blender_path: String,
-    pub blender_auto_detected: Option<String>,
     /// Provider API keys (provider_id -> key).
     pub provider_api_keys: HashMap<String, String>,
     /// Providers from environment (provider_id -> bool).
@@ -90,13 +87,6 @@ impl SettingsModal {
 
         // Apply changes
         settings.output_dir = output_dir;
-
-        // Blender path (empty string means auto-detect)
-        settings.blender_path = if self.draft.blender_path.is_empty() {
-            None
-        } else {
-            Some(self.draft.blender_path.clone())
-        };
 
         // Provider API keys
         for (provider_id, key) in &self.draft.provider_api_keys {
@@ -222,43 +212,6 @@ impl SettingsModal {
                         });
 
                         ui.add_space(4.0);
-
-                        // Blender Path
-                        ui.horizontal(|ui| {
-                            ui.label("Blender Path:");
-                            if self.draft.blender_auto_detected.is_some() {
-                                ui.label(
-                                    egui::RichText::new("(auto-detected)")
-                                        .small()
-                                        .color(egui::Color32::GRAY),
-                                );
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            let hint = self
-                                .draft
-                                .blender_auto_detected
-                                .as_deref()
-                                .unwrap_or("Not found - enter path manually");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.draft.blender_path)
-                                    .desired_width(380.0)
-                                    .hint_text(hint),
-                            );
-                            if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse for Blender executable").clicked()
-                                && let Some(path) = rfd::FileDialog::new().pick_file() {
-                                    self.draft.blender_path = path.display().to_string();
-                                }
-                        });
-
-                        if let Some(ref detected) = self.draft.blender_auto_detected
-                            && self.draft.blender_path.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(format!("Using: {}", detected))
-                                        .small()
-                                        .color(egui::Color32::from_rgb(100, 200, 100)),
-                                );
-                            }
 
                         ui.add_space(8.0);
                         ui.separator();
@@ -577,8 +530,6 @@ impl SettingsModal {
                         {
                             let mut default_draft =
                                 SettingsDraft::from_settings(&Settings::default(), registry);
-                            // Re-detect Blender
-                            default_draft.blender_auto_detected = find_blender();
                             // Preserve the from_env flags from current draft
                             default_draft.provider_keys_from_env =
                                 self.draft.provider_keys_from_env.clone();
@@ -613,8 +564,6 @@ impl SettingsDraft {
         settings: &Settings,
         registry: &asset_tap_core::providers::ProviderRegistry,
     ) -> Self {
-        let auto_detected = find_blender();
-
         // Get all provider keys using core helper (respects .env priority, fully dynamic)
         let all_keys = settings.get_all_provider_keys(registry);
         let mut provider_api_keys = HashMap::new();
@@ -629,8 +578,6 @@ impl SettingsDraft {
 
         Self {
             output_dir: settings.output_dir.display().to_string(),
-            blender_path: settings.blender_path.clone().unwrap_or_default(),
-            blender_auto_detected: auto_detected,
             provider_api_keys,
             provider_keys_from_env,
             require_image_approval: settings.require_image_approval,
@@ -640,7 +587,6 @@ impl SettingsDraft {
     /// Check if this draft differs from another (ignoring auto_detected and from_env flags).
     pub fn differs_from(&self, other: &SettingsDraft) -> bool {
         self.output_dir != other.output_dir
-            || self.blender_path != other.blender_path
             || self.provider_api_keys != other.provider_api_keys
             || self.require_image_approval != other.require_image_approval
     }
