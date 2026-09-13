@@ -341,6 +341,12 @@ jobs:
           DEMO_SHA256=$(sha256sum release/demo-bundle.zip | awk '{print $1}')
           jq --arg sha "$DEMO_SHA256" '{demo_version, name, sha256: $sha}' bundles/asset-tap/bundle.json > release/demo-manifest.json
 
+          # Free Standard clip packs (downloaded on demand; not in the binary)
+          mapfile -t CLIP_PACK_IDS < <(jq -r '.packs[]' packs/manifest.json)
+          (cd packs && zip -r ../release/clip-packs.zip NOTICE "${CLIP_PACK_IDS[@]}")
+          CLIP_SHA256=$(sha256sum release/clip-packs.zip | awk '{print $1}')
+          jq --arg sha "$CLIP_SHA256" '{packs_version, name, packs, sha256: $sha}' packs/manifest.json > release/clip-packs-manifest.json
+
           # macOS
           cp artifacts/asset-tap-macos/AssetTap.dmg release/AssetTap-macos.dmg
           cp artifacts/asset-tap-cli-macos/asset-tap-cli-macos.tar.gz release/

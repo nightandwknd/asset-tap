@@ -5,7 +5,6 @@
 //!
 //! 1. **Image Generation** - Text → Image (via [`providers`](crate::providers))
 //! 2. **3D Generation** - Image → 3D Model (GLB format)
-//! 3. **FBX Export** - GLB → FBX (optional, via [`convert`](crate::convert))
 //!
 //! # Quick Start
 //!
@@ -45,10 +44,10 @@ use crate::api::download_file;
 use crate::bundle::BundleMetadata;
 use crate::config::{create_generation_dir, create_generation_dir_in};
 use crate::constants::files::bundle as bundle_files;
-use crate::convert::convert_glb_to_fbx;
 use crate::error_log::{ConfigSnapshot, ErrorLog, ErrorType};
 use crate::history::GenerationConfig;
 use crate::providers::{DynamicProvider, Provider, ProviderCapability, ProviderRegistry};
+use crate::rig::{BindOptions, DEFAULT_BIND_CLIP, bind_mesh};
 use crate::types::{ApprovalResponse, Error, PipelineOutput, Progress, Result, Stage};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -84,15 +83,22 @@ pub struct PipelineConfig {
     /// 3D generation model name.
     pub model_3d: String,
 
-    /// Whether to export FBX (requires Blender).
-    pub export_fbx: bool,
+    /// Bind the mesh to the shipped humanoid armature.
+    pub bind: bool,
+
+    /// Clips to bake after bind (`walk`, `Walk_Loop`, …).
+    ///
+    /// One model carries one animation per clip, as Mixamo and Meshy do,
+    /// rather than one export per clip. Empty with `bind` set means the
+    /// default clip.
+    pub clips: Vec<String>,
+
+    /// Override clip-pack directory.
+    pub clip_pack: Option<PathBuf>,
 
     /// Whether to skip the image-to-3D stage and produce an image-only bundle.
-    /// When true, no `model.glb` or `model.fbx` is written.
+    /// When true, no `model.glb` is written.
     pub skip_3d: bool,
-
-    /// Custom Blender path (overrides auto-detection).
-    pub blender_path: Option<String>,
 
     /// Base output directory for generated assets.
     /// If None, uses the default OUTPUT_DIR.
@@ -172,9 +178,6 @@ impl PipelineConfig {
 
     /// Create a new pipeline configuration with defaults.
     ///
-    /// FBX export is OFF by default: it requires Blender on the machine, and
-    /// every surface treats it as opt-in (GUI checkbox backed by
-    /// `Settings::export_fbx_default = false`, CLI `--fbx`, MCP `fbx: true`).
     pub fn new() -> Self {
         Self::default()
     }
@@ -248,26 +251,46 @@ impl PipelineConfig {
         self
     }
 
-    /// Enable FBX export (requires Blender; off by default).
-    pub fn with_fbx(mut self) -> Self {
-        self.export_fbx = true;
+    /// Bind to the humanoid pack and bake one clip.
+    pub fn with_bind(self, clip: impl Into<String>) -> Self {
+        self.with_clips(vec![clip.into()])
+    }
+
+    /// Bind to the humanoid pack and bake every clip in `clips`.
+    ///
+    /// The model gets one animation per clip rather than one export per clip.
+    pub fn with_clips(mut self, clips: Vec<String>) -> Self {
+        self.bind = true;
+        self.clips = clips;
         self
     }
 
-    /// Disable FBX export (the default; kept for callers that need to force
-    /// it off after other builders, e.g. deprecated `--no-fbx`).
-    pub fn without_fbx(mut self) -> Self {
-        self.export_fbx = false;
+    /// The clips a bind run will bake.
+    ///
+    /// `--rig` with no `--clip` means "rig it and give me something to look
+    /// at", so an empty set resolves to the default walk rather than binding
+    /// a T-pose the user did not ask for.
+    pub fn bind_clips(&self) -> Vec<String> {
+        if self.clips.is_empty() {
+            vec![DEFAULT_BIND_CLIP.to_string()]
+        } else {
+            self.clips.clone()
+        }
+    }
+
+    /// Override the clip-pack directory for this run.
+    pub fn with_clip_pack(mut self, dir: PathBuf) -> Self {
+        self.clip_pack = Some(dir);
         self
     }
 
     /// Skip the image-to-3D stage — produce an image-only bundle.
-    /// Implies no FBX export (FBX comes from the GLB) and no image approval
+    /// Implies no image approval
     /// gate (the gate's purpose is "do we want to pay for 3D on this image?",
     /// which is moot when 3D was never going to run).
     pub fn with_skip_3d(mut self) -> Self {
         self.skip_3d = true;
-        self.export_fbx = false;
+        self.bind = false;
         self.require_image_approval = false;
         self
     }
@@ -275,12 +298,6 @@ impl PipelineConfig {
     /// Set the output directory for generated assets.
     pub fn with_output_dir(mut self, dir: PathBuf) -> Self {
         self.output_dir = Some(dir);
-        self
-    }
-
-    /// Set a custom Blender path for FBX conversion.
-    pub fn with_blender_path(mut self, path: impl Into<String>) -> Self {
-        self.blender_path = Some(path.into());
         self
     }
 
@@ -504,7 +521,6 @@ fn log_stage_error(
     prompt: Option<&str>,
     image_model: Option<&str>,
     model_3d: Option<&str>,
-    export_fbx: bool,
 ) {
     let gen_id = gen_dir
         .file_name()
@@ -522,7 +538,6 @@ fn log_stage_error(
             prompt: prompt.map(|s| s.to_string()),
             image_model: image_model.map(|s| s.to_string()),
             model_3d: model_3d.map(|s| s.to_string()),
-            export_fbx,
             style_ref_count: 0,
         });
     if let Err(save_err) = error_log.save() {
@@ -655,7 +670,6 @@ async fn generate_image_stage(
                 Some(prompt),
                 Some(&model_id),
                 Some(&config.model_3d),
-                config.export_fbx,
             );
         })?;
 
@@ -785,7 +799,6 @@ async fn generate_3d_stage(
                 prompt,
                 config.image_model.as_deref(),
                 Some(&model_3d_id),
-                config.export_fbx,
             );
         })?;
 
@@ -796,63 +809,50 @@ async fn generate_3d_stage(
     Ok((model_path, model_3d_id))
 }
 
-/// Stage 3: Optionally convert GLB to FBX via Blender.
-///
-/// This stage is best-effort — failures are reported via progress but do not
-/// fail the pipeline.
-async fn export_fbx_stage(
+/// Stage 3: rig the mesh and bake every requested clip into it.
+async fn bind_stage(
     model_path: &std::path::Path,
-    output: &mut PipelineOutput,
+    clips: &[String],
+    pack_dir: Option<PathBuf>,
     progress_tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
-    blender_path: Option<&str>,
-) {
-    let _ = progress_tx.send(Progress::started(Stage::FbxConversion));
-
-    // Blender runs synchronously for minutes; do it on the blocking pool so it
-    // doesn't stall a tokio worker (and, with it, other pipeline async tasks).
-    let model_path_owned = model_path.to_path_buf();
-    let blender_path_owned = blender_path.map(|s| s.to_string());
-    let result = tokio::task::spawn_blocking(move || {
-        convert_glb_to_fbx(&model_path_owned, blender_path_owned.as_deref())
-    })
-    .await;
-
-    let result = match result {
-        Ok(inner) => inner,
-        Err(join_err) => {
-            let _ = progress_tx.send(Progress::failed(
-                Stage::FbxConversion,
-                format!("FBX conversion task failed: {join_err}"),
-            ));
-            return;
-        }
+) -> Result<()> {
+    let _ = progress_tx.send(Progress::started(Stage::Bind));
+    let model_path = model_path.to_path_buf();
+    let options = BindOptions {
+        clips: clips.to_vec(),
+        refit: false,
+        pack_dir,
+        fit_only: false,
     };
-
+    let result = tokio::task::spawn_blocking(move || bind_mesh(&model_path, &model_path, &options))
+        .await
+        .map_err(|e| Error::Pipeline(format!("bind task failed: {e}")))?;
     match result {
-        Ok(Some((fbx_path, textures_dir))) => {
-            output.fbx_path = Some(fbx_path);
-            output.textures_dir = textures_dir;
-            let _ = progress_tx.send(Progress::completed(Stage::FbxConversion));
-        }
-        Ok(None) => {
-            let _ = progress_tx.send(Progress::failed(
-                Stage::FbxConversion,
-                "Blender not found".to_string(),
-            ));
+        Ok(report) => {
+            tracing::info!(
+                clips = %report.clips.join(", "),
+                joints = report.joint_count,
+                verts = report.vertex_count,
+                "bound mesh to humanoid pack"
+            );
+            let _ = progress_tx.send(Progress::completed(Stage::Bind));
+            Ok(())
         }
         Err(e) => {
-            let _ = progress_tx.send(Progress::failed(Stage::FbxConversion, e.to_string()));
-            // Don't fail the whole pipeline for FBX conversion failure
+            let msg = e.to_string();
+            let _ = progress_tx.send(Progress::failed(Stage::Bind, msg.clone()));
+            Err(Error::Pipeline(msg))
         }
     }
 }
 
+/// This stage is best-effort — failures are reported via progress but do not
+/// fail the pipeline.
 /// Internal pipeline implementation.
 ///
 /// Orchestrates the three pipeline stages in sequence:
 /// 1. Image acquisition (download, local file, or AI generation)
 /// 2. 3D model generation from the image
-/// 3. Optional FBX export via Blender
 async fn run_pipeline_internal(
     config: PipelineConfig,
     image_provider: Arc<dyn Provider>,
@@ -945,7 +945,7 @@ async fn run_pipeline_internal(
         return Err(Error::Cancelled);
     }
 
-    // Stages 2–3 (3D + FBX) and model stats are skipped when the caller asked
+    // Stage 2 (3D) and model stats are skipped when the caller asked
     // for an image-only run. The bundle still saves below with whatever stages
     // did run.
     let (resolved_3d_model, model_info) = if config.skip_3d {
@@ -969,20 +969,34 @@ async fn run_pipeline_internal(
         .await?;
         output.model_path = Some(model_path.clone());
 
-        // Check for cancellation before FBX conversion
+        // Check for cancellation before rigging
         if cancel_flag.load(Ordering::Acquire) {
             return Err(Error::Cancelled);
         }
 
-        // Stage 3: Convert to FBX (optional, best-effort)
-        if config.export_fbx {
-            export_fbx_stage(
+        // Stage 3: Bind + clip (optional). Failure is fatal — the user asked
+        // for a rigged character, not a silent mesh-only fallback.
+        if config.bind {
+            bind_stage(
                 &model_path,
-                &mut output,
+                &config.bind_clips(),
+                config.clip_pack.clone(),
                 &progress_tx,
-                config.blender_path.as_deref(),
             )
-            .await;
+            .await?;
+        }
+
+        // Textures come out of the GLB itself, not out of Blender. This used
+        // to be a side effect of the FBX conversion, which meant the
+        // documented `textures/` output silently required Blender.
+        if let Some(dir) = model_path.parent() {
+            match crate::textures::extract_textures(&model_path, dir) {
+                Ok(Some(textures)) => output.textures_dir = Some(textures),
+                Ok(None) => {}
+                // Best-effort: a texture we cannot read must not cost the
+                // user a model they paid to generate.
+                Err(e) => tracing::warn!("texture extraction failed: {e}"),
+            }
         }
 
         // Extract model stats from the GLB before saving metadata
@@ -1021,6 +1035,8 @@ async fn run_pipeline_internal(
         model_info,
         Some(image_provider.id()),
         Some(model_3d_provider.id()),
+        config.bind,
+        config.bind_clips(),
     );
 
     if let Err(e) = metadata.save(&gen_dir) {
@@ -1082,22 +1098,18 @@ mod tests {
     fn test_pipeline_config_builder() {
         let config = PipelineConfig::new()
             .with_prompt("a robot")
-            .with_3d_model("trellis-2")
-            .without_fbx();
+            .with_3d_model("trellis-2");
 
         assert_eq!(config.prompt, Some("a robot".to_string()));
         assert_eq!(config.model_3d, "trellis-2");
-        assert!(!config.export_fbx);
     }
 
     #[test]
     fn test_with_skip_3d_disables_downstream_concerns() {
-        // skip_3d implies no FBX (derived from the GLB that never gets made)
-        // and no approval gate (the gate's purpose — "pay for 3D on this
-        // image?" — is moot when 3D was never going to run).
+        // skip_3d implies no approval gate: the gate's purpose, "pay for 3D
+        // on this image?", is moot when 3D was never going to run.
         let config = PipelineConfig::new().with_image_approval().with_skip_3d();
         assert!(config.skip_3d);
-        assert!(!config.export_fbx);
         assert!(!config.require_image_approval);
     }
 
