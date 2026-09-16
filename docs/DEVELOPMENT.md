@@ -467,6 +467,10 @@ impl App {
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) format. These are parsed by [git-cliff](https://git-cliff.org/) (config: `cliff.toml`) to auto-generate the changelog and GitHub Release notes.
 
+The repo squash-merges, so the PR title is the changelog subject and the PR body
+is the detail under it. Write that body for people who use the app, not for
+reviewers.
+
 ```
 type(scope): short description
 

@@ -2,9 +2,9 @@
 # https://git-cliff.org/docs/configuration
 #
 # The repo squash-merges, so one PR becomes one commit and the changelog gets
-# one entry per PR. The squash body carries the branch's individual commit
-# messages, which is where the detail comes from; the preprocessors below
-# strip the trailers and separators GitHub adds around them.
+# one entry per PR. The squash body is the release note: write it for people
+# who use the app, not for reviewers. The preprocessors below strip the
+# trailers and separators GitHub adds around the body.
 
 [changelog]
 header = "# Changelog\n\nAll notable changes to Asset Tap are documented here."

@@ -12,97 +12,23 @@ All notable changes to Asset Tap are documented here.
 
 - rig and animate humanoid meshes in-app; drop FBX and Blender ([#82](https://github.com/nightandwknd/asset-tap/pull/82))
 
-  FBX was never ours. The stage shelled out to Blender, which meant the
-  documented textures/ output silently depended on an external install,
-  and the exporter wrote a static mesh: it could not carry a skeleton, so
-  a bundle would have paired a five-animation GLB with a lifeless FBX
-  once multi-clip landed.
+  Pose a shipped skeleton on a character, bind it, preview clips, and bake
+  several animations into `model.glb`. Rigging needs nothing downloaded.
+  Clip packs add animations, not bones.
 
-  Gone with it: Settings::export_fbx_default and blender_path,
-  PipelineOutput::fbx_path, Stage::FbxConversion, the FBX artifact and
-  step in bundle metadata, and Blender detection in the error-log system
-  report. --fbx, --no-fbx, --convert-fbx and --convert-only are now
-  usage errors rather than flags that quietly do nothing.
+  FBX export and Blender are gone. `--fbx`, `--no-fbx`, `--convert-fbx`,
+  and `--convert-only` are usage errors. A `model.fbx` already on disk is
+  left alone. Textures come out of the GLB.
 
-  Old bundles are untouched: a model.fbx already on disk stays there, it
-  is simply no longer produced or advertised.
+  Bake writes exactly the clips you ticked. Unticking removes. Clearing
+  every animation is a separate action. Adding clips to a rigged mesh
+  keeps the skeleton and weights unless you pass `--refit`.
 
-  One embedded skeleton of 52 joints named for VRM 1.0, so Rig and Bind
-  work with nothing installed. A pack's own bone names are a lookup at the
-  edges and canonicalize renames on load, which is what lets clips from
-  different libraries land in one file: Quaternius already renamed its rig
-  once, from Rigify DEF-* to the Unreal convention, and a scheme-specific
-  string test would have broken on that.
-
-  Heads define the skeleton and weights follow, as Meshy and Mixamo do, so
-  moving a knee reassigns the vertices around it rather than sliding a
-  pivot through a bind that no longer fits.
-
-  Bake is declarative and multi-clip: the file ends up with exactly the set
-  it was given, so it is idempotent and unticking removes. prune_unused
-  reclaims the dropped clips' accessors.
-
-  Textures come out of the GLB itself, so the documented textures/ output
-  no longer depends on an external tool, and the extension follows the
-  actual bytes rather than the declared MIME type.
-
-  Correctness work that came out of running it on real provider output:
-
-  - Provider WebP made every fresh mesh unbindable. trellis-2 requires
-    EXT_texture_webp, so its textures legally omit the core source, and
-    the gltf crate rejects both at validation. Nothing on the rig path
-    reads a pixel, so it loads without validation and keeps the checks that
-    matter.
-  - pick_up_axis was a coin flip. It broke a near-tie on mins[axis],
-    reading that as distance to a ground plane, but provider meshes are
-    centered on the origin, so that is half the extent: two of four real
-    characters got the wrong up-axis and hunted for a head along an arm.
-  - The armature wrapper was taking skin weights. root is in the skin but
-    no clip animates it, and its bone segment runs through the pelvis, so
-    39.7% of a real character was anchored to a joint that never moves.
-    Every clip smeared; a swim cycle tore a spike out of the hips.
-  - Auto-fit could seed a joint off the mesh, and Bind then refused the fit
-    the author had just asked for. Off-mesh heads now retreat along the
-    bone toward the parent.
-  - Refusals measure to the surface, not to the nearest vertex, which on
-    coarse geometry overstates how far a joint has to move.
-
-  One model with N animations, the way Mixamo and Meshy work, rather than
-  one export per clip. PipelineConfig::clips replaces the single clip,
-  and bind_clips resolves the default in one place so no front door
-  invents its own.
-
-  bundle.json records the bind as a pipeline op whose clips parameter is
-  the model's full animation set after the run, not this run's additions,
-  which is what makes a re-bake describable. Two writers emit that step
-  and both_bind_step_writers_agree_on_shape guards the drift; they
-  disagreed once already.
-
-  The free Standard libraries live in repo packs/ and ship as a hashed
-  GitHub Release artifact, not in the binary. clip download installs
-  missing ids only; --force refreshes packs stamped by a previous
-  download and never replaces a clip install / Source pack.
-
-  asset-tap bind --mesh model.glb --clip walk --clip Sword_Attack bakes a
-  set; --clip repeats on both the root --rig path and bind. A rigged mesh
-  keeps its skeleton and weights unless --refit is passed, so adding a
-  clip cannot silently undo joints arranged by hand.
-
-  clip install --from takes a Quaternius .zip, an extracted folder, or a
-  glTF and finds the library itself. clip list reports every clip in
-  every installed pack and, with --model, which are already baked in.
-  clip download (and --json clip download) fetches the free Standard
-  packs, hash-verified; --force refreshes only release-stamped ids.
-
-  MCP generate takes clips: [...]. clip_download returns the same
-  document as --json clip download. The generate argv was building
-  --clip twice against a root flag that accepted one value, so any
-  two-clip request failed as a usage error; an argv round-trip through
-  the real parser now pins it.
-
-  Exit codes no longer depend on who is watching. classify_error reads
-  BindError and ClipPackError from the cause chain, so a missing mesh
-  exits 7 whether or not --json was passed.
+  `clip download` installs the Standard libraries from the latest release
+  (hash-verified, not in the binary). Packs you already installed, including
+  Source, are left alone. `clip install --from` takes a zip, folder, or
+  glTF. `--clip` repeats on `bind` and `--rig`. MCP `generate` takes
+  `clips: [...]`.
 
 ### Bug Fixes
 

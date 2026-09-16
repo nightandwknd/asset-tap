@@ -30,6 +30,11 @@ just style: [git-cliff](https://git-cliff.org/) (config in [cliff.toml](cliff.to
 generates `CHANGELOG.md` and the GitHub Release notes directly from your commit messages. A
 commit that doesn't follow the format won't be grouped correctly in the changelog.
 
+The repo squash-merges. The PR title is the changelog subject; the PR body is the
+detail under it. Write that body for people who use the app: what they can do now,
+what stopped working, how to invoke it. Design comparisons, type names, percentages,
+and bug postmortems belong in the review, not the GitHub Release.
+
 Format:
 
 ```

@@ -7,9 +7,11 @@ on:
       - '.claude/**'
       - '.config/**'
       - '.github/dependabot.yaml'
+      - '.github/pull_request_template.md'
       - '.github/workflows/site.yaml'
       - '.github/workflows/ci.yaml'
       - '.github/workflows/audit-schedule.yaml'
+      - '.github/workflows/release.yaml'
       - '.vscode/**'
       - 'docs/**'
       - 'site/**'
@@ -309,8 +311,9 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" Cargo.toml
           cargo update --workspace
 
-          # Generate full CHANGELOG.md and format to match dprint conventions
-          git-cliff --tag "v${NEW_VERSION}" -o CHANGELOG.md
+          # Prepend this version. Do not regenerate history: a corrected
+          # entry would be overwritten from the squash commit that produced it.
+          git-cliff --unreleased --tag "v${NEW_VERSION}" --prepend CHANGELOG.md
           dprint fmt CHANGELOG.md
 
           # Create release commit
