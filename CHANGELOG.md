@@ -2,6 +2,22 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.2 — 2026-09-16
+
+### Bug Fixes
+
+- **gui:** trim animation pack chrome and copy ([#84](https://github.com/nightandwknd/asset-tap/pull/84))
+
+  Empty Animate no longer repeats Add pack. Welcome drops pack download.
+  Tooltips and the confirm share one set of strings.
+
+  Help opens the same confirm as Add pack. Hover punctuation matches.
+  Site guides no longer say free packs or a hardcoded size.
+
+### Chores
+
+- **deps:** bump rayon in the rust-dependencies group ([#83](https://github.com/nightandwknd/asset-tap/pull/83))
+
 ## v26.9.1 — 2026-09-16
 
 ### ⚠ Breaking Changes
