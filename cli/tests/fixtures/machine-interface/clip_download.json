@@ -1,0 +1,9 @@
+{
+  "status": "success",
+  "installed": [
+    "ual1",
+    "ual2"
+  ],
+  "already_exists": false,
+  "packs_version": 1
+}

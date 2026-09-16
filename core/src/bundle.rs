@@ -10,7 +10,6 @@
 //! ├── bundle.json      # Metadata (this module)
 //! ├── image.png        # Generated image
 //! ├── model.glb        # 3D model
-//! ├── model.fbx        # FBX export (optional)
 //! └── textures/        # Extracted textures
 //! ```
 //!
@@ -32,7 +31,6 @@
 //! - [`history`](crate::history) - Generation history tracking
 
 use crate::bundle_schema;
-use crate::constants::files::DEMO_BUNDLE_URL;
 use crate::constants::files::bundle as bundle_files;
 use crate::constants::validation;
 use crate::history::GenerationConfig;
@@ -117,6 +115,43 @@ pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
         vertex_count,
         triangle_count,
     })
+}
+
+/// Load `bundle.json` if present, stamp the bind step, and write it back.
+///
+/// When `model.glb` exists, vertex/triangle/size/sha256 on the `model`
+/// artifact are refreshed so the panel matches the file Fit/Done/Bake wrote.
+/// Missing metadata or a missing model is not an error (CLI bind of a
+/// standalone GLB has no bundle).
+pub fn stamp_bind_step(bundle_dir: &Path, clips: &[String]) -> Result<(), BundleError> {
+    let mut meta = match BundleMetadata::load(bundle_dir)? {
+        Some(m) => m,
+        None => return Ok(()),
+    };
+    meta.stamp_bind_step(clips);
+    refresh_model_artifact_from_glb(&mut meta, bundle_dir);
+    meta.save(bundle_dir)
+}
+
+fn refresh_model_artifact_from_glb(meta: &mut BundleMetadata, bundle_dir: &Path) {
+    let path = bundle_dir.join(files::MODEL_GLB);
+    let Some(info) = extract_model_info(&path) else {
+        return;
+    };
+    let hash = std::fs::read(&path).ok().map(|b| sha256_hex(&b));
+    if let Some(art) = meta
+        .artifacts
+        .iter_mut()
+        .find(|a| a.id == bundle_schema::ARTIFACT_MODEL)
+    {
+        art.file_size = Some(info.file_size);
+        art.format = Some(info.format);
+        art.vertex_count = Some(info.vertex_count);
+        art.triangle_count = Some(info.triangle_count);
+        if hash.is_some() {
+            art.sha256 = hash;
+        }
+    }
 }
 
 /// Metadata stored in bundle.json within each generation directory.
@@ -242,12 +277,16 @@ impl BundleMetadata {
         model_info: Option<ModelInfo>,
         image_provider_id: Option<&str>,
         model_3d_provider_id: Option<&str>,
+        bind: bool,
+        clips: Vec<String>,
     ) -> Self {
         let manifest = bundle_schema::GenerationManifest {
             config,
             model_info,
             image_provider_id: image_provider_id.map(str::to_string),
             model_3d_provider_id: model_3d_provider_id.map(str::to_string),
+            bind,
+            clips,
         };
         let (artifacts, primary, pipeline) =
             bundle_schema::describe_generation(bundle_dir, &manifest);
@@ -454,6 +493,43 @@ impl BundleMetadata {
             crate::config::AtomicWriteOptions::default(),
         )
         .map_err(|e| BundleError::Io { path, source: e })
+    }
+
+    /// Insert or update the `bind` pipeline step.
+    ///
+    /// `clips` is the full baked set — empty after a fit-only bind. The
+    /// skeleton is recorded rather than a pack id: fitting uses the embedded
+    /// canonical rig and touches no pack at all, so naming one was a fiction.
+    pub fn stamp_bind_step(&mut self, clips: &[String]) {
+        let mut params = HashMap::new();
+        params.insert(
+            "clips".into(),
+            Value::Array(clips.iter().map(|c| Value::String(c.clone())).collect()),
+        );
+        params.insert(
+            "skeleton".into(),
+            Value::String(crate::rig::SKELETON_ID.into()),
+        );
+        let step = bundle_schema::PipelineStep::Op {
+            id: bundle_schema::STEP_BIND.to_string(),
+            op: bundle_schema::ops::BIND.to_string(),
+            params,
+            inputs: vec![bundle_schema::ARTIFACT_MODEL.to_string()],
+            outputs: vec![bundle_schema::ARTIFACT_MODEL.to_string()],
+            duration_ms: None,
+        };
+        let pipeline = self
+            .pipeline
+            .get_or_insert_with(bundle_schema::BundlePipeline::default);
+        if let Some(existing) = pipeline
+            .steps
+            .iter_mut()
+            .find(|s| s.id() == bundle_schema::STEP_BIND)
+        {
+            *existing = step;
+        } else {
+            pipeline.steps.push(step);
+        }
     }
 
     /// Validate and sanitize this metadata, fixing any corrupt or out-of-bounds values.
@@ -670,7 +746,6 @@ impl From<Bundle> for crate::types::PipelineOutput {
             output_dir: Some(bundle.path),
             image_path: bundle.contents.image,
             model_path: bundle.contents.model,
-            fbx_path: bundle.contents.model_fbx,
             textures_dir: bundle.contents.textures_dir,
             ..Default::default()
         }
@@ -685,9 +760,6 @@ pub struct BundleContents {
 
     /// Main model file path (if exists).
     pub model: Option<PathBuf>,
-
-    /// FBX export file path (if exists).
-    pub model_fbx: Option<PathBuf>,
 
     /// Textures directory path (if exists and has files).
     pub textures_dir: Option<PathBuf>,
@@ -757,9 +829,6 @@ pub enum BundleError {
     NotABundle(PathBuf),
 }
 
-/// Download timeout for the demo bundle (2 minutes for ~34 MB).
-const DEMO_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
 /// Compute the SHA-256 hash of a byte slice, returned as a lowercase hex string.
 pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -767,7 +836,7 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// Verify that the SHA-256 hash of `data` matches `expected_hex`.
-fn verify_sha256(data: &[u8], expected_hex: &str) -> anyhow::Result<()> {
+pub(crate) fn verify_sha256(data: &[u8], expected_hex: &str) -> anyhow::Result<()> {
     let actual = sha256_hex(data);
     if actual != expected_hex {
         anyhow::bail!(
@@ -814,30 +883,16 @@ pub async fn download_demo_bundle(
     output_dir: PathBuf,
     on_progress: impl Fn(f32) + Send + 'static,
 ) -> anyhow::Result<DemoDownloadResult> {
-    use crate::constants::files::DEMO_MANIFEST_URL;
+    use crate::constants::files::{DEMO_BUNDLE_URL, DEMO_MANIFEST_URL};
+    use crate::release_fetch::{download_verified_bytes, fetch_release_manifest, manifest_sha256};
 
-    let client = reqwest::Client::builder()
-        .timeout(DEMO_DOWNLOAD_TIMEOUT)
-        .build()?;
-
-    // Phase 1: fetch the manifest to check the demo version.
-    info!("Checking demo bundle version...");
-    let manifest_resp = client.get(DEMO_MANIFEST_URL).send().await?;
-    if !manifest_resp.status().is_success() {
-        anyhow::bail!(
-            "Failed to fetch demo manifest: HTTP {}",
-            manifest_resp.status()
-        );
-    }
-
-    let manifest: serde_json::Value = manifest_resp.json().await?;
+    let manifest = fetch_release_manifest(DEMO_MANIFEST_URL).await?;
     let demo_version = manifest
         .get("demo_version")
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)
         .ok_or_else(|| anyhow::anyhow!("Demo manifest missing demo_version field"))?;
 
-    // Check if this version already exists locally.
     if has_demo_version(&output_dir, demo_version) {
         info!(
             "Demo bundle v{} already exists, skipping download",
@@ -846,51 +901,8 @@ pub async fn download_demo_bundle(
         return Ok(DemoDownloadResult::AlreadyExists(demo_version));
     }
 
-    // Phase 2: download the full zip.
-    info!(
-        "Downloading demo bundle v{} from {}",
-        demo_version, DEMO_BUNDLE_URL
-    );
-    let response = client.get(DEMO_BUNDLE_URL).send().await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to download demo bundle: HTTP {}", response.status());
-    }
-
-    let total_size = response.content_length();
-    let mut downloaded: u64 = 0;
-    let mut bytes = Vec::new();
-
-    let mut stream = response.bytes_stream();
-    use futures::StreamExt;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        downloaded += chunk.len() as u64;
-        bytes.extend_from_slice(&chunk);
-
-        match total_size {
-            Some(total) => on_progress(downloaded as f32 / total as f32),
-            None => on_progress(-1.0),
-        }
-    }
-
-    on_progress(1.0);
-    info!("Downloaded {} bytes, verifying integrity...", bytes.len());
-
-    // Phase 3: verify SHA-256 integrity. Fail closed — a manifest without a
-    // hash is treated as an error rather than silently skipping verification,
-    // so a manifest-only compromise or a workflow regression can't disable the
-    // integrity check unnoticed.
-    let expected_hash = manifest
-        .get("sha256")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Demo manifest is missing a sha256 hash; refusing to install unverified download"
-            )
-        })?;
-    verify_sha256(&bytes, expected_hash)?;
-    info!("SHA-256 integrity verified");
+    let expected_hash = manifest_sha256(&manifest)?;
+    let bytes = download_verified_bytes(DEMO_BUNDLE_URL, expected_hash, on_progress).await?;
 
     // Create a timestamped directory like normal bundles, with collision
     // suffix if another bundle landed in the same second.
@@ -1087,12 +1099,6 @@ fn scan_bundle_contents(
                 reason: "File is empty or inaccessible".to_string(),
             });
         }
-    }
-
-    // Check for model.fbx (standard filename)
-    let fbx_path = bundle_dir.join(files::MODEL_FBX);
-    if fbx_path.exists() && is_valid_file(&fbx_path) {
-        contents.model_fbx = Some(fbx_path);
     }
 
     // Check for textures directory
@@ -1370,7 +1376,7 @@ fn is_macos_archive_junk(path: &str) -> bool {
 /// (e.g., `bundle-name/textures/base.png` → `textures/base.png`).
 ///
 /// Returns the number of files extracted.
-fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
+pub(crate) fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     dest: &Path,
 ) -> Result<usize, String> {
@@ -2105,21 +2111,7 @@ mod tests {
         // Pad to 4-byte alignment
         bin_data.resize((bin_data.len() + 3) & !3, 0);
 
-        // Build GLB: header + JSON chunk + BIN chunk
-        let total_len = 12 + 8 + json_chunk.len() + 8 + bin_data.len();
-        let mut glb = Vec::with_capacity(total_len);
-        // GLB header
-        glb.extend_from_slice(b"glTF");
-        glb.extend_from_slice(&2u32.to_le_bytes()); // version
-        glb.extend_from_slice(&(total_len as u32).to_le_bytes());
-        // JSON chunk
-        glb.extend_from_slice(&(json_chunk.len() as u32).to_le_bytes());
-        glb.extend_from_slice(&0x4E4F534Au32.to_le_bytes()); // "JSON"
-        glb.extend_from_slice(&json_chunk);
-        // BIN chunk
-        glb.extend_from_slice(&(bin_data.len() as u32).to_le_bytes());
-        glb.extend_from_slice(&0x004E4942u32.to_le_bytes()); // "BIN\0"
-        glb.extend_from_slice(&bin_data);
+        let glb = crate::test_support::glb(&json_chunk, Some(&bin_data));
 
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("test.glb");
@@ -2147,7 +2139,7 @@ mod tests {
         let metadata = serde_json::json!({
             "version": 1,
             "name": "Test Demo",
-            "demo_version": 1,
+            "demo_version": 1
         });
         std::fs::write(
             bundle_dir.join("bundle.json"),
@@ -2168,7 +2160,7 @@ mod tests {
         // Normal bundle without demo_version
         let metadata = serde_json::json!({
             "version": 1,
-            "name": "My Generation",
+            "name": "My Generation"
         });
         std::fs::write(
             bundle_dir.join("bundle.json"),
@@ -2500,7 +2492,6 @@ mod tests {
                 "prompt": "a cowboy ninja",
                 "image_model": "fal-ai/nano-banana-2",
                 "model_3d": "fal-ai/trellis-2",
-                "export_fbx": true,
                 "image_model_params": {
                     "guidance_scale": 4.5,
                     "num_inference_steps": 32
@@ -2525,7 +2516,6 @@ mod tests {
         let cfg = parsed.config.clone().expect("config present");
         assert_eq!(cfg.image_model.as_deref(), Some("fal-ai/nano-banana-2"));
         assert_eq!(cfg.model_3d, "fal-ai/trellis-2");
-        assert!(cfg.export_fbx);
         assert_eq!(cfg.image_model_params.len(), 2);
         assert_eq!(
             cfg.model_3d_params.get("topology").and_then(|v| v.as_str()),
@@ -2564,8 +2554,7 @@ mod tests {
             "config": {
                 "prompt": "a crate",
                 "image_model": "fal-ai/nano-banana-2",
-                "model_3d": "fal-ai/trellis-2",
-                "export_fbx": false
+                "model_3d": "fal-ai/trellis-2"
             }
         }"#,
         )
@@ -2663,6 +2652,8 @@ mod tests {
             None,
             Some("fal.ai"),
             Some("fal.ai"),
+            false,
+            Vec::new(),
         );
         let json = serde_json::to_value(&meta).unwrap();
         assert_eq!(json["version"], 2);
@@ -2681,8 +2672,7 @@ mod tests {
             "config": {
                 "prompt": "a crate",
                 "image_model": "fal-ai/nano-banana-2",
-                "model_3d": "fal-ai/trellis-2",
-                "export_fbx": false
+                "model_3d": "fal-ai/trellis-2"
             }
         }"#;
         std::fs::write(dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
@@ -2693,5 +2683,130 @@ mod tests {
         let disk_val: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
         assert_eq!(disk_val["version"], 1);
         assert!(disk_val.get("artifacts").is_none());
+    }
+
+    /// Two code paths write the `bind` step: `stamp_bind_step` after a GUI/CLI
+    /// bind, and `for_generation` / `steps_from_config` when the pipeline
+    /// writes a new bundle. They drifted once already (one wrote `clip` +
+    /// `pack`, the other `clips` + `skeleton`), which made a bundle's shape
+    /// depend on which ran.
+    #[test]
+    fn both_bind_step_writers_agree_on_shape() {
+        use crate::bundle_schema::{PipelineStep, STEP_BIND};
+
+        let clips = vec!["Walk_Loop".to_string()];
+
+        let stamped_dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+            "name": "t",
+            "version": 2,
+            "created_at": "2024-12-29T15:30:45Z",
+            "pipeline": { "steps": [] }
+        }"#;
+        std::fs::write(stamped_dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
+        stamp_bind_step(stamped_dir.path(), &clips).unwrap();
+        let stamped = BundleMetadata::load(stamped_dir.path())
+            .unwrap()
+            .unwrap()
+            .pipeline
+            .unwrap()
+            .steps
+            .into_iter()
+            .find(|s| s.id() == STEP_BIND)
+            .expect("stamped bind step");
+
+        let gen_dir = tempfile::tempdir().unwrap();
+        std::fs::write(gen_dir.path().join("model.glb"), b"glb").unwrap();
+        let generated = BundleMetadata::for_generation(
+            gen_dir.path(),
+            GenerationConfig {
+                model_3d: "test/model".into(),
+                ..GenerationConfig::default()
+            },
+            None,
+            None,
+            None,
+            true,
+            clips.clone(),
+        )
+        .pipeline
+        .unwrap()
+        .steps
+        .into_iter()
+        .find(|s| s.id() == STEP_BIND)
+        .expect("generated bind step");
+
+        match (&stamped, &generated) {
+            (
+                PipelineStep::Op {
+                    id: stamped_id,
+                    op: stamped_op,
+                    params: stamped_params,
+                    inputs: stamped_in,
+                    outputs: stamped_out,
+                    ..
+                },
+                PipelineStep::Op {
+                    id: generated_id,
+                    op: generated_op,
+                    params: generated_params,
+                    inputs: generated_in,
+                    outputs: generated_out,
+                    ..
+                },
+            ) => {
+                assert_eq!(stamped_id, generated_id);
+                assert_eq!(stamped_op, generated_op);
+                assert_eq!(stamped_in, generated_in);
+                assert_eq!(stamped_out, generated_out);
+                let mut stamped_keys: Vec<&String> = stamped_params.keys().collect();
+                stamped_keys.sort();
+                let mut generated_keys: Vec<&String> = generated_params.keys().collect();
+                generated_keys.sort();
+                assert_eq!(stamped_keys, generated_keys);
+                assert_eq!(stamped_keys, ["clips", "skeleton"]);
+                assert_eq!(
+                    stamped_params.get("skeleton"),
+                    generated_params.get("skeleton")
+                );
+                assert_eq!(stamped_params.get("clips"), generated_params.get("clips"));
+                assert_eq!(
+                    stamped_params.get("skeleton").and_then(|v| v.as_str()),
+                    Some(crate::rig::SKELETON_ID)
+                );
+            }
+            (other_a, other_b) => panic!("expected op, got {other_a:?} / {other_b:?}"),
+        }
+    }
+
+    #[test]
+    fn stamp_bind_step_writes_an_empty_set_for_fit_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+            "version": 2,
+            "created_at": "2024-12-29T15:30:45Z",
+            "pipeline": { "steps": [] }
+        }"#;
+        std::fs::write(dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
+        stamp_bind_step(dir.path(), &[]).unwrap();
+        let loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        let step = loaded
+            .pipeline
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .find(|s| s.id() == crate::bundle_schema::STEP_BIND)
+            .expect("bind step");
+        match step {
+            crate::bundle_schema::PipelineStep::Op { params, .. } => {
+                assert_eq!(params.get("clips"), Some(&Value::Array(Vec::new())));
+                assert_eq!(
+                    params.get("skeleton").and_then(|v| v.as_str()),
+                    Some(crate::rig::SKELETON_ID)
+                );
+            }
+            other => panic!("expected op, got {other:?}"),
+        }
     }
 }

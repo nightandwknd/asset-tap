@@ -8,7 +8,7 @@ authors = ["Night and Wknd"]
 categories = ["multimedia", "graphics", "command-line-utilities"]
 edition = "2024"
 homepage = "https://assettap.dev"
-keywords = ["3d", "ai", "text-to-3d", "asset-generation", "blender"]
+keywords = ["3d", "ai", "text-to-3d", "asset-generation", "rigging"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/nightandwknd/asset-tap"
@@ -33,7 +33,6 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 walkdir = "2"
-which = "7"
 
 # Env loading
 dotenvy = "0.15"
@@ -50,6 +49,10 @@ indexmap = "2"
 eframe = { version = "0.34", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 egui = "0.34"
 egui_extras = { version = "0.34", features = ["all_loaders"] }
+
+# 3D math (bind / skin)
+glam = "0.30"
+rayon = "1.10"
 
 # 3D rendering
 gltf = { version = "1.4", features = ["KHR_materials_unlit", "extras"] }
@@ -90,3 +93,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 strip = true
 lto = true
 codegen-units = 1
+
+# CPU skin of a 300k-vert mesh is unusable at opt-level 0. Keep the rest of
+# the workspace fast to compile; only the poser and its math get optimized.
+[profile.dev.package.asset-tap-core]
+opt-level = 3
+
+[profile.dev.package.glam]
+opt-level = 3
+
+[profile.dev.package.rayon]
+opt-level = 3
+
+[profile.dev.package.rayon-core]
+opt-level = 3

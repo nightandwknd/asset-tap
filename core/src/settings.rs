@@ -60,7 +60,6 @@
 //! - [`providers::ProviderRegistry`](crate::providers::ProviderRegistry) - Provider management
 
 use crate::constants::files::{APP_DISPLAY_NAME, APP_NAME, config as config_files, dev_dirs};
-use crate::convert::find_blender;
 use crate::providers::ProviderRegistry;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -132,21 +131,12 @@ pub struct Settings {
     /// Directory where generated assets are saved.
     pub output_dir: PathBuf,
 
-    /// Custom Blender executable path (None = auto-detect).
-    pub blender_path: Option<String>,
-
     // =========================================================================
     // API Keys
     // =========================================================================
     /// Provider-specific API keys (provider ID -> API key value).
     #[serde(default)]
     pub provider_api_keys: HashMap<String, String>,
-
-    // =========================================================================
-    // Defaults
-    // =========================================================================
-    /// Whether FBX export is enabled by default.
-    pub export_fbx_default: bool,
 
     // =========================================================================
     // UI Preferences
@@ -160,13 +150,9 @@ impl Default for Settings {
         Self {
             // Paths
             output_dir: default_output_dir(),
-            blender_path: None,
 
             // API Keys
             provider_api_keys: HashMap::new(),
-
-            // Defaults
-            export_fbx_default: false,
 
             // UI Preferences
             require_image_approval: true,
@@ -357,15 +343,9 @@ impl Settings {
     /// Detect and populate settings with system values.
     ///
     /// Called when creating a new settings file to pre-populate with:
-    /// - Auto-detected Blender path
     /// - API keys from environment variables (in dev mode)
     /// - Default model selections
     pub fn detect_and_populate(&mut self) {
-        // Detect Blender
-        if let Some(blender) = find_blender() {
-            self.blender_path = Some(blender);
-        }
-
         // Note: sync_from_env() is called separately by GUI/CLI after creating the provider registry
         // We skip it here to avoid creating a registry during settings initialization
     }
@@ -385,7 +365,6 @@ impl Settings {
     /// use asset_tap_core::Settings;
     ///
     /// let mut settings = Settings::load();
-    /// settings.export_fbx_default = false;
     /// settings.save()?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
@@ -515,20 +494,6 @@ impl Settings {
         }
 
         result
-    }
-
-    /// Get the effective Blender path.
-    ///
-    /// Priority: settings file (if set) > auto-detect
-    pub fn get_blender_path(&self) -> Option<String> {
-        // If user has set a custom path, use it
-        if let Some(ref path) = self.blender_path
-            && !path.is_empty()
-        {
-            return Some(path.clone());
-        }
-        // Otherwise, auto-detect
-        find_blender()
     }
 
     /// Check if at least one provider API key is configured.
@@ -744,7 +709,6 @@ mod tests {
     #[test]
     fn test_default_settings() {
         let settings = Settings::default();
-        assert!(!settings.export_fbx_default);
         assert!(settings.require_image_approval);
     }
 
@@ -1036,27 +1000,6 @@ mod tests {
         assert!(settings.output_dir_valid());
     }
 
-    #[test]
-    fn test_get_blender_path_custom() {
-        let mut settings = Settings::default();
-
-        // No custom path — falls back to auto-detect
-        let _path = settings.get_blender_path();
-        // (may or may not find Blender, that's OK)
-
-        // Set custom path
-        settings.blender_path = Some("/usr/bin/blender".to_string());
-        assert_eq!(
-            settings.get_blender_path(),
-            Some("/usr/bin/blender".to_string())
-        );
-
-        // Empty string treated as unset
-        settings.blender_path = Some("".to_string());
-        // Should fall back to auto-detect, not return empty string
-        assert_ne!(settings.get_blender_path(), Some("".to_string()));
-    }
-
     // =========================================================================
     // Load / save persistence and corruption handling
     // =========================================================================
@@ -1068,7 +1011,6 @@ mod tests {
 
         let mut original = Settings::default();
         original.set_provider_api_key("fal-ai", "k-round-trip");
-        original.export_fbx_default = true;
         original.require_image_approval = false;
 
         original.save_to(&path).unwrap();
@@ -1078,7 +1020,6 @@ mod tests {
             loaded.provider_api_keys.get("fal-ai").map(String::as_str),
             Some("k-round-trip")
         );
-        assert!(loaded.export_fbx_default);
         assert!(!loaded.require_image_approval);
     }
 
@@ -1139,7 +1080,7 @@ mod tests {
         let bak = path.with_extension(BAK_EXT);
         assert!(
             !bak.exists(),
-            "first save should not create a .bak — nothing to back up"
+            "first save should not create a .bak; nothing to back up"
         );
     }
 
@@ -1316,9 +1257,7 @@ mod tests {
         // Every other required field is present.
         let minimal = serde_json::json!({
             "output_dir": "/tmp/whatever",
-            "blender_path": null,
             "provider_api_keys": { "fal-ai": "k" },
-            "export_fbx_default": false,
         });
         std::fs::write(&path, serde_json::to_string(&minimal).unwrap()).unwrap();
 

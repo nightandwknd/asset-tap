@@ -26,6 +26,10 @@ Understanding the output file format and metadata structure. Learn how generated
 
 Documentation for developers and advanced users:
 
+### [3D viewer + animate](architecture/VIEWER_ANIMATE.md)
+
+Native `three-d` workbench: inspect by default; optional Animate panel (Rig / Bind, then preview / Bake). Write contract for the viewer, rig, and clips.
+
 ### [Provider System](architecture/PROVIDERS.md)
 
 Deep-dive into the YAML-based provider plugin architecture. Learn how providers work and how to add your own.
@@ -105,7 +109,6 @@ make doc-open   # Generate and open in browser
   - Provider system: `core/src/providers/`
   - Template system: `core/src/templates/`
   - Pipeline orchestration: `core/src/pipeline.rs`
-  - Blender integration: `core/src/convert.rs`
 - **CLI**: `cli/src/main.rs`
 - **GUI**: `gui/src/`
 

@@ -194,7 +194,7 @@ impl DiscoveryCache {
         };
 
         if file_cache.version != 1 {
-            tracing::warn!("Unknown cache version {} — ignoring", file_cache.version);
+            tracing::warn!("Unknown cache version {}, ignoring", file_cache.version);
             return;
         }
 

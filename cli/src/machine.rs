@@ -55,7 +55,6 @@ pub const KIND_SERVER_ERROR: &str = "server_error";
 pub const KIND_TIMEOUT: &str = "timeout";
 pub const KIND_MODEL_ERROR: &str = "model_error";
 pub const KIND_NETWORK_ERROR: &str = "network_error";
-pub const KIND_BLENDER_NOT_FOUND: &str = "blender_not_found";
 pub const KIND_IO_ERROR: &str = "io_error";
 pub const KIND_UNKNOWN: &str = "unknown";
 
@@ -91,7 +90,23 @@ pub enum Event {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ResultOutcome {
     Success {
-        bundle_dir: String,
+        /// Always present for `generate`. Absent for `bind`, which writes a
+        /// model rather than producing a bundle.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bundle_dir: Option<String>,
+        /// The written model. `bind` only.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// Skin joint count. `bind` only.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        joints: Option<usize>,
+        /// Mesh vertex count. `bind` only.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        vertices: Option<usize>,
+        /// Animations the model now holds, in file order. `bind` only, and
+        /// empty after `--fit-only`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        clips: Option<Vec<String>>,
         duration_ms: u64,
     },
     Error {
@@ -150,7 +165,31 @@ impl Event {
     pub fn result_success(bundle_dir: String, duration_ms: u64) -> Self {
         Event::Result {
             outcome: ResultOutcome::Success {
-                bundle_dir,
+                bundle_dir: Some(bundle_dir),
+                model: None,
+                joints: None,
+                vertices: None,
+                clips: None,
+                duration_ms,
+            },
+        }
+    }
+
+    /// Terminal event for `bind --json`: a written model rather than a bundle.
+    pub fn result_bind_success(
+        model: String,
+        joints: usize,
+        vertices: usize,
+        clips: Vec<String>,
+        duration_ms: u64,
+    ) -> Self {
+        Event::Result {
+            outcome: ResultOutcome::Success {
+                bundle_dir: None,
+                model: Some(model),
+                joints: Some(joints),
+                vertices: Some(vertices),
+                clips: Some(clips),
                 duration_ms,
             },
         }
@@ -359,6 +398,52 @@ pub fn is_cancellation(err: &anyhow::Error) -> bool {
 ///
 /// Walks the cause chain looking for a [`KindedError`] or a core error;
 /// anything else is `unknown`.
+/// Wire classification for a rig failure.
+///
+/// These are input problems, not transient ones: a clip that no installed pack
+/// provides, a mesh that cannot be landmarked, a joint parked off the body.
+/// Left to the generic path they became `unknown`, which exits 1 and reads as
+/// a retryable internal failure — the opposite of the truth, and an agent
+/// retrying a bind that can never succeed is the concrete cost.
+pub fn classify_bind_error(err: &asset_tap_core::BindError) -> WireError {
+    use asset_tap_core::BindError;
+    // A pack problem is about the local machine, not the mesh, so it routes
+    // through the same classifier `clip install` uses: an agent must not read
+    // "no animation pack installed" as a provider error it can retry.
+    if let BindError::Pack(pack) = err {
+        return classify_pack_error(pack);
+    }
+    let kind = match err {
+        BindError::Io { .. } => KIND_IO_ERROR,
+        BindError::Gltf { .. } | BindError::OffMesh(_) | BindError::Failed(_) => {
+            KIND_VALIDATION_ERROR
+        }
+        BindError::Pack(_) => unreachable!("handled above"),
+    };
+    // `to_string()` rather than anyhow's `{:#}`: `BindError`'s Display already
+    // carries its cause, and the chained form repeated it verbatim.
+    WireError::bare(kind, err.to_string())
+}
+
+/// Classify a clip-pack failure.
+///
+/// Every variant is about the local machine: a pack that is not installed
+/// (`clip download` or `clip install`), or a file that is not an animation
+/// library. None of them get better by retrying, which is what `unknown`
+/// (exit 1) would imply.
+pub fn classify_pack_error(err: &asset_tap_core::rig::ClipPackError) -> WireError {
+    use asset_tap_core::rig::ClipPackError;
+    let kind = match err {
+        ClipPackError::Missing(_) | ClipPackError::NoLibrary(_) | ClipPackError::Install(_) => {
+            KIND_IO_ERROR
+        }
+        // Both are fixed by installing the right pack, not by retrying and not
+        // by editing the mesh, so they stay on the local-environment code.
+        ClipPackError::NoAnimations(_) | ClipPackError::UnknownClip(_) => KIND_IO_ERROR,
+    };
+    WireError::bare(kind, err.to_string())
+}
+
 pub fn classify_error(err: &anyhow::Error) -> WireError {
     for cause in err.chain() {
         if let Some(kinded) = cause.downcast_ref::<KindedError>() {
@@ -366,6 +451,17 @@ pub fn classify_error(err: &anyhow::Error) -> WireError {
         }
         if let Some(core_err) = cause.downcast_ref::<CoreError>() {
             return classify_core_error(core_err);
+        }
+        // Rig failures reach here whenever a human ran the command: the
+        // `--json` paths classify at the call site, but human mode returns the
+        // error to `main`. Both must land on the same exit code, or an agent
+        // that shells out without `--json` sees exit 1 (retryable) for a mesh
+        // that can never bind.
+        if let Some(bind) = cause.downcast_ref::<asset_tap_core::BindError>() {
+            return classify_bind_error(bind);
+        }
+        if let Some(pack) = cause.downcast_ref::<asset_tap_core::rig::ClipPackError>() {
+            return classify_pack_error(pack);
         }
     }
     WireError::bare(KIND_UNKNOWN, format!("{err:#}"))
@@ -435,7 +531,7 @@ pub fn exit_code_for_kind(kind: &str) -> u8 {
         | KIND_RATE_LIMITED
         | KIND_SERVER_ERROR => EXIT_PROVIDER,
         KIND_NETWORK_ERROR | KIND_TIMEOUT => EXIT_NETWORK,
-        KIND_BLENDER_NOT_FOUND | KIND_IO_ERROR => EXIT_LOCAL,
+        KIND_IO_ERROR => EXIT_LOCAL,
         _ => 1,
     }
 }
@@ -448,6 +544,59 @@ pub fn exit_code_for_kind(kind: &str) -> u8 {
 pub struct VersionDoc {
     pub version: &'static str,
     pub interface: &'static str,
+}
+
+/// Single-document `--json clip download` success payload (not NDJSON).
+#[derive(Debug, Serialize)]
+pub struct ClipDownloadDocument {
+    pub status: &'static str,
+    pub installed: Vec<String>,
+    pub already_exists: bool,
+    pub packs_version: u32,
+}
+
+impl ClipDownloadDocument {
+    pub fn success(installed: Vec<String>, already_exists: bool, packs_version: u32) -> Self {
+        Self {
+            status: "success",
+            installed,
+            already_exists,
+            packs_version,
+        }
+    }
+}
+
+/// Single-document `--json clip download` error payload (not NDJSON).
+#[derive(Debug, Serialize)]
+pub struct ClipDownloadErrorDocument {
+    pub status: &'static str,
+    pub kind: &'static str,
+    pub message: String,
+}
+
+impl ClipDownloadErrorDocument {
+    pub fn from_error(err: &anyhow::Error) -> Self {
+        Self {
+            status: "error",
+            kind: clip_download_error_kind(err),
+            message: err.to_string(),
+        }
+    }
+}
+
+/// Classify a `clip download` failure onto the wire (`network_error` | `io_error`).
+pub fn clip_download_error_kind(err: &anyhow::Error) -> &'static str {
+    let lower = err.to_string().to_ascii_lowercase();
+    if lower.contains("http ")
+        || lower.contains("error sending")
+        || lower.contains("timed out")
+        || lower.contains("connection")
+        || lower.contains("dns")
+    {
+        KIND_NETWORK_ERROR
+    } else {
+        KIND_IO_ERROR
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -785,5 +934,19 @@ mod tests {
         assert_eq!(exit_code_for_kind(KIND_TIMEOUT), EXIT_NETWORK);
         assert_eq!(exit_code_for_kind(KIND_IO_ERROR), EXIT_LOCAL);
         assert_eq!(exit_code_for_kind("some_future_kind"), 1);
+    }
+
+    #[test]
+    fn clip_download_classifies_http_as_network_and_hash_as_io() {
+        let http = anyhow::anyhow!("Failed to fetch release manifest: HTTP 404");
+        assert_eq!(clip_download_error_kind(&http), KIND_NETWORK_ERROR);
+        let hash = anyhow::anyhow!(
+            "Release manifest is missing a sha256 hash; refusing to install unverified download"
+        );
+        assert_eq!(clip_download_error_kind(&hash), KIND_IO_ERROR);
+        assert_eq!(
+            exit_code_for_kind(clip_download_error_kind(&hash)),
+            EXIT_LOCAL
+        );
     }
 }

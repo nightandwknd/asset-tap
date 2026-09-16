@@ -129,7 +129,6 @@ fn bench_history_operations(c: &mut Criterion) {
                 existing_image: None,
                 image_model: Some("nano-banana".to_string()),
                 model_3d: "trellis-2".to_string(),
-                export_fbx: true,
                 image_model_params: std::collections::HashMap::new(),
                 model_3d_params: std::collections::HashMap::new(),
             },

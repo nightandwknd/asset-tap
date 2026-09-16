@@ -19,7 +19,6 @@ This guide covers local development setup, testing, code standards, and contribu
 - **Rust** — Install via [rustup](https://rustup.rs). The exact toolchain is pinned in [`rust-toolchain.toml`](../rust-toolchain.toml); rustup (and CI) select it automatically.
 - **Git** - For version control
 - **cargo-nextest** - Test runner (auto-installed by `make test` if missing, or `cargo install cargo-nextest --locked`)
-- **Blender** (optional) - For testing FBX conversion
 - **AI Provider API key** - For testing (or use mock mode)
 
 ### Initial Setup
@@ -67,7 +66,6 @@ asset-tap/
 │   │   ├── providers/ # Provider system
 │   │   ├── templates/ # Template system
 │   │   ├── pipeline.rs
-│   │   ├── convert.rs # Blender integration
 │   │   └── ...
 │   └── tests/         # Integration tests
 ├── cli/               # Command-line interface
@@ -420,7 +418,7 @@ make cli ARGS='-t my-template -y "a sports car"'
 
 ### Adding GUI Features
 
-GUI uses `egui` for UI and `three-d` for 3D rendering:
+GUI uses `egui` for app chrome and a native `three-d` viewport for the 3D tab (glow FBO blit). Workbench chrome (Rig, Bind, clips, Bake) lives in egui. Playback is `SkinnedClip` evaluated on the CPU. See the [workbench contract](architecture/VIEWER_ANIMATE.md). Keep [using-asset-tap.md](../site/content/docs/guides/using-asset-tap.md) aligned with the shipped camera.
 
 ```rust
 // gui/src/views/my_view.rs
@@ -502,9 +500,9 @@ in their YAML configuration. Improves flexibility for slow APIs.
 ```
 
 ```
-fix(gui): prevent crash when Blender not installed
+fix(gui): prevent crash when the clip pack is missing
 
-Adds null check before accessing Blender path. Shows user-friendly
+Adds a null check before reading the pack path. Shows a user-friendly
 message instead of panicking.
 
 Fixes #123

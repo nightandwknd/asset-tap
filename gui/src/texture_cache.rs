@@ -53,8 +53,8 @@ impl Default for TextureCache {
 
 /// Load a single thumbnail - used by worker threads
 fn load_thumbnail(path: &PathBuf, thumb_size: u32) -> Result<ThumbnailData, image::ImageError> {
-    // Use ImageReader with format guessing to handle mislabeled files
-    // (e.g., WebP files with .png extension from FBX extraction)
+    // Format guessing, for bundles written before textures were extracted
+    // natively: the old Blender path labeled every texture `.png`.
     let reader = image::ImageReader::open(path)
         .map_err(image::ImageError::IoError)?
         .with_guessed_format()

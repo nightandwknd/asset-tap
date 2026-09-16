@@ -10,13 +10,12 @@ output/
     ├── bundle.json           # Metadata (see below)
     ├── image.png             # Generated image
     ├── model.glb             # 3D model (GLB format)
-    ├── model.fbx             # FBX export (if Blender available)
     └── textures/             # Extracted textures (if any)
         ├── texture_0.png
         └── ...
 ```
 
-**Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb`, `model.fbx`, and `textures/` are absent; the pipeline is one `text_to_image` step.
+**Image-only bundles** (`--image-only` or the GUI's "Image only" checkbox) contain only `bundle.json` and `image.png`. `model.glb` and `textures/` are absent; the pipeline is one `text_to_image` step.
 
 New writes emit `version: 2` (`artifacts` + `pipeline`) and omit v1 `config` / `model_info`. Version 1 files remain readable; they are not rewritten on load. Filenames are unchanged.
 
@@ -67,6 +66,17 @@ Version 2 (current). Version 1 files remain readable — see [Version History](#
         "modality": "image_to_3d",
         "inputs": ["image"],
         "outputs": ["model"]
+      },
+      {
+        "id": "bind",
+        "kind": "op",
+        "op": "bind",
+        "params": {
+          "clips": ["Walk_Loop", "Sword_Attack"],
+          "skeleton": "atap-humanoid-1"
+        },
+        "inputs": ["model"],
+        "outputs": ["model"]
       }
     ]
   }
@@ -80,7 +90,6 @@ Version 2 (current). Version 1 files remain readable — see [Version History](#
 - `bundle.json` - Metadata file
 - `image.png` - Generated image
 - `model.glb` - 3D model
-- `model.fbx` - FBX export (if created)
 - `textures/` - Texture directory
 
 **Rationale:**
@@ -101,6 +110,15 @@ Identifies which application and version created this bundle (e.g. `"asset-tap/2
 - `primary` — artifact id a viewer should open first (`model` when a GLB is present, otherwise `image`)
 - `category` — reserved, omitted. Today's pipeline does not know if a mesh is a prop, character, or environment; a recipe can set this later
 - `pipeline.steps[]` — linear. Each step is `kind: model` (provider, model, modality, prompt, params) or `kind: op` (a named deterministic operation). Steps name `inputs` / `outputs` by artifact id.
+
+### The `bind` step
+
+Rigging a mesh appends one `kind: op` step with `op: "bind"`, taking `model` and producing `model` (bind rewrites the GLB in place). Its `params` are:
+
+- `clips` — the model's **full** animation set after the run, not the clips this run added. Bake is declarative: baking `["walk"]` onto a model that held `["walk", "run"]` leaves one animation and one entry here. An empty array means the mesh is rigged and skinned with no animation (`--fit-only`).
+- `skeleton` — the skeleton the mesh is bound to (`atap-humanoid-1`). Joint names are [VRM 1.0](https://vrm.dev/) humanoid bone names, so a consumer can retarget without inspecting the armature.
+
+Re-binding a model updates this step rather than appending another; a bundle carries at most one `bind` step because the model has one skeleton.
 
 A model-only bundle (no image) is the same shape: one `model` artifact and one `text_to_3d` step.
 
@@ -132,7 +150,6 @@ A model-only bundle (no image) is the same shape: one `model` artifact and one `
     "prompt": "a cowboy ninja",
     "image_model": "fal-ai/nano-banana-2",
     "model_3d": "fal-ai/trellis-2",
-    "export_fbx": true,
     "image_model_params": {
       "guidance_scale": 4.5,
       "num_inference_steps": 32

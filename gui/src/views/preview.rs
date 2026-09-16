@@ -292,6 +292,14 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
     }
 }
 
+/// Starting width of the Animation column. Wide enough for the clip rows and
+/// the Rig button groups without wrapping.
+const ANIMATE_PANEL_WIDTH: f32 = 288.0;
+/// Below this the Rig button rows start wrapping again.
+const MIN_ANIMATE_PANEL_WIDTH: f32 = 250.0;
+/// Above this the column eats the viewer for no benefit.
+const MAX_ANIMATE_PANEL_WIDTH: f32 = 460.0;
+
 fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2) {
     // Clone output to avoid holding an immutable borrow of app throughout the function
     let output = app.output.clone();
@@ -363,22 +371,39 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                         viewer.reset_camera();
                     }
 
-                    // Viewer toggles
                     {
                         let mut viewer = app.model_viewer.lock().unwrap();
-
-                        // Axes toggle
                         let mut show_axes = viewer.show_axes;
                         if ui.checkbox(&mut show_axes, "Axes").changed() {
                             viewer.toggle_axes();
                         }
-
-                        // Grid toggle
                         let mut show_grid = viewer.show_grid;
                         if ui.checkbox(&mut show_grid, "Grid").changed() {
                             viewer.toggle_grid();
                         }
                     }
+
+                    ui.separator();
+                    let placing = app.model_viewer.lock().unwrap().is_placing();
+                    ui.add_enabled_ui(!placing, |ui| {
+                        if ui
+                            .button(format!("{} Animate", icons::PLAY))
+                            .on_hover_text(if placing {
+                                "Bind or Cancel the rig first"
+                            } else if app.workbench_animate {
+                                "Close the Animation panel"
+                            } else {
+                                "Open the Animation panel"
+                            })
+                            .clicked()
+                        {
+                            if app.workbench_animate {
+                                app.close_animate_panel();
+                            } else {
+                                app.open_animate_panel();
+                            }
+                        }
+                    });
                 });
             });
 
@@ -386,6 +411,27 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
 
             // Model info bar
             render_model_info_bar(app, ui);
+
+            ui.add_space(6.0);
+
+            // The Animation panel is a right-hand column, not a bar above the
+            // viewer. The clip list is tall, and stacking it would shrink the
+            // 3D view by roughly its own height every time the panel opened.
+            // `Panel::right` matches the sidebar and bundle-info panes, so the
+            // drag handle behaves the way the rest of the app does.
+            if app.workbench_animate {
+                egui::Panel::right("animate_panel")
+                    .resizable(true)
+                    .default_size(ANIMATE_PANEL_WIDTH)
+                    .min_size(MIN_ANIMATE_PANEL_WIDTH)
+                    .max_size(MAX_ANIMATE_PANEL_WIDTH)
+                    .show_inside(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("animate_panel")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| render_workbench_bar(app, ui));
+                    });
+            }
 
             ui.add_space(8.0);
 
@@ -400,15 +446,25 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
             // Center the 3D viewer horizontally
             ui.vertical_centered(|ui| {
                 // Allocate space for the viewer with drag/scroll interaction
+                let viewer_busy = app.workbench_busy();
                 let (rect, response) =
                     ui.allocate_exact_size(preview_size, egui::Sense::click_and_drag());
 
                 // Handle camera controls (Blender-style)
                 let mut needs_repaint = false;
-                {
+                if viewer_busy {
+                    needs_repaint = true;
+                }
+                if !viewer_busy {
                     let mut viewer = app.model_viewer.lock().unwrap();
-
                     let modifiers = ui.input(|i| i.modifiers);
+                    let place_drag = viewer.is_place_dragging();
+                    let place_consumed = viewer.handle_place(rect, &response, modifiers.shift);
+                    if place_consumed || place_drag || viewer.is_placing() {
+                        needs_repaint = true;
+                    }
+
+                    let allow_orbit = !place_consumed && !place_drag;
 
                     // Scroll handling (Blender-style)
                     // Mouse scroll wheel = ZOOM (discrete steps)
@@ -441,13 +497,13 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                                     needs_repaint = true;
                                 }
                                 // Trackpad: Shift + scroll = PAN
-                                else if modifiers.shift {
+                                else if allow_orbit && modifiers.shift {
                                     viewer.camera_state.pan(-scroll_x, scroll_y);
                                     viewer.mark_dirty();
                                     needs_repaint = true;
                                 }
                                 // Trackpad: no modifiers = ORBIT
-                                else {
+                                else if allow_orbit {
                                     viewer.camera_state.rotate(scroll_x, scroll_y);
                                     viewer.mark_dirty();
                                     needs_repaint = true;
@@ -462,7 +518,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     }
 
                     // Mouse drag controls (Blender-style)
-                    if response.dragged() {
+                    if allow_orbit && response.dragged() {
                         let delta = response.drag_delta();
                         // Shift + middle-mouse drag = Pan
                         if response.dragged_by(egui::PointerButton::Middle) && modifiers.shift {
@@ -523,6 +579,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                             rect,
                         );
                         ui.painter().add(callback);
+                        render_marker_labels(app, ui, rect);
                     } else if app.gl_context.is_none() {
                         let painter = ui.painter_at(rect);
                         painter.rect_filled(rect, 8, egui::Color32::from_rgb(30, 30, 35));
@@ -536,22 +593,38 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     }
                 }
 
-                // Overlay instructions
-                let painter = ui.painter_at(rect);
-                let text_pos = rect.left_bottom() + egui::vec2(10.0, -10.0);
-                painter.text(
-                    text_pos,
-                    egui::Align2::LEFT_BOTTOM,
-                    if cfg!(target_os = "linux") {
-                        "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll to zoom"
-                    } else if cfg!(target_os = "macos") {
-                        "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll or Pinch to zoom"
-                    } else {
-                        "Drag to rotate • Shift+Drag to pan • Scroll or Pinch to zoom"
-                    },
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::from_white_alpha(128),
-                );
+                if viewer_busy {
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 4, egui::Color32::from_black_alpha(160));
+                    painter.text(
+                        rect.center() + egui::vec2(0.0, 22.0),
+                        egui::Align2::CENTER_CENTER,
+                        "Working…",
+                        egui::FontId::proportional(16.0),
+                        egui::Color32::from_white_alpha(220),
+                    );
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                        ui.centered_and_justified(|ui| {
+                            ui.spinner();
+                        });
+                    });
+                } else {
+                    let painter = ui.painter_at(rect);
+                    let text_pos = rect.left_bottom() + egui::vec2(10.0, -10.0);
+                    painter.text(
+                        text_pos,
+                        egui::Align2::LEFT_BOTTOM,
+                        if cfg!(target_os = "linux") {
+                            "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll to zoom"
+                        } else if cfg!(target_os = "macos") {
+                            "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll or Pinch to zoom"
+                        } else {
+                            "Drag to rotate • Shift+Drag to pan • Scroll or Pinch to zoom"
+                        },
+                        egui::FontId::proportional(12.0),
+                        egui::Color32::from_white_alpha(128),
+                    );
+                }
 
                 if needs_repaint {
                     ui.ctx().request_repaint();
@@ -698,6 +771,657 @@ fn render_model_info_fallback(
     render_model_action_buttons(app, ui, path, output);
 }
 
+/// Optional Animation panel. Hidden until the user opens Animate.
+/// Rig (pose + bind) then clip preview / bake live only inside this panel.
+fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
+    if !app.workbench_animate {
+        return;
+    }
+
+    let busy = app.workbench_busy();
+    let model_path = app
+        .output
+        .as_ref()
+        .and_then(|o| o.final_model_path().map(|p| p.to_path_buf()));
+    // Rigging uses the embedded canonical skeleton, so it needs no pack.
+    // Only clip preview and Bake depend on an installed library.
+    let has_clips = !app.clip_catalog.is_empty();
+    let (
+        has_clip,
+        playing,
+        show_bones,
+        time,
+        duration,
+        placing,
+        can_undo,
+        can_redo,
+        selected,
+        fitted,
+    ) = {
+        let viewer = app.model_viewer.lock().unwrap();
+        let (t, d) = viewer.play_time();
+        (
+            viewer.has_clip(),
+            viewer.is_playing(),
+            viewer.show_bones,
+            t,
+            d,
+            viewer.is_placing(),
+            viewer.can_undo_place(),
+            viewer.can_redo_place(),
+            viewer.selected_bone().map(str::to_string),
+            viewer.is_fitted(),
+        )
+    };
+
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(8))
+        .show(ui, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+
+            if placing {
+                let seeding = app.model_viewer.lock().unwrap().awaiting_seed();
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Rig").strong());
+                    if busy {
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new(if seeding {
+                                "Fitting skeleton\u{2026}"
+                            } else {
+                                "Working\u{2026}"
+                            })
+                            .small()
+                            .weak(),
+                        );
+                    }
+                });
+                ui.add_space(6.0);
+
+                // Grouped by what the button does, one purpose per row: the
+                // wrapped single row overflowed a narrow column and split
+                // Front/Side across lines.
+                ui.add_enabled_ui(!busy, |ui| {
+                    if ui
+                        .add_sized([ui.available_width(), 24.0], egui::Button::new("Auto-fit"))
+                        .on_hover_text("Guess the skeleton. Review, then Bind or Undo / Cancel.")
+                        .clicked()
+                    {
+                        app.start_reseed();
+                    }
+                });
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!busy && can_undo, |ui| {
+                        if ui.button("Undo").clicked() {
+                            app.model_viewer.lock().unwrap().undo_place();
+                        }
+                    });
+                    ui.add_enabled_ui(!busy && can_redo, |ui| {
+                        if ui.button("Redo").clicked() {
+                            app.model_viewer.lock().unwrap().redo_place();
+                        }
+                    });
+                });
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("View").small().weak());
+                    ui.add_enabled_ui(!busy, |ui| {
+                        if ui.button("Front").clicked() {
+                            app.model_viewer.lock().unwrap().view_front();
+                        }
+                        if ui.button("Side").clicked() {
+                            app.model_viewer.lock().unwrap().view_side();
+                        }
+                        ui.add_enabled_ui(selected.is_some(), |ui| {
+                            if ui
+                                .button("Frame")
+                                .on_hover_text("Frame the selected joint")
+                                .clicked()
+                            {
+                                app.model_viewer.lock().unwrap().frame_selected();
+                            }
+                        });
+                    });
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!busy && !seeding, |ui| {
+                        if ui
+                            .add_sized([84.0, 26.0], egui::Button::new("Bind"))
+                            .on_hover_text(
+                                "Skin the mesh to this skeleton. Clip preview unlocks after.",
+                            )
+                            .clicked()
+                        {
+                            app.commit_place();
+                        }
+                    });
+                    ui.add_enabled_ui(!busy, |ui| {
+                        if ui
+                            .button("Cancel")
+                            .on_hover_text("Discard this pose and leave")
+                            .clicked()
+                        {
+                            app.model_viewer.lock().unwrap().exit_place();
+                        }
+                    });
+                });
+
+                if let Some(name) = &selected {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(panel_joint(name)).small());
+                }
+
+                ui.add_space(6.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(
+                            "Park every joint on the body. Bind skins the mesh to this \
+                             skeleton; a joint off the mesh is refused.",
+                        )
+                        .small()
+                        .weak(),
+                    )
+                    .wrap(),
+                );
+                render_marker_legend(app, ui);
+                return;
+            }
+
+            if !fitted {
+                ui.label(egui::RichText::new("Rig").strong());
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_enabled_ui(!busy && model_path.is_some(), |ui| {
+                        if ui
+                            .button("Rig")
+                            .on_hover_text("Pose the skeleton on the mesh, then Bind.")
+                            .clicked()
+                            && let Err(e) = app.model_viewer.lock().unwrap().enter_place()
+                        {
+                            app.toasts.push(crate::app::Toast::error(e));
+                        }
+                    });
+                    if busy {
+                        ui.spinner();
+                    }
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Clip preview unlocks after Bind.")
+                        .small()
+                        .weak(),
+                );
+                return;
+            }
+
+            ui.label(egui::RichText::new("Animation").strong());
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.add_enabled_ui(!busy && model_path.is_some(), |ui| {
+                    if ui
+                        .button("Rig")
+                        .on_hover_text("Re-pose the skeleton and Bind again.")
+                        .clicked()
+                        && let Err(e) = app.model_viewer.lock().unwrap().enter_place()
+                    {
+                        app.toasts.push(crate::app::Toast::error(e));
+                    }
+                });
+                ui.separator();
+                let mut bones = show_bones;
+                if ui.checkbox(&mut bones, "Bones").changed() {
+                    app.workbench_show_bones = bones;
+                    app.model_viewer.lock().unwrap().set_show_bones(bones);
+                }
+                if busy {
+                    ui.spinner();
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Clips").small().weak());
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.clip_filter)
+                        .desired_width(140.0)
+                        .hint_text("Search"),
+                );
+                if !app.clip_filter.is_empty() && ui.small_button("\u{2715}").clicked() {
+                    app.clip_filter.clear();
+                }
+            });
+            ui.add_space(2.0);
+            render_clip_list(app, ui, fitted, busy);
+
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.add_enabled_ui(!busy && model_path.is_some() && has_clips && fitted, |ui| {
+                    let label = if playing { "Pause" } else { "Play" };
+                    if ui.button(label).clicked() {
+                        // Nothing loaded yet (a fresh Bind, or the panel just
+                        // opened): load the selection rather than doing
+                        // nothing, so Play always means play.
+                        if has_clip {
+                            app.model_viewer.lock().unwrap().toggle_playing();
+                        } else {
+                            let id = app.clip.clone();
+                            app.preview_clip(&id);
+                        }
+                    }
+                });
+                if duration > 0.0 {
+                    ui.label(format!("{time:.2} / {duration:.2}s"));
+                    let mut scrub = time;
+                    if ui
+                        .add_sized(
+                            [90.0, 18.0],
+                            egui::Slider::new(&mut scrub, 0.0..=duration).show_value(false),
+                        )
+                        .changed()
+                    {
+                        app.model_viewer.lock().unwrap().seek(scrub);
+                    }
+                }
+            });
+
+            // Bake is declarative, so unticking removes. Say that here rather
+            // than letting the button change meaning under the author.
+            let checked = app.bake_set.len();
+            let (adding, removing) = app.bake_delta();
+            ui.add_space(4.0);
+            if adding > 0 || removing > 0 {
+                let mut parts = Vec::new();
+                if adding > 0 {
+                    parts.push(format!("+{adding}"));
+                }
+                if removing > 0 {
+                    parts.push(format!("\u{2212}{removing}"));
+                }
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} in model \u{2192} {} after bake  ({})",
+                        app.model_clips.len(),
+                        checked,
+                        parts.join(" ")
+                    ))
+                    .small()
+                    .weak(),
+                );
+            } else if checked > 0 {
+                ui.label(
+                    egui::RichText::new(format!("{checked} in model \u{2014} up to date"))
+                        .small()
+                        .weak(),
+                );
+            }
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(
+                    !busy && model_path.is_some() && fitted && checked > 0,
+                    |ui| {
+                        let label = if checked == 1 {
+                            "Bake 1 clip".to_string()
+                        } else {
+                            format!("Bake {checked} clips")
+                        };
+                        let button = ui.button(label).on_hover_text(
+                            "Write the ticked clips into model.glb. The file ends up with \
+                         exactly this set, so unticking one removes it.",
+                        );
+                        if button.clicked()
+                            && let Some(path) = model_path.clone()
+                        {
+                            let clips = app.bake_clips();
+                            app.start_bake(path, clips);
+                        }
+                    },
+                );
+                if checked == 0 && fitted {
+                    ui.label(egui::RichText::new("Tick a clip to bake").small().weak());
+                }
+            });
+
+            // Stripping every animation is a separate, destructive intent —
+            // not a Bake with nothing ticked. It stays visible but disabled
+            // when there is nothing to clear: hiding it entirely made the
+            // capability indistinguishable from a bug.
+            if fitted {
+                let has_baked = !app.model_clips.is_empty();
+                ui.add_space(2.0);
+                ui.add_enabled_ui(!busy && has_baked, |ui| {
+                    if ui
+                        .small_button("Clear animation")
+                        .on_hover_text(if has_baked {
+                            "Remove every animation from model.glb, keeping the rig"
+                        } else {
+                            "Nothing to clear. This model has no baked animation"
+                        })
+                        .clicked()
+                    {
+                        app.pending_clear_animation = true;
+                    }
+                });
+            }
+        });
+}
+
+/// Same words as the legend: VRM `leftShoulder` is "Left clavicle".
+fn panel_joint(name: &str) -> String {
+    asset_tap_core::HumanBone::parse(name)
+        .map(|b| b.panel_label())
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Side labels over the Rig markers.
+///
+/// Color says which joint a marker is; this says which of a pair. Twins are
+/// indistinguishable once the camera turns, and `DEF-thigh.L` was never
+/// something an author should have to read off a tooltip.
+fn render_marker_labels(app: &App, ui: &egui::Ui, rect: egui::Rect) {
+    let labels = {
+        let viewer = app.model_viewer.lock().unwrap();
+        if !viewer.is_placing() {
+            return;
+        }
+        viewer.marker_labels(rect)
+    };
+    let painter = ui.painter_at(rect);
+    for label in labels {
+        let size = if label.emphasized { 13.0 } else { 11.0 };
+        // A dark disc keeps the glyph legible where a marker sits over a
+        // light patch of the mesh.
+        painter.circle_filled(
+            label.screen,
+            size * 0.72,
+            egui::Color32::from_black_alpha(170),
+        );
+        painter.text(
+            label.screen,
+            egui::Align2::CENTER_CENTER,
+            label.text,
+            egui::FontId::proportional(size),
+            label.color,
+        );
+    }
+}
+
+/// Swatch + name for each body part on screen, so a color means something.
+fn render_marker_legend(app: &App, ui: &mut egui::Ui) {
+    let legend = app.model_viewer.lock().unwrap().marker_legend();
+    if legend.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new("Legend").small().weak());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (group, color) in legend {
+            // Allocate swatch + name as one unit, or wrapping strands a label
+            // on the next line away from the color it names.
+            let text = egui::RichText::new(group.label()).small();
+            let galley = ui.painter().layout_no_wrap(
+                group.label().to_string(),
+                egui::FontId::proportional(10.0),
+                egui::Color32::PLACEHOLDER,
+            );
+            let width = galley.size().x + 16.0;
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, 14.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(9.0, 9.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 2, color);
+                    ui.label(text);
+                },
+            );
+        }
+    });
+}
+
+/// The clip catalog: tick to export, click to play.
+///
+/// Two selections live here and they are deliberately different — the ticked
+/// set is what Bake writes, while the highlighted row is only what the viewer
+/// is playing. Clicking never changes the export set, and ticking never
+/// changes playback.
+fn render_clip_list(app: &mut App, ui: &mut egui::Ui, fitted: bool, busy: bool) {
+    if app.clip_catalog.is_empty() {
+        ui.label(
+            egui::RichText::new("No animation packs installed")
+                .small()
+                .color(egui::Color32::from_rgb(255, 180, 100)),
+        );
+        ui.label(
+            egui::RichText::new("Rigging still works. Packs only add clips.")
+                .small()
+                .weak(),
+        );
+        ui.add_space(4.0);
+        render_quaternius_pack_links(app, ui);
+        ui.add_space(4.0);
+        let downloading = app.clip_packs_downloading();
+        if ui
+            .add_enabled(
+                !downloading,
+                egui::Button::new(if downloading {
+                    "Downloading packs…"
+                } else {
+                    "Download free packs"
+                }),
+            )
+            .on_hover_text("Quaternius Standard (CC0), hash-verified from the latest release")
+            .clicked()
+        {
+            app.request_clip_packs_download();
+        }
+        ui.add_space(4.0);
+        render_install_pack_button(app, ui);
+        return;
+    }
+
+    let filter = app.clip_filter.to_ascii_lowercase();
+    let rows: Vec<(String, String, String, String)> = app
+        .clip_catalog
+        .iter()
+        .filter(|c| {
+            filter.is_empty()
+                || c.name.to_ascii_lowercase().contains(&filter)
+                || c.pack_name.to_ascii_lowercase().contains(&filter)
+        })
+        .map(|c| {
+            (
+                c.id.clone(),
+                c.name.clone(),
+                c.pack_id.clone(),
+                c.pack_name.clone(),
+            )
+        })
+        .collect();
+
+    if rows.is_empty() {
+        ui.label(
+            egui::RichText::new("No clips match that filter")
+                .small()
+                .weak(),
+        );
+        return;
+    }
+
+    let mut toggled: Option<String> = None;
+    let mut play: Option<String> = None;
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(4))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(240.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let mut pack = String::new();
+                    for (id, name, pack_id, pack_name) in &rows {
+                        if *pack_id != pack {
+                            if !pack.is_empty() {
+                                ui.add_space(4.0);
+                            }
+                            ui.label(egui::RichText::new(pack_name).small().weak());
+                            pack.clone_from(pack_id);
+                        }
+                        ui.horizontal(|ui| {
+                            let mut on = app.bake_set.contains(id);
+                            if ui
+                                .checkbox(&mut on, "")
+                                .on_hover_text("Include this clip in Bake")
+                                .changed()
+                            {
+                                toggled = Some(id.clone());
+                            }
+                            ui.add_enabled_ui(fitted && !busy, |ui| {
+                                if ui
+                                    .selectable_label(&app.clip == id, name)
+                                    // The raw name is what Quaternius' own
+                                    // animation viewer and docs use.
+                                    .on_hover_text(format!("Play {id}"))
+                                    .clicked()
+                                {
+                                    play = Some(id.clone());
+                                }
+                            });
+                        });
+                    }
+                });
+        });
+
+    if let Some(id) = toggled
+        && !app.bake_set.remove(&id)
+    {
+        app.bake_set.insert(id);
+    }
+    if let Some(id) = play {
+        app.clip = id.clone();
+        app.preview_clip(&id);
+    }
+
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let mut packs: Vec<&str> = Vec::new();
+        for c in &app.clip_catalog {
+            if !packs.contains(&c.pack_id.as_str()) {
+                packs.push(&c.pack_id);
+            }
+        }
+        let summary = format!(
+            "{} pack{} / {} clips",
+            packs.len(),
+            if packs.len() == 1 { "" } else { "s" },
+            app.clip_catalog.len()
+        );
+        ui.label(egui::RichText::new(summary).small().weak());
+        render_install_pack_button(app, ui);
+    });
+}
+
+/// Install another animation library from a Quaternius download.
+///
+/// The same flow serves the free Standard tiers and the paid Source ones:
+/// point it at the zip or folder and the installer finds the library itself.
+fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
+    ui.add_enabled_ui(!app.workbench_busy(), |ui| {
+        ui.menu_button("Add pack\u{2026}", |ui| {
+            if ui
+                .button("From archive or file\u{2026}")
+                .on_hover_text("The .zip straight from the download, or a .glb / .gltf")
+                .clicked()
+            {
+                if let Some(file) = rfd::FileDialog::new()
+                    .set_title("Animation pack")
+                    .add_filter("Animation pack", &["zip", "glb", "gltf"])
+                    .pick_file()
+                {
+                    app.install_clip_pack(file);
+                }
+                ui.close();
+            }
+            if ui
+                .button("From folder\u{2026}")
+                .on_hover_text("A download you already extracted")
+                .clicked()
+            {
+                if let Some(dir) = rfd::FileDialog::new()
+                    .set_title("Animation pack folder")
+                    .pick_folder()
+                {
+                    app.install_clip_pack(dir);
+                }
+                ui.close();
+            }
+            ui.separator();
+            if ui
+                .add_enabled(
+                    !app.clip_packs_downloading(),
+                    egui::Button::new("Download free packs\u{2026}"),
+                )
+                .on_hover_text("Quaternius Standard (CC0) from the latest Asset Tap release")
+                .clicked()
+            {
+                app.request_clip_packs_download();
+                ui.close();
+            }
+            render_quaternius_pack_menu_links(app, ui);
+        })
+        .response
+        .on_hover_text("Install a Quaternius library. The library is found for you.");
+    });
+}
+
+fn render_quaternius_pack_links(app: &mut App, ui: &mut egui::Ui) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Quaternius (CC0):").small().weak());
+        if ui
+            .link(egui::RichText::new("Library").small())
+            .on_hover_text(asset_tap_core::rig::UAL1_PAGE)
+            .clicked()
+        {
+            crate::app::open_with_system(asset_tap_core::rig::UAL1_PAGE, Some(&mut app.toasts));
+        }
+        ui.label(egui::RichText::new("·").small().weak());
+        if ui
+            .link(egui::RichText::new("Library 2").small())
+            .on_hover_text(asset_tap_core::rig::UAL2_PAGE)
+            .clicked()
+        {
+            crate::app::open_with_system(asset_tap_core::rig::UAL2_PAGE, Some(&mut app.toasts));
+        }
+    });
+}
+
+fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
+    if ui
+        .button("Universal Animation Library\u{2026}")
+        .on_hover_text(asset_tap_core::rig::UAL1_PAGE)
+        .clicked()
+    {
+        crate::app::open_with_system(asset_tap_core::rig::UAL1_PAGE, Some(&mut app.toasts));
+        ui.close();
+    }
+    if ui
+        .button("Universal Animation Library 2\u{2026}")
+        .on_hover_text(asset_tap_core::rig::UAL2_PAGE)
+        .clicked()
+    {
+        crate::app::open_with_system(asset_tap_core::rig::UAL2_PAGE, Some(&mut app.toasts));
+        ui.close();
+    }
+}
+
 /// Render the model info bar (format, size, vertex count, triangle count).
 fn render_model_info_bar(app: &mut App, ui: &mut egui::Ui) {
     let viewer = app.model_viewer.lock().unwrap();
@@ -714,7 +1438,7 @@ fn render_model_info_bar(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Render the model action buttons (Open GLB, Open FBX, Export GLB) with path display.
+/// Render the model action buttons (Open GLB, Export GLB) with path display.
 fn render_model_action_buttons(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -722,104 +1446,64 @@ fn render_model_action_buttons(
     output: &asset_tap_core::types::PipelineOutput,
 ) {
     // Clone paths before entering closure to avoid borrow conflicts
-    let fbx_path = output.fbx_path.clone();
     let glb_path = output.model_path.clone();
     let path_display = date_relative_path(path);
 
-    ui.horizontal(|ui| {
-        if ui
-            .button(format!("{} Open GLB", icons::EXTERNAL_LINK))
-            .on_hover_text("Open with system default viewer")
-            .clicked()
-        {
-            crate::app::open_with_system(path, Some(&mut app.toasts));
-        }
+    // This row is rendered from two places: the loaded-model view, twelve
+    // closures deep, and `render_model_info_fallback`, at its own top level.
+    // Same pixels, different parent `Ui`, and `push_id` is *relative*, so the
+    // salt alone gave the row a different id depending on which path drew it.
+    // Switching between them (startup does: no model, then model) kept the
+    // rect and changed the id, which is exactly what egui's
+    // `warn_if_rect_changes_id` exists to catch, and it is not cosmetic: drag,
+    // focus and animation state are keyed by id, so they are dropped on the
+    // frame it changes.
+    //
+    // `UiBuilder::id` is the documented answer: it sets `global_scope`, so the
+    // child's id is the given one outright rather than `parent.id.with(salt)`,
+    // "this way child widgets can be moved in the ui tree without losing
+    // state". Its precondition holds here: the two call sites are mutually
+    // exclusive within a frame, so the row is never drawn twice.
+    ui.scope_builder(
+        egui::UiBuilder::new().id(egui::Id::new("model_action_buttons")),
+        |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .button(format!("{} Open GLB", icons::EXTERNAL_LINK))
+                    .on_hover_text("Open with system default viewer")
+                    .clicked()
+                {
+                    crate::app::open_with_system(path, Some(&mut app.toasts));
+                }
 
-        if let Some(ref fbx) = fbx_path {
-            let has_custom_blender = app
-                .settings
-                .blender_path
-                .as_ref()
-                .is_some_and(|p| !p.is_empty());
-            let can_open = app.blender_available || has_custom_blender;
+                if let Some(ref glb) = glb_path
+                    && glb != path
+                    && ui.button(format!("{} Open GLB", icons::FILE)).clicked()
+                {
+                    crate::app::open_with_system(glb, Some(&mut app.toasts));
+                }
 
-            let button = egui::Button::new(format!("{} Open FBX", icons::FILE));
-            let mut response = ui.add_enabled(can_open, button);
+                if ui
+                    .button(format!("{} Export GLB", icons::DOWNLOAD))
+                    .on_hover_text("Save a copy to a custom location")
+                    .clicked()
+                    && let Some(dest) = rfd::FileDialog::new()
+                        .set_file_name(bundle_files::MODEL_GLB)
+                        .add_filter("GLB", &["glb"])
+                        .save_file()
+                {
+                    match std::fs::copy(path, &dest) {
+                        Ok(_) => app.toasts.push(crate::app::Toast::success("GLB exported")),
+                        Err(e) => app
+                            .toasts
+                            .push(crate::app::Toast::error(format!("Export failed: {}", e))),
+                    }
+                }
 
-            if can_open {
-                response = response.on_hover_text("Open with Blender");
-            } else {
-                response = response.on_disabled_hover_text(
-                    "Blender not found. Please install Blender to open FBX files.",
-                );
-            }
-
-            if response.clicked() {
-                app.open_fbx_in_blender(fbx);
-            }
-        } else if glb_path.is_some() {
-            // No FBX yet — offer to convert the existing GLB
-            let blender_available = app.blender_available;
-            let has_custom_blender = app
-                .settings
-                .blender_path
-                .as_ref()
-                .is_some_and(|p| !p.is_empty());
-            let converting = app.pending_fbx_conversion.is_some();
-            let can_convert = (blender_available || has_custom_blender) && !converting;
-
-            let label = if converting {
-                format!("{} Converting...", icons::FILE)
-            } else {
-                format!("{} Convert to FBX", icons::FILE)
-            };
-            let button = egui::Button::new(label);
-            let mut response = ui.add_enabled(can_convert, button);
-
-            if converting {
-                response = response.on_disabled_hover_text("FBX conversion in progress...");
-            } else if blender_available || has_custom_blender {
-                response = response.on_hover_text("Convert GLB to FBX using Blender");
-            } else {
-                response = response.on_disabled_hover_text(
-                    "Blender not found. Install Blender to enable FBX conversion.",
-                );
-            }
-
-            if response.clicked()
-                && app.pending_fbx_conversion.is_none()
-                && let Some(ref glb) = glb_path
-            {
-                app.start_fbx_conversion(glb.clone());
-            }
-        }
-
-        if let Some(ref glb) = glb_path
-            && glb != path
-            && ui.button(format!("{} Open GLB", icons::FILE)).clicked()
-        {
-            crate::app::open_with_system(glb, Some(&mut app.toasts));
-        }
-
-        if ui
-            .button(format!("{} Export GLB", icons::DOWNLOAD))
-            .on_hover_text("Save a copy to a custom location")
-            .clicked()
-            && let Some(dest) = rfd::FileDialog::new()
-                .set_file_name(bundle_files::MODEL_GLB)
-                .add_filter("GLB", &["glb"])
-                .save_file()
-        {
-            match std::fs::copy(path, &dest) {
-                Ok(_) => app.toasts.push(crate::app::Toast::success("GLB exported")),
-                Err(e) => app
-                    .toasts
-                    .push(crate::app::Toast::error(format!("Export failed: {}", e))),
-            }
-        }
-
-        ui.label(egui::RichText::new(path_display).small().secondary());
-    });
+                ui.label(egui::RichText::new(path_display).small().secondary());
+            });
+        },
+    );
 }
 
 fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2) {
@@ -937,16 +1621,13 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                     available,
                     "No textures for this bundle",
                     &[
-                        "💡 Textures are only extracted when FBX export is enabled",
-                        "Enable 'Export FBX' in the sidebar before generating",
+                        "💡 Textures are extracted from the model's embedded images",
+                        "This model has none, or they are referenced as external files",
                     ],
                     icons::WARNING,
                 );
             } else {
-                render_empty_state(
-                    ui,
-                    "No textures extracted (FBX conversion may have been skipped)",
-                );
+                render_empty_state(ui, "No textures found in this model");
             }
         } else {
             render_empty_state(ui, "Generate an asset to preview textures");

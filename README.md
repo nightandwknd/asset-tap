@@ -13,11 +13,11 @@
 
 </div>
 
-Text prompt → AI image → 3D model → FBX export
+Text prompt → AI image → 3D model → rigged and animated
 
 ## Install
 
-Two things you can install — pick what you need (or both): the **CLI** for
+Two things you can install, pick what you need (or both): the **CLI** for
 your terminal, and the **desktop app** (GUI).
 
 ### Install the CLI (macOS / Linux)
@@ -45,7 +45,7 @@ asset-tap "a stylized sci-fi crate"
 
 Download your platform's installer from [GitHub Releases](https://github.com/nightandwknd/asset-tap/releases/latest).
 
-**macOS (Universal — Intel + Apple Silicon)**
+**macOS (Universal: Intel + Apple Silicon)**
 
 1. Download [AssetTap-macos.dmg](https://github.com/nightandwknd/asset-tap/releases/latest/download/AssetTap-macos.dmg)
 2. Open the DMG file
@@ -79,7 +79,7 @@ chmod +x asset-tap-linux-x86_64.AppImage
 ./asset-tap-linux-x86_64.AppImage
 ```
 
-The AppImage is the GUI only — pair it with the CLI install above for terminal use.
+The AppImage is the GUI only. Pair it with the CLI install above for terminal use.
 
 ### Build from Source
 
@@ -97,7 +97,7 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed setup instructions.
 
 Asset Tap ships with pre-configured provider integrations. Choose one or more AI providers that offer text-to-image and image-to-3D capabilities:
 
-**Included providers** — pick either one (a single key runs the full pipeline):
+**Included providers.** Pick either one; a single key runs the full pipeline:
 
 - [fal.ai](https://fal.ai) - [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
 - [Meshy AI](https://www.meshy.ai) - [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
@@ -114,7 +114,7 @@ Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. O
 2. Select your provider and models
 3. Click **Generate**
 4. Preview your 3D model in the built-in viewer
-5. Export as GLB or FBX
+5. Export as GLB
 
 ## Features
 
@@ -123,7 +123,7 @@ Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. O
 - **Template System** - Create and reuse prompt templates
 - **Image-only mode** - Stop after text-to-image when you just want a 2D result
 - **Reuse past images** - Right-click any library item or preview image and pick "Use for Generation" to skip text-to-image on the next run
-- **FBX Export** - Automatic conversion via Blender (optional)
+- **Humanoid rigging** - Rig a character and bake animation clips (experimental). Free Standard packs install on demand (`asset-tap clip download`)
 - **Library Management** - Browse and organize your generated models
 - **Real-time Progress** - Watch generation stages in real-time
 
@@ -132,7 +132,7 @@ Open **Asset Tap** from your Applications folder, Start Menu, or app launcher. O
 Release archives also install **`atap`**, a short alias for `asset-tap` (a
 symlink on macOS/Linux, `atap.cmd` on Windows). Everything below works with
 either name; `asset-tap` is the canonical one. Source builds don't ship the
-alias — add your own (`alias atap=asset-tap`).
+alias. Add your own (`alias atap=asset-tap`).
 
 For automation and scripting:
 
@@ -146,7 +146,7 @@ asset-tap -p fal.ai --image-model fal-ai/nano-banana-2 "a dragon"
 # Use an existing image instead of generating one
 asset-tap --image "photo.png"
 
-# Stop after image generation — produce an image-only bundle with no 3D model
+# Stop after image generation, producing an image-only bundle with no 3D model
 asset-tap --image-only -y "a wooden treasure chest"
 
 # List available providers and models
@@ -175,10 +175,10 @@ authoritative `result` event, and uses differentiated exit codes. The full
 contract is in [docs/CLI_MACHINE_INTERFACE.md](docs/CLI_MACHINE_INTERFACE.md).
 
 **Driving asset-tap from an AI coding agent** (Claude Code, Cursor, Codex, …)?
-The CLI is built to be agent-legible — `--help`, `--machine-help`, `--list --json`,
+The CLI is built to be agent-legible: `--help`, `--machine-help`, `--list --json`,
 `auth list --json`, and stable exit codes are the whole interface. Start with
 [AGENTS.md](AGENTS.md). Hosts without a shell (Claude Desktop, Cursor) can add
-`asset-tap mcp` as an MCP server — see [docs/MCP.md](docs/MCP.md).
+`asset-tap mcp` as an MCP server. See [docs/MCP.md](docs/MCP.md).
 
 See the [documentation site](https://assettap.dev/docs/) for advanced usage.
 
@@ -192,7 +192,6 @@ output/
     ├── bundle.json      # Metadata (v2: artifacts + pipeline)
     ├── image.png        # AI-generated image
     ├── model.glb        # 3D model (GLB format)
-    ├── model.fbx        # FBX export (if Blender installed)
     └── textures/        # Extracted textures
 ```
 
@@ -200,28 +199,28 @@ output/
 
 ### Text-to-Image
 
-| Model               | Provider | Description                                                      |
-| ------------------- | -------- | ---------------------------------------------------------------- |
-| **Nano Banana 2**   | fal.ai   | Gemini 3.1 Flash Image — reasoning-guided generation _(default)_ |
-| **Nano Banana**     | fal.ai   | Google Imagen 3-based — fast and affordable                      |
-| **Nano Banana Pro** | fal.ai   | Premium Imagen 3 — higher quality with aspect ratio control      |
-| **FLUX.2 Dev**      | fal.ai   | Open-source FLUX.2 with tunable guidance and steps               |
-| **FLUX.2 Pro**      | fal.ai   | Premium FLUX.2 — best quality, zero-config                       |
-| **Nano Banana**     | Meshy    | Meshy's standard text-to-image tier                              |
-| **Nano Banana Pro** | Meshy    | Meshy's higher-quality text-to-image tier                        |
+| Model               | Provider | Description                                                     |
+| ------------------- | -------- | --------------------------------------------------------------- |
+| **Nano Banana 2**   | fal.ai   | Gemini 3.1 Flash Image, reasoning-guided generation _(default)_ |
+| **Nano Banana**     | fal.ai   | Google Imagen 3-based, fast and affordable                      |
+| **Nano Banana Pro** | fal.ai   | Premium Imagen 3, higher quality with aspect ratio control      |
+| **FLUX.2 Dev**      | fal.ai   | Open-source FLUX.2 with tunable guidance and steps              |
+| **FLUX.2 Pro**      | fal.ai   | Premium FLUX.2, best quality and zero-config                    |
+| **Nano Banana**     | Meshy    | Meshy's standard text-to-image tier                             |
+| **Nano Banana Pro** | Meshy    | Meshy's higher-quality text-to-image tier                       |
 
 ### Image-to-3D
 
-| Model              | Provider | Description                                                 |
-| ------------------ | -------- | ----------------------------------------------------------- |
-| **TRELLIS 2**      | fal.ai   | Native 3D generative model — fast and versatile _(default)_ |
-| **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro — high quality 3D generation     |
-| **Meshy v7**       | fal.ai   | Meshy 7 through fal — pay-per-call billing                  |
-| **Meshy v6**       | fal.ai   | Meshy 6 through fal — pay-per-call billing                  |
-| **Meshy v7**       | Meshy    | Meshy 7 — newest generation, supports Ultra mode            |
-| **Smart Topology** | Meshy    | Meshy T2 — clean topology, game-ready face counts           |
-| **Meshy v6**       | Meshy    | Meshy 6 — production-ready 3D with PBR textures             |
-| **Meshy v5**       | Meshy    | Previous generation, lower credit cost                      |
+| Model              | Provider | Description                                                |
+| ------------------ | -------- | ---------------------------------------------------------- |
+| **TRELLIS 2**      | fal.ai   | Native 3D generative model, fast and versatile _(default)_ |
+| **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro, high quality 3D generation     |
+| **Meshy v7**       | fal.ai   | Meshy 7 through fal, pay-per-call billing                  |
+| **Meshy v6**       | fal.ai   | Meshy 6 through fal, pay-per-call billing                  |
+| **Meshy v7**       | Meshy    | Meshy 7, newest generation, supports Ultra mode            |
+| **Smart Topology** | Meshy    | Meshy T2, clean topology and game-ready face counts        |
+| **Meshy v6**       | Meshy    | Meshy 6, production-ready 3D with PBR textures             |
+| **Meshy v5**       | Meshy    | Previous generation, lower credit cost                     |
 
 Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 
@@ -229,10 +228,6 @@ Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy
 
 - **Operating System**: macOS 10.15+, Linux (glibc 2.31+), Windows 10+
 - **AI Provider**: API key from [fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai/settings/api) (one is enough)
-- **Blender** (optional): For FBX export
-  - macOS: [Blender.org](https://www.blender.org/download/)
-  - Linux: `sudo apt install blender` or Snap/Flatpak
-  - Windows: [Blender.org](https://www.blender.org/download/)
 
 ## Documentation
 
@@ -255,12 +250,6 @@ Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy
 - Check that environment variable matches provider requirements
 - Settings → API Keys in the GUI, or `asset-tap auth set <provider>` from the CLI
 - Run `asset-tap auth list` to see which providers have a key and where it's loaded from
-
-**"Blender not found"**
-
-- FBX export requires Blender to be installed
-- GUI will show FBX export as unavailable
-- GLB models work without Blender
 
 **Model generation fails**
 

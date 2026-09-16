@@ -52,6 +52,7 @@ pub use egui_phosphor::regular::{
     PAINT_BRUSH,
     PALETTE,
     PAUSE,
+    PERSON,
     // Actions
     PLAY,
     PROHIBIT,

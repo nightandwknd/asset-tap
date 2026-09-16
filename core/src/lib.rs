@@ -8,7 +8,6 @@
 //! The Asset Tap follows this flow:
 //! 1. **Text → Image** - Generate image from text prompt using AI providers
 //! 2. **Image → 3D Model** - Convert image to 3D model (GLB format)
-//! 3. **GLB → FBX** - Optional export to FBX format using Blender
 //!
 //! # Quick Start
 //!
@@ -70,16 +69,18 @@ mod bundle_schema;
 pub mod config;
 pub mod config_sync;
 pub mod constants;
-pub mod convert;
 pub mod error_log;
 pub mod glb_webp;
 pub mod history;
 pub mod pipeline;
 pub mod progress_fmt;
 pub mod providers;
+pub mod release_fetch;
+pub mod rig;
 pub mod settings;
 pub mod state;
 pub mod templates;
+pub mod textures;
 pub mod types;
 
 /// Test-only synchronization for tests that mutate process-global state.
@@ -126,18 +127,79 @@ pub mod test_support {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    /// GLB container magic (`glTF`, little-endian `u32`).
+    const GLB_MAGIC: &[u8; 4] = b"glTF";
+    /// GLB container version. Only 2 exists.
+    const GLB_VERSION: u32 = 2;
+    /// Chunk type `JSON` (glTF 2.0 §4.4.3).
+    const CHUNK_JSON: u32 = 0x4E4F_534A;
+    /// Chunk type `BIN\0` (glTF 2.0 §4.4.3).
+    const CHUNK_BIN: u32 = 0x004E_4942;
+    /// Byte alignment every GLB chunk is padded to.
+    const CHUNK_ALIGN: usize = 4;
+
+    /// Wrap a glTF JSON document, and optionally a binary buffer, in a GLB
+    /// container.
+    ///
+    /// Seven test modules were hand-rolling this header, each with its own
+    /// spelling of the chunk magics; a transposed digit there fails as
+    /// "not a glTF file" a long way from the code under test. Both chunks are
+    /// padded per spec: JSON with spaces, BIN with zeroes.
+    ///
+    /// Test-only. Production GLB writing lives in `rig::write::pack_glb`,
+    /// which has to preserve an existing document's chunks rather than build
+    /// a container from scratch.
+    pub fn glb(json: &[u8], bin: Option<&[u8]>) -> Vec<u8> {
+        fn pad(mut chunk: Vec<u8>, fill: u8) -> Vec<u8> {
+            while !chunk.len().is_multiple_of(CHUNK_ALIGN) {
+                chunk.push(fill);
+            }
+            chunk
+        }
+
+        let json = pad(json.to_vec(), b' ');
+        let bin = bin.map(|b| pad(b.to_vec(), 0));
+
+        let mut total = 12 + 8 + json.len();
+        if let Some(b) = &bin {
+            total += 8 + b.len();
+        }
+
+        let mut out = Vec::with_capacity(total);
+        out.extend_from_slice(GLB_MAGIC);
+        out.extend_from_slice(&GLB_VERSION.to_le_bytes());
+        out.extend_from_slice(&(total as u32).to_le_bytes());
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&CHUNK_JSON.to_le_bytes());
+        out.extend_from_slice(&json);
+        if let Some(b) = &bin {
+            out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            out.extend_from_slice(&CHUNK_BIN.to_le_bytes());
+            out.extend_from_slice(b);
+        }
+        debug_assert_eq!(out.len(), total, "GLB total length must match the header");
+        out
+    }
 }
 
 // Re-export commonly used types
 pub use bundle::{
     Bundle, BundleContents, BundleError, BundleMetadata, DemoDownloadResult, download_demo_bundle,
-    import_bundle_dir, import_bundle_zip,
+    extract_model_info, import_bundle_dir, import_bundle_zip, stamp_bind_step,
 };
 pub use config::{list_image_to_3d_models, list_text_to_image_models};
 pub use error_log::ErrorLog;
 pub use history::{GenerationHistory, GenerationRecord, GenerationStatus};
 pub use pipeline::{PipelineConfig, run_pipeline};
 pub use progress_fmt::{DisplayLevel, ProgressDisplay, format_progress};
+pub use rig::{
+    BindError, BindMarker, BindOptions, BindReport, BoneGroup, ClipCatalogEntry,
+    ClipPacksDownloadResult, HumanBone, Side, SkinnedClip, apply_clip, baked_clip_names, bind_mesh,
+    default_bind_markers, download_clip_packs, find_clip, fit_mesh, fit_mesh_from_heads,
+    foreign_rig_joints, heads_off_mesh, install_pack_from, is_fitted, list_clips, pack_dir,
+    packs_root, preview_skinned_clip, resolve_pack, resolve_packs, seed_bind_markers,
+};
 pub use settings::Settings;
 pub use state::AppState;
 pub use types::{

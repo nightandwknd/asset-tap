@@ -1,0 +1,14 @@
+id: 'prop'
+name: 'Prop or Object'
+description: 'Single object framed for image-to-3D: front view, fills the frame, one connected piece.'
+category: 'prop'
+template: 'A reference image of a single object, seen from the front at a slight downward angle so its top surface reads: ${description}. One object alone in the frame, filling most of it, with the entire silhouette inside the borders from top to bottom. It rests upright and level as it would sit on a surface, and every part of it is joined into one connected piece. Soft even lighting with no cast shadows, against an empty background of one flat color with no surface, horizon, or setting visible behind or beneath it. Sharp focus throughout, with materials, surface texture, and wear clearly legible.'
+variables:
+  - name: 'description'
+    description: 'Object description (what it is, materials, condition, style)'
+    required: true
+examples:
+  - 'a rustic wooden treasure chest with iron bands and a heavy padlock'
+  - 'a weathered sci-fi supply crate with faded orange stenciled markings'
+  - 'a brass oil lantern with soot-stained glass panes and a wire handle'
+  - 'a chipped stone statue head overgrown with moss'

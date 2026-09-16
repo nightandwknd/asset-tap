@@ -33,8 +33,7 @@ The sidebar is where you configure and launch generations:
 - **Image Model Settings** -- Per-model parameters declared by the provider (aspect ratio, resolution, seed, and so on), shown as sliders, checkboxes, and dropdowns. Values persist per provider and model.
 - **3D Model** -- Choose which model converts the image to 3D
 - **3D Model Settings** -- The same, for the image-to-3D model (topology, polycount, PBR, texture resolution, and so on)
-- **Image only (skip 3D)** -- Stop after the image; no GLB or FBX is written
-- **Export FBX** -- Convert the GLB to FBX (requires Blender)
+- **Image only (skip 3D)** -- Stop after the image; no GLB is written
 - **Generate** -- Start the generation pipeline
 
 ### Using an Existing Image
@@ -71,7 +70,25 @@ Controls follow Blender's conventions.
 - **Pan** -- Shift + two-finger scroll
 - **Zoom** -- Pinch, or Ctrl/Cmd + two-finger scroll
 
-A **Reset View** button in the viewer toolbar restores the default camera position.
+The 3D tab is an inspector (Grid, Axes, Reset View). A **Reset View** button in the viewer toolbar restores the default camera.
+
+### Animation (experimental)
+
+**Animate** opens an optional panel beside the viewer: Rig, then Bind, then
+the clip list. This path is [experimental](@/docs/guides/animation.md) --
+fingers are not weighted, and the panel may change.
+
+**Download free packs** (Welcome, Help, or the Animate empty state) fetches
+the Standard libraries from the latest release (~15 MB, hash-verified).
+Already-installed packs are left alone, so a Source upgrade is not overwritten.
+
+On an unbound mesh the first step is **Rig**: pose the shipped skeleton on a
+frozen mesh. Dragging a joint never deforms the model. **Auto-fit** is a
+button, not something that runs on open. **Bind** skins the mesh; a joint
+off the body is refused by name. After a bind, click a clip to play it
+(preview never writes) and **Bake** the ticked set into `model.glb`.
+
+The full loop, CLI and MCP included: [Animation (experimental)](@/docs/guides/animation.md).
 
 The viewer supports models from all providers and handles vertex colors, textures, and node transforms automatically.
 
@@ -102,7 +119,6 @@ Open Settings from the gear icon to configure:
 
 - **API Keys** -- Add or update provider API keys
 - **Output Directory** -- Choose where generated models are saved
-- **FBX Export** -- Enable automatic GLB-to-FBX conversion (requires [Blender](https://www.blender.org/download/))
 
 ## Templates
 
@@ -110,16 +126,10 @@ Asset Tap includes prompt templates that help structure your text input for bett
 
 You can browse available templates with the template selector in the sidebar.
 
-## FBX Export
-
-If you have Blender installed, Asset Tap can automatically convert GLB models to FBX format for use in game engines like Unity and Unreal Engine. Enable FBX export in Settings.
-
-The exported FBX file is saved alongside the GLB in the same bundle directory.
-
-You can also convert existing bundles to FBX after generation. In the GUI, open a bundle that has a GLB and click **Convert to FBX**. From the CLI, use `asset-tap --convert-fbx <path>` with a bundle directory or GLB file.
-
 ## What's Next
 
 - [CLI Usage](@/docs/guides/cli-usage.md) -- Automate generation from the command line
+- [MCP Server](@/docs/guides/mcp.md) -- Drive the same pipeline from an MCP host
 - [Providers](@/docs/guides/providers.md) -- Available models and custom provider configuration
 - [Bundle Structure](@/docs/guides/bundle-structure.md) -- Understanding the output format
+- [Animation (experimental)](@/docs/guides/animation.md) -- Rig a humanoid and bake clips

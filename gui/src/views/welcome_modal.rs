@@ -8,7 +8,9 @@
 
 use crate::icons;
 use crate::style::RichTextExt;
-use asset_tap_core::constants::files::{APP_DISPLAY_NAME, DEMO_BUNDLE_SIZE_LABEL};
+use asset_tap_core::constants::files::{
+    APP_DISPLAY_NAME, CLIP_PACKS_SIZE_LABEL, DEMO_BUNDLE_SIZE_LABEL,
+};
 use eframe::egui;
 use std::path::PathBuf;
 
@@ -22,6 +24,8 @@ pub struct WelcomeModal {
     show_on_startup: bool,
     /// Whether the user clicked the demo download button this frame.
     pub download_requested: bool,
+    /// Whether the user clicked the clip-pack download button this frame.
+    pub packs_download_requested: bool,
     /// Validation error message.
     error_message: Option<String>,
     /// Original values (to restore on cancel/close without save).
@@ -39,8 +43,13 @@ impl WelcomeModal {
             original_show_on_startup: true,
             show_on_startup: true,
             download_requested: false,
+            packs_download_requested: false,
             error_message: None,
         }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.is_open
     }
 
     /// Open the welcome modal.
@@ -61,24 +70,27 @@ impl WelcomeModal {
     /// If `open_settings` is true, the settings modal should be opened.
     /// The welcome modal may remain open when settings is opened.
     ///
-    /// Check `self.download_requested` after calling this to see if the user
-    /// clicked the demo download button.
+    /// Check `self.download_requested` / `self.packs_download_requested`
+    /// after calling this to see if the user clicked a download button.
     ///
     /// `skip_backdrop` - If true, don't draw the backdrop (used when another modal is on top)
     /// `logo_texture` - Optional app logo texture to display
     /// `demo_downloading` - Whether a demo download is currently in progress
+    /// `packs_downloading` - Whether a clip-pack download is currently in progress
     pub fn render(
         &mut self,
         ctx: &egui::Context,
         skip_backdrop: bool,
         logo_texture: Option<&egui::TextureHandle>,
         demo_downloading: bool,
+        packs_downloading: bool,
     ) -> Option<(PathBuf, bool, bool)> {
         if !self.is_open {
             return None;
         }
 
         self.download_requested = false;
+        self.packs_download_requested = false;
 
         let mut result = None;
         let mut should_close = false;
@@ -272,6 +284,34 @@ impl WelcomeModal {
                     if !demo_downloading {
                         ui.label(
                             egui::RichText::new(DEMO_BUNDLE_SIZE_LABEL)
+                                .size(11.0)
+                                .secondary(),
+                        );
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    let (button_label, enabled) = if packs_downloading {
+                        (format!("{} Downloading...", icons::SPINNER), false)
+                    } else {
+                        (format!("{} Download free packs", icons::DOWNLOAD), true)
+                    };
+
+                    if ui
+                        .add_enabled(
+                            enabled,
+                            egui::Button::new(egui::RichText::new(button_label).size(13.0)),
+                        )
+                        .clicked()
+                    {
+                        self.packs_download_requested = true;
+                    }
+
+                    if !packs_downloading {
+                        ui.label(
+                            egui::RichText::new(CLIP_PACKS_SIZE_LABEL)
                                 .size(11.0)
                                 .secondary(),
                         );

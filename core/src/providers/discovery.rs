@@ -193,7 +193,7 @@ impl ModelDiscoveryClient {
         };
 
         tracing::warn!(
-            "No OpenAPI schema for model '{}' — using guessed result_field '{}'. \
+            "No OpenAPI schema for model '{}', using guessed result_field '{}'. \
             This model may fail if its output format differs.",
             id,
             result_field

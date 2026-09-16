@@ -192,6 +192,39 @@ pub struct ModelViewer {
     /// direction are constant, so — like `cached_ambient` — they are built once
     /// rather than reallocated (GPU resources and all) on every rendered frame.
     cached_directional: Option<(DirectionalLight, DirectionalLight)>,
+
+    /// CPU meshes parallel to `gpu_objects`, for pose uploads.
+    cpu_meshes: Vec<CpuMesh>,
+    /// Optional clip for Preview / embedded playback.
+    clip: Option<asset_tap_core::SkinnedClip>,
+    playing: bool,
+    play_time: f32,
+    pub show_bones: bool,
+    pose_dirty: bool,
+    pose_unique: Vec<[f32; 3]>,
+    pose_expanded: Vec<[f32; 3]>,
+    cached_bones: Option<HelperObject>,
+    place: Option<PlaceSession>,
+    cached_markers: Option<HelperObject>,
+    cached_sticks: Option<HelperObject>,
+}
+
+struct PlaceSession {
+    markers: Vec<asset_tap_core::BindMarker>,
+    rest_locals: Vec<[f32; 3]>,
+    undo: Vec<Vec<[f32; 3]>>,
+    redo: Vec<Vec<[f32; 3]>>,
+    selected: Option<usize>,
+    hover: Option<usize>,
+    dragging: Option<PlaceDrag>,
+    /// This pointer press is a marker drag. Survives until release.
+    owns_pointer: bool,
+    /// This pointer press is orbit/pan. Place must not steal it mid-gesture.
+    orbit_owns: bool,
+}
+
+struct PlaceDrag {
+    index: usize,
 }
 
 impl ModelViewer {
@@ -213,6 +246,18 @@ impl ModelViewer {
             offscreen: None,
             cached_ambient: None,
             cached_directional: None,
+            cpu_meshes: Vec::new(),
+            clip: None,
+            playing: false,
+            play_time: 0.0,
+            show_bones: false,
+            pose_dirty: false,
+            pose_unique: Vec::new(),
+            pose_expanded: Vec::new(),
+            cached_bones: None,
+            place: None,
+            cached_markers: None,
+            cached_sticks: None,
         }
     }
 
@@ -273,8 +318,15 @@ impl ModelViewer {
 
         self.error = None;
         self.gpu_objects.clear();
+        self.cpu_meshes.clear();
+        self.clip = None;
+        self.playing = false;
         self.cached_grid = None;
         self.cached_axes = None;
+        self.cached_bones = None;
+        self.place = None;
+        self.cached_markers = None;
+        self.cached_sticks = None;
         self.is_loading = true;
 
         let path_to_load = path.clone();
@@ -337,6 +389,7 @@ impl ModelViewer {
             .ok_or("three-d context not initialized")?;
 
         let mut gpu_objects = Vec::new();
+        let mut cpu_meshes = Vec::new();
 
         for primitive in &cpu_data.cpu_model.geometries {
             if let three_d_asset::geometry::Geometry::Triangles(ref mesh) = primitive.geometry {
@@ -380,11 +433,20 @@ impl ModelViewer {
                 let mut gm = Gm::new(gpu_mesh, physical_material);
                 gm.set_transformation(primitive.transformation);
                 gpu_objects.push(gm);
+                cpu_meshes.push(cpu_mesh);
             }
         }
 
         self.model_info = Some(cpu_data.model_info);
         self.gpu_objects = gpu_objects;
+        self.cpu_meshes = cpu_meshes;
+        if let Some(path) = &self.loaded_path
+            && let Ok(clip) = asset_tap_core::SkinnedClip::from_glb(path)
+        {
+            // Rest-only (Fit, no Bake) still has joints — Bones / Place need them.
+            self.clip = Some(clip);
+            self.pose_dirty = true;
+        }
         self.model_bounds = Some(LoadedModelData {
             bounds_min: cpu_data.bounds_min,
             bounds_max: cpu_data.bounds_max,
@@ -514,6 +576,664 @@ impl ModelViewer {
         })
     }
 
+    /// Force-reload the current path (Fit / Bake writes in place).
+    pub fn reload(&mut self) {
+        if let Some(path) = self.loaded_path.take() {
+            self.gpu_objects.clear();
+            self.cpu_meshes.clear();
+            self.clip = None;
+            self.playing = false;
+            self.start_async_load(path);
+        }
+    }
+
+    pub fn is_playing(&self) -> bool {
+        self.playing
+    }
+
+    pub fn has_clip(&self) -> bool {
+        self.clip.as_ref().is_some_and(|c| c.has_animation())
+    }
+
+    pub fn play_time(&self) -> (f32, f32) {
+        let duration = self.clip.as_ref().map(|c| c.duration).unwrap_or(0.0);
+        (self.play_time, duration)
+    }
+
+    pub fn set_playing(&mut self, playing: bool) {
+        self.playing = playing && self.has_clip();
+        if self.playing {
+            self.pose_dirty = true;
+        }
+    }
+
+    pub fn toggle_playing(&mut self) {
+        self.set_playing(!self.playing);
+    }
+
+    pub fn seek(&mut self, time: f32) {
+        self.play_time = time.max(0.0);
+        self.playing = false;
+        self.pose_dirty = true;
+        self.cached_bones = None;
+    }
+
+    pub fn set_clip(&mut self, clip: asset_tap_core::SkinnedClip) {
+        self.play_time = 0.0;
+        self.playing = clip.has_animation();
+        self.clip = Some(clip);
+        self.pose_dirty = true;
+        self.cached_bones = None;
+    }
+
+    pub fn set_show_bones(&mut self, show: bool) {
+        if self.show_bones == show {
+            return;
+        }
+        self.show_bones = show;
+        self.cached_bones = None;
+        if self.show_bones {
+            self.ensure_clip();
+        }
+    }
+
+    pub fn ensure_clip(&mut self) {
+        if self.clip.is_some() {
+            return;
+        }
+        let Some(path) = self.loaded_path.clone() else {
+            return;
+        };
+        if let Ok(clip) = asset_tap_core::SkinnedClip::from_glb(&path) {
+            self.clip = Some(clip);
+            self.cached_bones = None;
+        }
+    }
+
+    pub fn is_placing(&self) -> bool {
+        self.place.is_some()
+    }
+
+    pub fn is_place_dragging(&self) -> bool {
+        self.place.as_ref().is_some_and(|p| p.dragging.is_some())
+    }
+
+    pub fn selected_bone(&self) -> Option<&str> {
+        let place = self.place.as_ref()?;
+        Some(place.markers[place.selected?].name.as_str())
+    }
+
+    /// Where a missed drag ray leaves the joint: under the pointer, at the
+    /// depth the joint already had.
+    ///
+    /// Dragging on a plane through the joint's current position, facing the
+    /// camera, keeps the two axes the author is actually moving under their
+    /// control and leaves the third alone. Falling back to the joint's own
+    /// position means a ray parallel to the plane cannot send it to infinity.
+    fn pointer_plane_point(&self, origin: Vec3, dir: Vec3, marker: usize) -> [f32; 3] {
+        let current = self
+            .place
+            .as_ref()
+            .and_then(|p| p.markers.get(marker))
+            .map(|m| Vec3::from(m.world))
+            .unwrap_or(origin + dir);
+        // A plane through `current` facing the camera reduces to the point on
+        // the ray nearest `current`, which is the same thing without the
+        // degenerate cases.
+        let len2 = dir.dot(dir);
+        if len2 < 1e-12 {
+            return current.into();
+        }
+        let t = (current - origin).dot(dir) / len2;
+        if t <= 0.0 {
+            return current.into();
+        }
+        (origin + dir * t).into()
+    }
+
+    pub fn can_undo_place(&self) -> bool {
+        self.place.as_ref().is_some_and(|p| !p.undo.is_empty())
+    }
+
+    pub fn can_redo_place(&self) -> bool {
+        self.place.as_ref().is_some_and(|p| !p.redo.is_empty())
+    }
+
+    pub fn is_fitted(&self) -> bool {
+        self.clip.as_ref().is_some_and(|c| c.has_bind_bones())
+    }
+
+    pub fn enter_place(&mut self) -> Result<(), String> {
+        if self.place.is_some() {
+            return Ok(());
+        }
+        if self.clip.is_none()
+            && let Some(path) = self.loaded_path.clone()
+        {
+            // `for_rig`, not `from_glb`: an unrigged mesh has no skin, and
+            // that is the whole reason the user is opening Rig.
+            self.clip = Some(asset_tap_core::SkinnedClip::for_rig(&path)?);
+        }
+        // A fitted mesh already carries its skeleton, so markers are free.
+        // An unfitted one needs an auto-fit: mesh bake, landmarks, and a
+        // solve. That is far too slow to run on the UI thread, so Rig opens
+        // empty and the caller fills it in via `apply_seeded_markers`.
+        let markers = if self.clip.as_ref().is_some_and(|c| c.has_bind_bones()) {
+            self.clip
+                .as_ref()
+                .map(|c| c.bind_markers())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.playing = false;
+        self.play_time = 0.0;
+        self.pose_dirty = true;
+        let rest_locals = self
+            .clip
+            .as_ref()
+            .map(|c| c.rest_translations())
+            .unwrap_or_default();
+        if let Some(clip) = self.clip.as_mut() {
+            clip.restore_translations(&rest_locals);
+            self.pose_dirty = true;
+            self.cached_bones = None;
+        }
+        self.place = Some(PlaceSession {
+            markers,
+            rest_locals,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            selected: None,
+            hover: None,
+            dragging: None,
+            owns_pointer: false,
+            orbit_owns: false,
+        });
+        self.cached_markers = None;
+        self.cached_sticks = None;
+        Ok(())
+    }
+
+    /// Replace the Rig pose with an auto-fit guess computed off-thread
+    /// (see `App::start_reseed`). Undoable. Stays in Rig. Does not write.
+    /// No-op if the user left Rig while the fit was running.
+    /// Rig is open but its skeleton has not arrived yet.
+    pub fn awaiting_seed(&self) -> bool {
+        self.place.as_ref().is_some_and(|p| p.markers.is_empty())
+    }
+
+    pub fn apply_seeded_markers(&mut self, markers: Vec<asset_tap_core::BindMarker>) {
+        let Some(place) = self.place.as_mut() else {
+            return;
+        };
+        if markers.is_empty() {
+            return;
+        }
+        place
+            .undo
+            .push(place.markers.iter().map(|m| m.world).collect());
+        place.redo.clear();
+        place.markers = markers;
+        place.selected = None;
+        place.hover = None;
+        place.dragging = None;
+        self.cached_markers = None;
+        self.cached_sticks = None;
+        self.pose_dirty = true;
+    }
+
+    pub fn exit_place(&mut self) {
+        if let Some(place) = self.place.take()
+            && let Some(clip) = self.clip.as_mut()
+        {
+            clip.restore_translations(&place.rest_locals);
+            self.pose_dirty = true;
+            self.cached_bones = None;
+        }
+        self.cached_markers = None;
+        self.cached_sticks = None;
+    }
+
+    pub fn place_world_heads(&self) -> Vec<(String, [f32; 3])> {
+        self.place
+            .as_ref()
+            .map(|p| {
+                p.markers
+                    .iter()
+                    .map(|m| (m.name.clone(), m.world))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn undo_place(&mut self) {
+        let Some(place) = self.place.as_mut() else {
+            return;
+        };
+        let Some(prev) = place.undo.pop() else {
+            return;
+        };
+        place
+            .redo
+            .push(place.markers.iter().map(|m| m.world).collect());
+        for (m, w) in place.markers.iter_mut().zip(prev) {
+            m.world = w;
+        }
+        self.cached_markers = None;
+        self.cached_sticks = None;
+        self.pose_dirty = true;
+    }
+
+    pub fn redo_place(&mut self) {
+        let Some(place) = self.place.as_mut() else {
+            return;
+        };
+        let Some(next) = place.redo.pop() else {
+            return;
+        };
+        place
+            .undo
+            .push(place.markers.iter().map(|m| m.world).collect());
+        for (m, w) in place.markers.iter_mut().zip(next) {
+            m.world = w;
+        }
+        self.cached_markers = None;
+        self.cached_sticks = None;
+        self.pose_dirty = true;
+    }
+
+    pub fn view_front(&mut self) {
+        self.camera_state.theta = 0.0;
+        self.camera_state.phi = 0.0;
+    }
+
+    pub fn view_side(&mut self) {
+        self.camera_state.theta = std::f32::consts::FRAC_PI_2;
+        self.camera_state.phi = 0.0;
+    }
+
+    pub fn frame_selected(&mut self) {
+        let Some(place) = &self.place else {
+            return;
+        };
+        let Some(i) = place.selected else {
+            return;
+        };
+        let w = place.markers[i].world;
+        self.camera_state.target = w;
+        let extent = self.model_bounds.as_ref().map_or(2.0, |b| {
+            (b.bounds_max.x - b.bounds_min.x)
+                .max(b.bounds_max.y - b.bounds_min.y)
+                .max(b.bounds_max.z - b.bounds_min.z)
+        });
+        self.camera_state.distance = (extent * 0.35).clamp(0.6, 4.0);
+    }
+
+    /// Place pick/drag. Returns true only while this press is a marker drag.
+    /// Hover alone never steals orbit; a press is Place *or* orbit until release.
+    pub fn handle_place(
+        &mut self,
+        rect: egui::Rect,
+        response: &egui::Response,
+        shift: bool,
+    ) -> bool {
+        if self.place.is_none() {
+            return false;
+        }
+        let pointer_down = response.is_pointer_button_down_on();
+        if response.drag_stopped() || !pointer_down {
+            let owned = self.place.as_ref().is_some_and(|p| p.owns_pointer);
+            self.end_place_drag();
+            if let Some(place) = self.place.as_mut() {
+                place.owns_pointer = false;
+                place.orbit_owns = false;
+            }
+            if owned {
+                return true;
+            }
+        }
+
+        let Some(pos) = response.hover_pos().or(response.interact_pointer_pos()) else {
+            return self.place.as_ref().is_some_and(|p| p.owns_pointer);
+        };
+        let (origin, dir) = self.pointer_ray(rect, pos);
+
+        if self.place.as_ref().is_some_and(|p| p.owns_pointer) && pointer_down {
+            // Over the mesh the marker sinks to the limb's midline, which is
+            // the part that is genuinely hard to hit by hand. Off it, the
+            // marker follows the pointer.
+            //
+            // The drag used to be constrained to the mesh on the reasoning that
+            // Bind refuses an off-mesh head anyway, so the pose may as well be
+            // inexpressible. That had it backwards: a joint parked in space is
+            // one the author has not finished moving, and refusing to represent
+            // it made a mis-seeded joint unfixable. Bind is where being off the
+            // mesh has to matter, because Bind is where weights are taken.
+            let index = self
+                .place
+                .as_ref()
+                .and_then(|p| p.dragging.as_ref())
+                .map(|d| d.index);
+            if let Some(i) = index
+                && let Some(hit) = self.clip.as_ref().and_then(|c| {
+                    let o = [origin.x, origin.y, origin.z];
+                    let d = [dir.x, dir.y, dir.z];
+                    // Over the mesh: sink to the limb's midline, which is the
+                    // part that is genuinely hard to do by hand. Off it: leave
+                    // the joint under the pointer.
+                    //
+                    // This used to snap a missed ray to the nearest vertex,
+                    // which made a joint off the body unplaceable. Bind is
+                    // where being off the mesh has to matter, because that is
+                    // where weights are taken; until then a joint parked in
+                    // space is just a joint the author has not finished moving.
+                    c.ray_midline(o, d)
+                        .or_else(|| Some(self.pointer_plane_point(origin, dir, i)))
+                })
+            {
+                if let Some(place) = self.place.as_mut()
+                    && let Some(m) = place.markers.get_mut(i)
+                {
+                    m.world = hit;
+                }
+                self.cached_markers = None;
+                self.cached_sticks = None;
+                self.pose_dirty = true;
+            }
+            return true;
+        }
+
+        if self.place.as_ref().is_some_and(|p| p.orbit_owns) && pointer_down {
+            return false;
+        }
+
+        let hit = self.pick_marker_screen(rect, pos);
+        if let Some(place) = self.place.as_mut()
+            && place.hover != hit
+        {
+            place.hover = hit;
+            self.cached_markers = None;
+        }
+
+        let middle = response.dragged_by(egui::PointerButton::Middle);
+        let can_claim = pointer_down && !middle && !shift;
+        if can_claim {
+            if let Some(i) = hit {
+                if !self.place.as_ref().is_some_and(|p| p.owns_pointer) {
+                    self.begin_place_drag(i, origin);
+                    if let Some(place) = self.place.as_mut() {
+                        place.owns_pointer = true;
+                        place.orbit_owns = false;
+                    }
+                }
+                return true;
+            }
+            if response.drag_started()
+                && let Some(place) = self.place.as_mut()
+            {
+                place.orbit_owns = true;
+                place.owns_pointer = false;
+            }
+            return false;
+        }
+
+        if response.clicked()
+            && !shift
+            && !middle
+            && let Some(place) = self.place.as_mut()
+        {
+            place.selected = hit;
+            self.cached_markers = None;
+        }
+
+        false
+    }
+
+    fn begin_place_drag(&mut self, index: usize, _origin: Vec3) {
+        let Some(place) = self.place.as_mut() else {
+            return;
+        };
+        place
+            .undo
+            .push(place.markers.iter().map(|m| m.world).collect());
+        place.redo.clear();
+        place.selected = Some(index);
+        place.dragging = Some(PlaceDrag { index });
+        self.cached_markers = None;
+    }
+
+    fn end_place_drag(&mut self) {
+        if let Some(place) = self.place.as_mut() {
+            place.dragging = None;
+        }
+    }
+
+    fn pick_marker_screen(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<usize> {
+        let place = self.place.as_ref()?;
+        let eye = self.camera_state.position();
+        let target = vec3(
+            self.camera_state.target[0],
+            self.camera_state.target[1],
+            self.camera_state.target[2],
+        );
+        let forward = (target - eye).normalize();
+        let mut best = None;
+        let mut best_d = f32::MAX;
+        let mut best_z = f32::MAX;
+        for (i, m) in place.markers.iter().enumerate() {
+            let world = vec3(m.world[0], m.world[1], m.world[2]);
+            let Some(screen) = self.world_to_screen(rect, world) else {
+                continue;
+            };
+            let d = screen.distance(pos);
+            let z = (world - eye).dot(forward);
+            let limit = self.marker_pick_pixels(rect, world);
+            if d <= limit && (d < best_d || (d - best_d).abs() < 0.5 && z < best_z) {
+                best_d = d;
+                best_z = z;
+                best = Some(i);
+            }
+        }
+        best
+    }
+
+    fn marker_pick_pixels(&self, rect: egui::Rect, world: Vec3) -> f32 {
+        let r = self.marker_radius();
+        let eye = self.camera_state.position();
+        let target = vec3(
+            self.camera_state.target[0],
+            self.camera_state.target[1],
+            self.camera_state.target[2],
+        );
+        let forward = (target - eye).normalize();
+        let world_up = vec3(0.0, 1.0, 0.0);
+        let right = forward.cross(world_up).normalize();
+        let Some(a) = self.world_to_screen(rect, world) else {
+            return 18.0;
+        };
+        let Some(b) = self.world_to_screen(rect, world + right * r) else {
+            return 18.0;
+        };
+        (a.distance(b) * 1.8).max(16.0)
+    }
+
+    fn world_to_screen(&self, rect: egui::Rect, world: Vec3) -> Option<egui::Pos2> {
+        let w = rect.width().max(1.0);
+        let h = rect.height().max(1.0);
+        let eye = self.camera_state.position();
+        let target = vec3(
+            self.camera_state.target[0],
+            self.camera_state.target[1],
+            self.camera_state.target[2],
+        );
+        let forward = (target - eye).normalize();
+        let world_up = vec3(0.0, 1.0, 0.0);
+        let right = forward.cross(world_up).normalize();
+        let up = right.cross(forward).normalize();
+        let rel = world - eye;
+        let z = rel.dot(forward);
+        if z < 0.05 {
+            return None;
+        }
+        let tan = (45.0f32.to_radians() * 0.5).tan();
+        let aspect = w / h;
+        let ndc_x = rel.dot(right) / (z * tan * aspect);
+        let ndc_y = rel.dot(up) / (z * tan);
+        Some(egui::pos2(
+            rect.min.x + (ndc_x + 1.0) * 0.5 * w,
+            rect.min.y + (1.0 - ndc_y) * 0.5 * h,
+        ))
+    }
+
+    fn marker_radius(&self) -> f32 {
+        (self.camera_state.distance * 0.012).clamp(0.016, 0.06)
+    }
+
+    fn pointer_ray(&self, rect: egui::Rect, pos: egui::Pos2) -> (Vec3, Vec3) {
+        let w = rect.width().max(1.0);
+        let h = rect.height().max(1.0);
+        let ndc_x = ((pos.x - rect.min.x) / w) * 2.0 - 1.0;
+        let ndc_y = 1.0 - ((pos.y - rect.min.y) / h) * 2.0;
+        let eye = self.camera_state.position();
+        let target = vec3(
+            self.camera_state.target[0],
+            self.camera_state.target[1],
+            self.camera_state.target[2],
+        );
+        let forward = (target - eye).normalize();
+        let world_up = vec3(0.0, 1.0, 0.0);
+        let right = forward.cross(world_up).normalize();
+        let up = right.cross(forward).normalize();
+        let tan = (45.0f32.to_radians() * 0.5).tan();
+        let aspect = w / h;
+        let dir = (forward + right * ndc_x * tan * aspect + up * ndc_y * tan).normalize();
+        (eye, dir)
+    }
+
+    pub fn tick(&mut self, dt: f32) {
+        if !self.playing {
+            return;
+        }
+        let Some(clip) = &self.clip else {
+            return;
+        };
+        if !clip.has_animation() {
+            return;
+        }
+        self.play_time = (self.play_time + dt).rem_euclid(clip.duration);
+        self.pose_dirty = true;
+        self.cached_bones = None;
+    }
+
+    fn apply_pose(&mut self, context: &Context) {
+        if !self.pose_dirty {
+            return;
+        }
+        self.pose_dirty = false;
+        if let (Some(place), Some(clip)) = (self.place.as_ref(), self.clip.as_mut()) {
+            clip.restore_translations(&place.rest_locals);
+        }
+        let Some(clip) = self.clip.as_ref() else {
+            return;
+        };
+        // Rig is overlay only. The mesh stays at rest. Bind writes the path.
+        if self.place.is_some() {
+            clip.sample_positions_rest_into(&mut self.pose_unique);
+        } else {
+            clip.sample_positions_into(self.play_time, &mut self.pose_unique);
+        }
+        if !clip.indices().is_empty() {
+            clip.expand_into(&self.pose_unique, &mut self.pose_expanded);
+        } else {
+            self.pose_expanded.clear();
+        }
+        let n_unique = self.pose_unique.len();
+        let n_expanded = self.pose_expanded.len();
+        for (i, cpu) in self.cpu_meshes.iter_mut().enumerate() {
+            let n = cpu.vertex_count();
+            let posed = if let Some((start, count)) = clip.primitive_range(i) {
+                let unique = self.pose_unique.get(start..start + count);
+                if unique.is_some_and(|u| u.len() == n) {
+                    unique.unwrap()
+                } else if let Some(idx) = clip.primitive_indices(i)
+                    && !idx.is_empty()
+                    && n == idx.len()
+                    && let Some(unique) = unique
+                {
+                    self.pose_expanded.clear();
+                    self.pose_expanded.extend(
+                        idx.iter()
+                            .map(|&j| unique.get(j as usize).copied().unwrap_or([0.0, 0.0, 0.0])),
+                    );
+                    self.pose_expanded.as_slice()
+                } else {
+                    continue;
+                }
+            } else if n == n_unique {
+                self.pose_unique.as_slice()
+            } else if n_expanded > 0 && n == n_expanded {
+                self.pose_expanded.as_slice()
+            } else {
+                continue;
+            };
+            cpu.positions = Positions::F32(posed.iter().map(|p| vec3(p[0], p[1], p[2])).collect());
+            if i < self.gpu_objects.len() {
+                let transform = self.gpu_objects[i].transformation();
+                self.gpu_objects[i].geometry = Mesh::new(context, cpu);
+                self.gpu_objects[i].set_transformation(transform);
+            }
+        }
+    }
+
+    fn bone_helper(
+        context: &Context,
+        clip: &asset_tap_core::SkinnedClip,
+        t: Option<f32>,
+    ) -> HelperObject {
+        let segs = match t {
+            Some(t) => clip.bone_segments(t),
+            None => clip.bone_segments_rest(),
+        };
+        let mut positions: Vec<Vec3> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        let thickness = 0.012;
+        for (a, b) in segs {
+            let a = vec3(a.x, a.y, a.z);
+            let b = vec3(b.x, b.y, b.z);
+            let dir = (b - a).normalize();
+            let side = if dir.dot(vec3(0.0, 1.0, 0.0)).abs() < 0.9 {
+                dir.cross(vec3(0.0, 1.0, 0.0)).normalize() * thickness
+            } else {
+                dir.cross(vec3(1.0, 0.0, 0.0)).normalize() * thickness
+            };
+            let base = positions.len() as u32;
+            positions.extend_from_slice(&[a - side, a + side, b + side, b - side]);
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        if positions.is_empty() {
+            positions.push(vec3(0.0, 0.0, 0.0));
+            indices.extend_from_slice(&[0, 0, 0]);
+        }
+        let cpu = CpuMesh {
+            positions: Positions::F32(positions),
+            indices: Indices::U32(indices),
+            ..Default::default()
+        };
+        Gm::new(
+            Mesh::new(context, &cpu),
+            ColorMaterial {
+                color: Srgba::new(240, 192, 64, 240),
+                render_states: RenderStates {
+                    depth_test: DepthTest::Always,
+                    write_mask: WriteMask::COLOR,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+    }
+
     pub fn reset_camera(&mut self) {
         if let Some(ref bounds) = self.model_bounds {
             self.camera_state
@@ -580,6 +1300,16 @@ impl ModelViewer {
             Some(c) => c.clone(),
             None => return,
         };
+
+        self.apply_pose(&context);
+        if self.place.is_some() {
+            if self.cached_sticks.is_none() {
+                self.cached_sticks = Some(self.place_sticks(&context));
+            }
+            if self.cached_markers.is_none() {
+                self.cached_markers = Some(self.place_markers(&context));
+            }
+        }
 
         // Ensure offscreen targets exist at the right size
         self.ensure_offscreen(&context, width, height);
@@ -673,6 +1403,32 @@ impl ModelViewer {
         // Render model
         for obj in &self.gpu_objects {
             render_target.render(&camera, obj, &lights);
+        }
+
+        // Rest-pose bones stay put. Place already draws moving sticks —
+        // drawing both looks like ghost lines that refuse to follow markers.
+        if self.show_bones
+            && self.place.is_none()
+            && let Some(clip) = self.clip.clone()
+        {
+            if self.cached_bones.is_none() {
+                let t = self.place.is_none().then_some(self.play_time);
+                self.cached_bones = Some(Self::bone_helper(&context, &clip, t));
+            }
+            if let Some(ref bones) = self.cached_bones {
+                render_target.render(&camera, bones, &[]);
+            }
+        }
+
+        if let Some(ref sticks) = self.cached_sticks
+            && self.place.is_some()
+        {
+            render_target.render(&camera, sticks, &[]);
+        }
+        if let Some(ref markers) = self.cached_markers
+            && self.place.is_some()
+        {
+            render_target.render(&camera, markers, &[]);
         }
 
         // Render axes on top
@@ -955,6 +1711,226 @@ impl ModelViewer {
             create_axis_with_arrow(vec3(0.0, 0.0, 1.0), Srgba::new(60, 100, 220, 255)),
         )
     }
+
+    fn place_markers(&self, context: &Context) -> HelperObject {
+        let Some(place) = &self.place else {
+            return Self::empty_helper(context);
+        };
+        let r = self.marker_radius();
+        let selected = place.selected;
+        let hover = place.hover;
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+        let mut colors = Vec::new();
+        for (i, m) in place.markers.iter().enumerate() {
+            let c = vec3(m.world[0], m.world[1], m.world[2]);
+            let base = marker_color(&m.name);
+            // Selection and hover lift the body-part color towards white
+            // rather than replacing it with a hue of their own, which would
+            // fight the legend the author is reading the rig by.
+            let color = match (selected == Some(i), hover == Some(i)) {
+                (true, _) => lift(base, 0.65),
+                (_, true) => lift(base, 0.3),
+                _ => base,
+            };
+            append_octahedron(&mut positions, &mut indices, &mut colors, c, r, color);
+        }
+        marker_gm(context, positions, indices, colors)
+    }
+
+    /// Screen-space labels for the paired Rig markers.
+    ///
+    /// Twins are otherwise indistinguishable once the camera turns: color says
+    /// *which joint*, the label says *which side*. Returned in screen space so
+    /// egui paints them over the viewport rather than the renderer drawing
+    /// text into the 3D scene.
+    pub fn marker_labels(&self, rect: egui::Rect) -> Vec<MarkerLabel> {
+        let Some(place) = &self.place else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (i, m) in place.markers.iter().enumerate() {
+            let Some(bone) = asset_tap_core::HumanBone::parse(&m.name) else {
+                continue;
+            };
+            let Some(side) = bone.side() else {
+                continue;
+            };
+            let world = vec3(m.world[0], m.world[1], m.world[2]);
+            let Some(screen) = self.world_to_screen(rect, world) else {
+                continue;
+            };
+            let c = marker_color(&m.name);
+            out.push(MarkerLabel {
+                screen,
+                text: side.label(),
+                color: egui::Color32::from_rgb(c.r, c.g, c.b),
+                emphasized: place.selected == Some(i) || place.hover == Some(i),
+            });
+        }
+        out
+    }
+
+    /// Body-part groups present in the current Rig session, for the legend.
+    pub fn marker_legend(&self) -> Vec<(asset_tap_core::BoneGroup, egui::Color32)> {
+        let Some(place) = &self.place else {
+            return Vec::new();
+        };
+        let mut seen: Vec<asset_tap_core::BoneGroup> = Vec::new();
+        for m in &place.markers {
+            let Some(bone) = asset_tap_core::HumanBone::parse(&m.name) else {
+                continue;
+            };
+            let group = bone.group();
+            if !seen.contains(&group) {
+                seen.push(group);
+            }
+        }
+        seen.into_iter()
+            .map(|g| {
+                let c = group_color(g);
+                (g, egui::Color32::from_rgb(c.r, c.g, c.b))
+            })
+            .collect()
+    }
+
+    fn place_sticks(&self, context: &Context) -> HelperObject {
+        let Some(place) = &self.place else {
+            return Self::empty_helper(context);
+        };
+        let by_name: std::collections::HashMap<&str, [f32; 3]> = place
+            .markers
+            .iter()
+            .map(|m| (m.name.as_str(), m.world))
+            .collect();
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+        let thickness = self.marker_radius() * 0.22;
+        for m in &place.markers {
+            if m.parent_name.is_empty() {
+                continue;
+            }
+            let Some(pw) = by_name.get(m.parent_name.as_str()) else {
+                continue;
+            };
+            let a = vec3(pw[0], pw[1], pw[2]);
+            let b = vec3(m.world[0], m.world[1], m.world[2]);
+            let dir = b - a;
+            if dir.dot(dir) < 1e-10 {
+                continue;
+            }
+            let dir_n = dir.normalize();
+            let side = if dir_n.dot(vec3(0.0, 1.0, 0.0)).abs() < 0.9 {
+                dir_n.cross(vec3(0.0, 1.0, 0.0)).normalize() * thickness
+            } else {
+                dir_n.cross(vec3(1.0, 0.0, 0.0)).normalize() * thickness
+            };
+            let base = positions.len() as u32;
+            positions.extend_from_slice(&[a - side, a + side, b + side, b - side]);
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        if positions.is_empty() {
+            return Self::empty_helper(context);
+        }
+        Gm::new(
+            Mesh::new(
+                context,
+                &CpuMesh {
+                    positions: Positions::F32(positions),
+                    indices: Indices::U32(indices),
+                    ..Default::default()
+                },
+            ),
+            ColorMaterial {
+                color: Srgba::new(240, 192, 64, 230),
+                render_states: RenderStates {
+                    depth_test: DepthTest::Always,
+                    write_mask: WriteMask::COLOR,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+    }
+
+    fn empty_helper(context: &Context) -> HelperObject {
+        Gm::new(
+            Mesh::new(
+                context,
+                &CpuMesh {
+                    positions: Positions::F32(vec![vec3(0.0, 0.0, 0.0)]),
+                    indices: Indices::U32(vec![0, 0, 0]),
+                    ..Default::default()
+                },
+            ),
+            ColorMaterial {
+                color: Srgba::new(0, 0, 0, 0),
+                ..Default::default()
+            },
+        )
+    }
+}
+
+fn append_octahedron(
+    positions: &mut Vec<Vec3>,
+    indices: &mut Vec<u32>,
+    colors: &mut Vec<Srgba>,
+    c: Vec3,
+    r: f32,
+    color: Srgba,
+) {
+    let base = positions.len() as u32;
+    let pts = [
+        c + vec3(r, 0.0, 0.0),
+        c + vec3(-r, 0.0, 0.0),
+        c + vec3(0.0, r, 0.0),
+        c + vec3(0.0, -r, 0.0),
+        c + vec3(0.0, 0.0, r),
+        c + vec3(0.0, 0.0, -r),
+    ];
+    positions.extend_from_slice(&pts);
+    colors.extend(std::iter::repeat_n(color, 6));
+    const FACES: [[u32; 3]; 8] = [
+        [0, 2, 4],
+        [2, 1, 4],
+        [1, 3, 4],
+        [3, 0, 4],
+        [2, 0, 5],
+        [1, 2, 5],
+        [3, 1, 5],
+        [0, 3, 5],
+    ];
+    for f in FACES {
+        indices.extend_from_slice(&[base + f[0], base + f[1], base + f[2]]);
+    }
+}
+
+fn marker_gm(
+    context: &Context,
+    positions: Vec<Vec3>,
+    indices: Vec<u32>,
+    colors: Vec<Srgba>,
+) -> HelperObject {
+    Gm::new(
+        Mesh::new(
+            context,
+            &CpuMesh {
+                positions: Positions::F32(positions),
+                indices: Indices::U32(indices),
+                colors: Some(colors),
+                ..Default::default()
+            },
+        ),
+        ColorMaterial {
+            color: Srgba::WHITE,
+            render_states: RenderStates {
+                depth_test: DepthTest::Always,
+                write_mask: WriteMask::COLOR,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
 }
 
 impl Default for ModelViewer {
@@ -965,3 +1941,137 @@ impl Default for ModelViewer {
 
 /// Wrapper for sharing ModelViewer across threads.
 pub type SharedModelViewer = Arc<Mutex<ModelViewer>>;
+
+/// A Rig marker's side label, positioned in screen space.
+pub struct MarkerLabel {
+    pub screen: egui::Pos2,
+    pub text: &'static str,
+    pub color: egui::Color32,
+    pub emphasized: bool,
+}
+
+/// Marker color for a canonical joint name.
+fn marker_color(name: &str) -> Srgba {
+    asset_tap_core::HumanBone::parse(name)
+        .map(|b| group_color(b.group()))
+        .unwrap_or(Srgba::new(240, 192, 64, 255))
+}
+
+/// Body-part palette, in three families so the rig reads at a glance: the
+/// spine axis is warm, arms are cool, legs are green. Chosen for contrast on
+/// the dark viewport rather than for prettiness in isolation.
+pub fn group_color(group: asset_tap_core::BoneGroup) -> Srgba {
+    use asset_tap_core::BoneGroup as G;
+    let (r, g, b) = match group {
+        G::Hips => (255, 196, 64),
+        G::Spine => (255, 148, 72),
+        G::Neck => (255, 178, 120),
+        G::Head => (255, 226, 150),
+        G::Clavicle => (120, 220, 210),
+        G::Shoulder => (96, 190, 255),
+        G::Elbow => (110, 145, 255),
+        G::Wrist => (168, 132, 255),
+        G::Hip => (168, 230, 120),
+        G::Knee => (96, 210, 110),
+        G::Ankle => (64, 180, 140),
+        G::Toe => (200, 235, 96),
+        G::Finger => (150, 150, 160),
+    };
+    Srgba::new(r, g, b, 255)
+}
+
+/// Blend towards white by `t`, keeping the hue recognizable.
+fn lift(c: Srgba, t: f32) -> Srgba {
+    let mix = |v: u8| {
+        (v as f32 + (255.0 - v as f32) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Srgba::new(mix(c.r), mix(c.g), mix(c.b), c.a)
+}
+
+#[cfg(test)]
+mod marker_color_tests {
+    use super::*;
+    use asset_tap_core::{BoneGroup, HumanBone};
+
+    fn placeable_groups() -> Vec<BoneGroup> {
+        let mut out: Vec<BoneGroup> = Vec::new();
+        for bone in HumanBone::ALL {
+            if !bone.is_placeable() {
+                continue;
+            }
+            if !out.contains(&bone.group()) {
+                out.push(bone.group());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_placeable_group_has_its_own_color() {
+        let groups = placeable_groups();
+        assert_eq!(groups.len(), 12, "12 draggable body parts");
+        let mut seen: Vec<(u8, u8, u8)> = Vec::new();
+        for g in groups {
+            let c = group_color(g);
+            let rgb = (c.r, c.g, c.b);
+            assert!(!seen.contains(&rgb), "{g:?} reuses a color");
+            seen.push(rgb);
+        }
+    }
+
+    #[test]
+    fn joints_an_author_grabs_side_by_side_never_share_a_color() {
+        // The pairs that sit close enough to confuse: pelvis vs the hip each
+        // leg pivots on, and the clavicle vs the shoulder just outboard of it.
+        for (a, b) in [
+            (HumanBone::Hips, HumanBone::LeftUpperLeg),
+            (HumanBone::LeftShoulder, HumanBone::LeftUpperArm),
+            (HumanBone::LeftUpperArm, HumanBone::LeftLowerArm),
+            (HumanBone::LeftLowerLeg, HumanBone::LeftFoot),
+            (HumanBone::Neck, HumanBone::Head),
+        ] {
+            let (x, y) = (marker_color(a.as_str()), marker_color(b.as_str()));
+            assert_ne!(
+                (x.r, x.g, x.b),
+                (y.r, y.g, y.b),
+                "{a:?} and {b:?} share a color"
+            );
+        }
+    }
+
+    #[test]
+    fn twins_share_a_color_and_are_told_apart_by_side() {
+        let l = marker_color(HumanBone::LeftUpperArm.as_str());
+        let r = marker_color(HumanBone::RightUpperArm.as_str());
+        assert_eq!((l.r, l.g, l.b), (r.r, r.g, r.b), "color means joint type");
+        assert_eq!(HumanBone::LeftUpperArm.side().unwrap().label(), "L");
+        assert_eq!(HumanBone::RightUpperArm.side().unwrap().label(), "R");
+    }
+
+    #[test]
+    fn selection_lifts_the_group_color_instead_of_replacing_it() {
+        // A second hue for "selected" would fight the legend the author is
+        // reading the rig by, so selection only brightens.
+        let base = marker_color(HumanBone::LeftLowerLeg.as_str());
+        let picked = lift(base, 0.65);
+        assert!(picked.r >= base.r && picked.g >= base.g && picked.b >= base.b);
+        assert!(
+            picked.r > base.r || picked.g > base.g || picked.b > base.b,
+            "selection must be visible"
+        );
+        // Still recognizably the knee color: the channel that dominated the
+        // base still dominates after the lift.
+        let dominant = |c: Srgba| {
+            if c.g >= c.r && c.g >= c.b {
+                "g"
+            } else if c.r >= c.b {
+                "r"
+            } else {
+                "b"
+            }
+        };
+        assert_eq!(dominant(base), dominant(picked));
+    }
+}

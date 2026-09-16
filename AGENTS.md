@@ -44,23 +44,49 @@ Rules an agent should follow:
   results carry `kind` (`unauthorized`, `rate_limited`, `network`, …),
   `retryable`, and a human `action`. Exit codes: `0` ok · `2` usage · `3`
   auth/key · `4` provider · `5` canceled · `6` network/timeout · `7` local
-  environment (Blender, filesystem) · `1` other. Retry only when
+  environment (filesystem, missing clip pack) · `1` other. Retry only when
   `retryable` is true; on `3`, ask the human for a key rather than looping.
 - **The bundle is the product.** `result.bundle_dir` is an absolute path
   containing `bundle.json` (v2: `artifacts` + `pipeline` steps, plus v1
-  `config` / mesh stats), the image, `model.glb`, optional `model.fbx`, and
-  textures. `bundle.json` is written **last**, so a directory containing it
-  is complete. Schema: [docs/guides/BUNDLE_STRUCTURE.md](docs/guides/BUNDLE_STRUCTURE.md).
-- **GLB-only is the default; pass `--fbx` only when FBX is needed** — FBX conversion requires
-  Blender on the machine (exit 7 if missing). GLB is enough for three.js,
-  Godot, Bevy, and most web/engine targets.
+  `config` / mesh stats), the image, `model.glb`, and textures.
+  `bundle.json` is written **last**, so a directory containing it is
+  complete. Schema: [docs/guides/BUNDLE_STRUCTURE.md](docs/guides/BUNDLE_STRUCTURE.md).
+- **glTF is the only 3D output.** `model.glb` is enough for three.js, Godot,
+  Bevy, Unity, Unreal, and every web target. There is no FBX stage and no
+  Blender dependency; `--fbx`, `--no-fbx`, `--convert-fbx` and `--convert-only`
+  are usage errors (exit 2), not silently-ignored flags.
+- **Humanoid rig and animation:** `--rig --clip walk` after a
+  T-pose mesh (`-t humanoid`) is fit + bind + bake in one flag.
+  `asset-tap bind --mesh model.glb --fit-only` writes a skinned T-pose;
+  `--clip walk` bakes that clip. **`--clip` repeats on both paths** (`bind`
+  and the root `--rig`) — one model carries N animations, as Mixamo and Meshy
+  do, rather than one export per clip.
+  Re-running `bind` on an already-rigged mesh keeps its skeleton and weights
+  (so adding a clip cannot undo hand-arranged joints); pass `--refit` to
+  discard the pose deliberately. `clip list --json` reports every clip in
+  every installed pack and, with `--model PATH`, which of them are already
+  baked in. Packs are local: `clip install --from PATH [--id ID]` takes a
+  Quaternius zip, directory, or glTF. The two libraries are
+  [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
+  (`ual1`) and
+  [Universal Animation Library 2](https://quaternius.com/packs/universalanimationlibrary2.html)
+  (`ual2`) (CC0). `asset-tap clip download` (or `--json clip download`)
+  fetches the free Standard libraries from the latest GitHub Release,
+  hash-verified; they are not in the binary. Already-installed ids are
+  skipped. `--force` refreshes only packs stamped by a previous download;
+  it never replaces a `clip install` / Source pack. Paid Source zips from
+  those pages install with `clip install --from` and replace the matching
+  `ual1` / `ual2` pack. MCP hosts use the `clip_download` tool (same
+  document as `--json clip download`).
+  A missing clip or pack is a local error (exit 7) — do not invent bones.
+  Switching clips in the GUI does not rewrite `model.glb` until Bake.
 - **Two-step pipeline, both steps optional**: text → image
   (`--image-only` stops here) → 3D (`--image PATH_OR_URL` starts here from
   your own image). Pick models with `--image-model` / `--3d-model` from the
   catalog; tune with `--param key=value` (only parameters of the models that
   will actually run are accepted — passing another is exit 2 with the valid
   list in the message).
-- **Templates** (`-t humanoid`, `-t vehicle`, … from `--list --json`) turn a
+- **Templates** (`-t humanoid`, and whatever else `--list --json` reports) turn a
   short description into a well-formed prompt; `--inspect-template NAME`
   shows exactly what it will send.
 - **Idempotency**: each run creates a new timestamped bundle directory under
@@ -86,8 +112,8 @@ no-cost calls against a release binary.
 MCP hosts (Claude Desktop, Cursor, IDE agents) can add
 `asset-tap mcp` as an MCP server — `claude mcp add asset-tap -- asset-tap mcp`
 or a `{"command": "asset-tap", "args": ["mcp"]}` entry. Its tools
-(`list_catalog`, `auth_status`, `inspect_bundle`, `generate`) return the same
-documents as `--list --json`, `auth list --json`, and the `--json` result;
+(`list_catalog`, `auth_status`, `inspect_bundle`, `clip_download`, `generate`) return the same
+documents as `--list --json`, `auth list --json`, `--json clip download`, and the `--json` result;
 `generate` streams progress as MCP notifications. Details:
 [docs/MCP.md](docs/MCP.md). If you _do_ have a shell, prefer the CLI above.
 

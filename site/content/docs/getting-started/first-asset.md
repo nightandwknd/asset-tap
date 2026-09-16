@@ -43,8 +43,13 @@ On first launch, you'll be prompted to enter your API key.
 
 That's it! Your generated assets are saved to a timestamped output directory. See [Using Asset Tap](@/docs/guides/using-asset-tap.md) for the full GUI guide, or [Bundle Structure](@/docs/guides/bundle-structure.md) for the output format.
 
+On a T-pose humanoid you can open **Animate** in the 3D tab and try the
+[experimental rig and clip bake](@/docs/guides/animation.md). It is optional;
+generation does not require it.
+
 ## What's Next
 
 - [Using Asset Tap](@/docs/guides/using-asset-tap.md) -- Full GUI guide with viewer, library, and settings
 - [CLI Usage](@/docs/guides/cli-usage.md) -- Automate generation from the command line
 - [Providers](@/docs/guides/providers.md) -- Available models and custom provider configuration
+- [Animation (experimental)](@/docs/guides/animation.md) -- Rig a humanoid and bake clips

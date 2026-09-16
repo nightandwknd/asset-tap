@@ -208,14 +208,20 @@ jobs:
       - uses: ./.github/actions/get-version
         id: calver
       - name: Post version summary
+        env:
+          SHOULD_RELEASE: ${{ steps.calver.outputs.should_release }}
+          NEW_VERSION: ${{ steps.calver.outputs.new_version }}
+          CHANGELOG: ${{ steps.calver.outputs.changelog }}
         run: |
           {
             echo "## Release Preview"
             echo ""
-            if [ "${{ steps.calver.outputs.should_release }}" = "true" ]; then
-              echo "Merging this PR will create release **v${{ steps.calver.outputs.new_version }}**"
+            if [ "$SHOULD_RELEASE" = "true" ]; then
+              echo "Merging this PR will create release **v${NEW_VERSION}**"
               echo ""
-              echo "${{ steps.calver.outputs.changelog }}"
+              # Changelog is in the environment (see CHANGELOG above) so
+              # backticks in commit bodies are not command-substituted.
+              printf '%s\n' "$CHANGELOG"
             else
               echo "No release will be created (no new commits since last tag)."
             fi

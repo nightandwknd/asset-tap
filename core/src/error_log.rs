@@ -70,7 +70,7 @@ pub enum ErrorType {
     ValidationError,
     /// Model processing error.
     ProcessingError,
-    /// External tool error (Blender, etc.).
+    /// External tool error.
     ToolError,
     /// Unknown/uncategorized error.
     Unknown,
@@ -112,17 +112,11 @@ pub struct EnvironmentInfo {
 
     /// Whether running in dev mode.
     pub dev_mode: bool,
-
-    /// Blender availability.
-    pub blender_available: bool,
-
-    /// Blender version (if available).
-    pub blender_version: Option<String>,
 }
 
 impl Default for EnvironmentInfo {
     fn default() -> Self {
-        // Gathering this info spawns three subprocesses (sw_vers/uname, blender
+        // Gathering this info spawns subprocesses (sw_vers/uname
         // --version). Every error log constructs an EnvironmentInfo, so cache
         // it in a OnceLock — the values are process-lifetime-stable, and this
         // keeps the (async) error path from shelling out on every failure.
@@ -140,8 +134,6 @@ impl EnvironmentInfo {
             os: std::env::consts::OS.to_string(),
             os_version: get_os_version(),
             dev_mode: is_dev_mode(),
-            blender_available: crate::convert::is_blender_available(),
-            blender_version: get_blender_version(),
         }
     }
 }
@@ -173,27 +165,6 @@ fn get_os_version() -> Option<String> {
     None
 }
 
-/// Get the Blender version string (if Blender is available).
-fn get_blender_version() -> Option<String> {
-    let blender_cmd = crate::convert::find_blender()?;
-    // Handle multi-part commands like "flatpak run org.blender.Blender"
-    let parts: Vec<&str> = blender_cmd.split_whitespace().collect();
-    let output = std::process::Command::new(parts[0])
-        .args(&parts[1..])
-        .arg("--version")
-        .output()
-        .ok()?;
-    if output.status.success() {
-        // First line is typically "Blender 4.2.0"
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let first_line = stdout.lines().next()?.trim().to_string();
-        if !first_line.is_empty() {
-            return Some(first_line);
-        }
-    }
-    None
-}
-
 /// Snapshot of relevant configuration at time of error.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSnapshot {
@@ -205,9 +176,6 @@ pub struct ConfigSnapshot {
 
     /// 3D model selected.
     pub model_3d: Option<String>,
-
-    /// Whether FBX export was enabled.
-    pub export_fbx: bool,
 
     /// Number of style references.
     pub style_ref_count: usize,
@@ -499,12 +467,11 @@ mod tests {
     #[test]
     fn test_error_summary() {
         let log = ErrorLog::new(ErrorType::IoError, "File not found")
-            .with_stage(Stage::FbxConversion)
+            .with_stage(Stage::Model3DGeneration)
             .with_details("Could not locate model.glb");
 
         let summary = log.summary();
         assert!(summary.contains("File not found"));
-        assert!(summary.contains("FBX Conversion"));
     }
 
     #[test]
@@ -611,7 +578,6 @@ mod tests {
                 prompt: Some("a robot knight".to_string()),
                 image_model: Some("fal-ai/nano-banana".to_string()),
                 model_3d: Some("fal-ai/trellis-2".to_string()),
-                export_fbx: true,
                 style_ref_count: 0,
             });
 
@@ -632,6 +598,5 @@ mod tests {
         assert_eq!(config.prompt.as_deref(), Some("a robot knight"));
         assert_eq!(config.image_model.as_deref(), Some("fal-ai/nano-banana"));
         assert_eq!(config.model_3d.as_deref(), Some("fal-ai/trellis-2"));
-        assert!(config.export_fbx);
     }
 }

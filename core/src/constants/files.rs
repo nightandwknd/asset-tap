@@ -12,16 +12,37 @@ pub const APP_DISPLAY_NAME: &str = "Asset Tap";
 /// Reverse-DNS application identifier (matches cargo-packager `identifier` in gui/Cargo.toml)
 pub const APP_ID: &str = "com.nightandwknd.asset-tap";
 
+/// Latest-release download prefix. Artifact names hang off this.
+pub const GITHUB_RELEASES_LATEST: &str =
+    "https://github.com/nightandwknd/asset-tap/releases/latest/download";
+
+macro_rules! latest_asset {
+    ($name:literal) => {
+        concat!(
+            "https://github.com/nightandwknd/asset-tap/releases/latest/download",
+            $name
+        )
+    };
+}
+
 /// URL for the demo bundle manifest (small JSON with version info).
-pub const DEMO_MANIFEST_URL: &str =
-    "https://github.com/nightandwknd/asset-tap/releases/latest/download/demo-manifest.json";
+pub const DEMO_MANIFEST_URL: &str = latest_asset!("/demo-manifest.json");
 
 /// URL for downloading the demo bundle archive from GitHub Releases.
-pub const DEMO_BUNDLE_URL: &str =
-    "https://github.com/nightandwknd/asset-tap/releases/latest/download/demo-bundle.zip";
+pub const DEMO_BUNDLE_URL: &str = latest_asset!("/demo-bundle.zip");
 
 /// Approximate size of the demo bundle download, shown in the UI.
 pub const DEMO_BUNDLE_SIZE_LABEL: &str = "34 MB";
+
+/// URL for the free Standard clip-pack manifest (version + SHA-256).
+pub const CLIP_PACKS_MANIFEST_URL: &str = latest_asset!("/clip-packs-manifest.json");
+
+/// URL for the free Standard clip-pack archive from GitHub Releases.
+pub const CLIP_PACKS_URL: &str = latest_asset!("/clip-packs.zip");
+
+/// Approximate size of the clip-pack archive, shown in the UI.
+/// Must match `size_label` in `packs/manifest.json` (enforced by test).
+pub const CLIP_PACKS_SIZE_LABEL: &str = "15 MB";
 
 /// Configuration files
 pub mod config {
@@ -51,9 +72,6 @@ pub mod bundle {
 
     /// 3D model file (GLB format)
     pub const MODEL_GLB: &str = "model.glb";
-
-    /// 3D model file (FBX format)
-    pub const MODEL_FBX: &str = "model.fbx";
 
     /// Textures directory
     pub const TEXTURES_DIR: &str = "textures";

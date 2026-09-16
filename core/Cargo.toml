@@ -35,7 +35,6 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
-which = { workspace = true }
 
 # Env loading
 dotenvy = { workspace = true }
@@ -47,9 +46,11 @@ futures = { workspace = true }
 # Collections
 indexmap = { workspace = true }
 
-# 3D file parsing and image processing (for GLB WebP conversion)
+# 3D file parsing, bind/skin math, image processing
+glam = { workspace = true }
 gltf = { workspace = true }
 image = { workspace = true }
+rayon = { workspace = true }
 
 # Embed directories at compile time
 include_dir = "0.7"
@@ -77,6 +78,7 @@ mock = ["dep:wiremock"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+serde_json = { workspace = true }
 tempfile = "3.8"
 tokio-test = "0.4"
 
