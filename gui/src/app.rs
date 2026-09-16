@@ -3177,7 +3177,7 @@ impl eframe::App for App {
                         self.show_demo_download_confirm = true;
                         ui.close();
                     }
-                    let packs_downloading = self.pending_clip_packs_download.is_some();
+                    let packs_downloading = self.clip_packs_downloading();
                     let packs_label = if packs_downloading {
                         clip_packs::DOWNLOAD_BUSY
                     } else {
@@ -3188,7 +3188,7 @@ impl eframe::App for App {
                         .on_hover_text(clip_packs::DOWNLOAD_HOVER)
                         .clicked()
                     {
-                        self.show_clip_packs_download_confirm = true;
+                        self.request_clip_packs_download();
                         ui.close();
                     }
                     ui.separator();

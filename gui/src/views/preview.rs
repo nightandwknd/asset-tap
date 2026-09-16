@@ -2,6 +2,7 @@
 
 use super::path_to_file_uri;
 use crate::app::{App, PreviewTab};
+use crate::constants::clip_packs;
 use crate::icons;
 use crate::style::RichTextExt;
 use crate::views::walkthrough::WalkthroughStep;
@@ -1092,9 +1093,9 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                     if ui
                         .small_button("Clear animation")
                         .on_hover_text(if has_baked {
-                            "Remove every animation from model.glb, keeping the rig"
+                            "Remove every animation from model.glb, keeping the rig."
                         } else {
-                            "Nothing to clear. This model has no baked animation"
+                            "Nothing to clear. This model has no baked animation."
                         })
                         .clicked()
                     {
@@ -1200,7 +1201,7 @@ fn render_clip_list(app: &mut App, ui: &mut egui::Ui, fitted: bool, busy: bool) 
         ui.add_space(4.0);
         if app.clip_packs_downloading() {
             ui.label(
-                egui::RichText::new(crate::constants::clip_packs::DOWNLOAD_BUSY)
+                egui::RichText::new(clip_packs::DOWNLOAD_BUSY)
                     .small()
                     .weak(),
             );
@@ -1311,14 +1312,14 @@ fn render_clip_list(app: &mut App, ui: &mut egui::Ui, fitted: bool, busy: bool) 
 
 /// Install another animation library from a Quaternius download.
 ///
-/// The same flow serves the free Standard tiers and the paid Source ones:
+/// The same flow serves the Standard tiers and the paid Source ones:
 /// point it at the zip or folder and the installer finds the library itself.
 fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
     ui.add_enabled_ui(!app.workbench_busy(), |ui| {
         ui.menu_button("Add pack\u{2026}", |ui| {
             if ui
                 .button("From archive or file\u{2026}")
-                .on_hover_text("A zip, .glb, or .gltf")
+                .on_hover_text(clip_packs::ARCHIVE_HOVER)
                 .clicked()
             {
                 if let Some(file) = rfd::FileDialog::new()
@@ -1332,7 +1333,7 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
             }
             if ui
                 .button("From folder\u{2026}")
-                .on_hover_text("A download you already extracted")
+                .on_hover_text("A download you already extracted.")
                 .clicked()
             {
                 if let Some(dir) = rfd::FileDialog::new()
@@ -1347,12 +1348,9 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
             if ui
                 .add_enabled(
                     !app.clip_packs_downloading(),
-                    egui::Button::new(format!(
-                        "{}\u{2026}",
-                        crate::constants::clip_packs::DOWNLOAD_ACTION
-                    )),
+                    egui::Button::new(clip_packs::DOWNLOAD_ACTION),
                 )
-                .on_hover_text(crate::constants::clip_packs::DOWNLOAD_HOVER)
+                .on_hover_text(clip_packs::DOWNLOAD_HOVER)
                 .clicked()
             {
                 app.request_clip_packs_download();
@@ -1361,15 +1359,14 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
             render_quaternius_pack_menu_links(app, ui);
         })
         .response
-        .on_hover_text("Install or download an animation library");
+        .on_hover_text(clip_packs::ADD_PACK_HOVER);
     });
 }
 
 fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
-    const SOURCE_HOVER: &str = "Quaternius page. Paid Source has extra clips";
     if ui
         .button("Universal Animation Library\u{2026}")
-        .on_hover_text(SOURCE_HOVER)
+        .on_hover_text(clip_packs::SOURCE_HOVER)
         .clicked()
     {
         crate::app::open_with_system(asset_tap_core::rig::UAL1_PAGE, Some(&mut app.toasts));
@@ -1377,7 +1374,7 @@ fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
     }
     if ui
         .button("Universal Animation Library 2\u{2026}")
-        .on_hover_text(SOURCE_HOVER)
+        .on_hover_text(clip_packs::SOURCE_HOVER)
         .clicked()
     {
         crate::app::open_with_system(asset_tap_core::rig::UAL2_PAGE, Some(&mut app.toasts));

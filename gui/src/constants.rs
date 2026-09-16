@@ -28,11 +28,45 @@ pub mod clip_packs {
 
     pub const DOWNLOAD_ACTION: &str = "Download animation packs";
     pub const DOWNLOAD_BUSY: &str = "Downloading animation packs...";
-    pub const DOWNLOAD_HOVER: &str = "Two animation packs by Quaternius";
+    pub const DOWNLOAD_HOVER: &str = "Two animation packs by Quaternius.";
     pub const DOWNLOAD_PROMPT: &str = "Download two animation packs by Quaternius?";
+    pub const SOURCE_HOVER: &str = "Quaternius page. Paid Source has extra clips.";
+    pub const ADD_PACK_HOVER: &str = "Install or download an animation library.";
+    pub const ARCHIVE_HOVER: &str = "A zip, .glb, or .gltf.";
 
     pub fn download_detail() -> String {
         format!("About {CLIP_PACKS_SIZE_LABEL}. Packs you already have are not replaced.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clip_packs;
+
+    #[test]
+    fn download_hover_is_a_statement() {
+        assert!(
+            !clip_packs::DOWNLOAD_HOVER.contains('?'),
+            "question format is for the confirm"
+        );
+        assert!(
+            clip_packs::DOWNLOAD_PROMPT.contains('?'),
+            "confirm prompt must ask"
+        );
+        for s in [
+            clip_packs::DOWNLOAD_ACTION,
+            clip_packs::DOWNLOAD_BUSY,
+            clip_packs::DOWNLOAD_HOVER,
+            clip_packs::DOWNLOAD_PROMPT,
+            clip_packs::SOURCE_HOVER,
+            clip_packs::ADD_PACK_HOVER,
+            clip_packs::ARCHIVE_HOVER,
+        ] {
+            assert!(
+                !s.to_ascii_lowercase().contains("free"),
+                "{s:?} still says free"
+            );
+        }
     }
 }
 

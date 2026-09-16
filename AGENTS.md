@@ -71,7 +71,7 @@ Rules an agent should follow:
   (`ual1`) and
   [Universal Animation Library 2](https://quaternius.com/packs/universalanimationlibrary2.html)
   (`ual2`) (CC0). `asset-tap clip download` (or `--json clip download`)
-  fetches the free Standard libraries from the latest GitHub Release,
+  fetches the Standard libraries from the latest GitHub Release,
   hash-verified; they are not in the binary. Already-installed ids are
   skipped. `--force` refreshes only packs stamped by a previous download;
   it never replaces a `clip install` / Source pack. Paid Source zips from

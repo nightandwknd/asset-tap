@@ -38,17 +38,17 @@ between each arm and the torso and between the legs.
 Generate or open a character, switch to the 3D tab, and open **Animate**.
 The panel is optional; the viewer stays an inspector until you do.
 
-1. **Rig** -- pose the shipped skeleton on a frozen mesh. Dragging a joint
+1. **Rig:** pose the shipped skeleton on a frozen mesh. Dragging a joint
    never deforms the model. Markers are colored by body part and labeled
    L or R; a legend sits beside the viewport, not over it. Rig always opens
    with joints you can drag.
-2. **Auto-fit** -- a button, not something that runs on open. It fits the
+2. **Auto-fit** is a button, not something that runs on open. It fits the
    skeleton to a readable humanoid and leaves the joints alone on a mesh it
    cannot read as a body. Review the result before you bind.
-3. **Bind** -- skins the mesh to the posed heads. Every joint must sit on
+3. **Bind:** skins the mesh to the posed heads. Every joint must sit on
    the body; a joint off the mesh is refused by name. The confirmation says
    how many joints you moved from the auto-fit.
-4. **Clips** -- click a row to play it (preview never writes). Tick the set
+4. **Clips:** click a row to play it (preview never writes). Tick the set
    you want and press **Bake**. The panel shows what will be added and
    removed. An empty tick-set is a separate clear, not an overloaded Bake.
 
@@ -87,7 +87,7 @@ A missing clip or pack is a local error (exit 7), not a retryable failure.
 actually contains.
 
 Machine-readable: `asset-tap --json bind --mesh model.glb --clip walk`.
-The result names the written model and the full baked clip set -- see the
+The result names the written model and the full baked clip set. See the
 [CLI machine interface](https://github.com/nightandwknd/asset-tap/blob/main/docs/CLI_MACHINE_INTERFACE.md).
 
 ## Clip packs
@@ -133,5 +133,5 @@ error. Full tool list: [MCP server](@/docs/guides/mcp.md).
 - **No weight painting, no invented bones, no full animation editor.**
   Bind computes weights from the posed heads.
 
-A `bind` step is recorded on `bundle.json` when you bake -- see
+A `bind` step is recorded on `bundle.json` when you bake. See
 [Bundle structure](@/docs/guides/bundle-structure.md#the-bind-step-experimental).
