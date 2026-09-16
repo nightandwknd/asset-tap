@@ -14,7 +14,7 @@
   
   
   
-  <title>Using Asset Tap | Asset Tap</title>
+  <title>Animation (experimental) | Asset Tap</title>
   
 <script>
   (function () {
@@ -59,20 +59,20 @@
 
 
 
-<meta name="description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
-<link rel="canonical" href="https://assettap.dev/docs/guides/using-asset-tap/">
+<meta name="description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips.">
+<link rel="canonical" href="https://assettap.dev/docs/guides/animation/">
 
-<meta property="og:title" content="Using Asset Tap">
-<meta property="og:description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
+<meta property="og:title" content="Animation (experimental)">
+<meta property="og:description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips.">
 <meta property="og:type" content="article">
-<meta property="og:url" content="https://assettap.dev/docs/guides/using-asset-tap/">
+<meta property="og:url" content="https://assettap.dev/docs/guides/animation/">
 <meta property="og:site_name" content="Asset Tap">
-<meta property="article:published_time" content="2026-02-10">
+<meta property="article:published_time" content="2026-09-13">
 <meta property="og:image" content="https://assettap.dev/images/og-card.png">
 
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Using Asset Tap">
-<meta name="twitter:description" content="Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.">
+<meta name="twitter:title" content="Animation (experimental)">
+<meta name="twitter:description" content="Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips.">
 <meta name="twitter:image" content="https://assettap.dev/images/og-card.png">
 
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -675,9 +675,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link is-active"
+    class="docs-nav-link "
     href="https://assettap.dev/docs/guides/using-asset-tap/"
-    aria-current="page"
+    
   >
     Using Asset Tap
   </a>
@@ -740,9 +740,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
+    class="docs-nav-link is-active"
     href="https://assettap.dev/docs/guides/animation/"
-    
+    aria-current="page"
   >
     Animation (experimental)
   </a>
@@ -981,9 +981,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link is-active"
+    class="docs-nav-link "
     href="https://assettap.dev/docs/guides/using-asset-tap/"
-    aria-current="page"
+    
   >
     Using Asset Tap
   </a>
@@ -1046,9 +1046,9 @@
 
 <li class="docs-nav-item">
   <a
-    class="docs-nav-link "
+    class="docs-nav-link is-active"
     href="https://assettap.dev/docs/guides/animation/"
-    
+    aria-current="page"
   >
     Animation (experimental)
   </a>
@@ -1167,7 +1167,7 @@
     
 
     <li class="breadcrumbs-item" aria-current="page">
-      <span>Using Asset Tap</span>
+      <span>Animation (experimental)</span>
     </li>
   </ol>
 </nav>
@@ -1177,172 +1177,127 @@
 
 
     <header class="page-header">
-      <h1>Using Asset Tap</h1>
+      <h1>Animation (experimental)</h1>
 
       
       <p class="page-description">
-        Complete guide to the Asset Tap GUI -- generating 3D models, using the viewer, managing your library, and configuring settings.
+        Experimental humanoid rig and clip bake: GUI Animate panel, CLI bind / --rig, MCP clips.
       </p>
       
     </header>
 
-    <p>This guide walks through the Asset Tap GUI from first launch to exporting your 3D models.</p>
-<h2 id="first-launch">First Launch<a class="zola-anchor" href="#first-launch" aria-label="Anchor link for: first-launch">
+    <div class="callout callout--warning">
+  <p class="callout-title">Experimental</p>
+  <p>Humanoid rigging and clip bake are new. The skeleton, weights, and bake
+contract are still being proven on real provider meshes. The panel, flags,
+and clip names may change. Fingers are not weighted. Root-motion clips
+are ignored.</p>
+</div>
+<p>Asset Tap can rig a humanoid mesh to an embedded 52-joint skeleton and bake
+animation clips into <code>model.glb</code>. The skeleton ships in the binary, so
+rigging needs nothing downloaded. Packs only add clips.</p>
+<p>One model carries N animations, the way Mixamo and Meshy work, rather than
+one export per clip. Bake is declarative: the file ends up with exactly the
+clips you named or ticked. Unticking (or omitting) a clip removes it.</p>
+<p>Use the <a href="https://assettap.dev/docs/guides/cli-usage/#templates">humanoid</a> template when you
+want a figure the auto-fit can read: T-pose, arms the widest points, a gap
+between each arm and the torso and between the legs.</p>
+<h2 id="desktop-app">Desktop app<a class="zola-anchor" href="#desktop-app" aria-label="Anchor link for: desktop-app">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>When you open Asset Tap for the first time, the welcome screen asks for your API key. Enter a key from either supported provider -- a <a rel="external" href="https://fal.ai/dashboard/keys">fal.ai API key</a> or a <a rel="external" href="https://www.meshy.ai/settings/api">Meshy API key</a> -- and click <strong>Save</strong>. You only need one to run the full pipeline. You can add the other later (or swap between them) in Settings.</p>
-<h2 id="main-window">Main Window<a class="zola-anchor" href="#main-window" aria-label="Anchor link for: main-window">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>The main window has two areas: the <strong>sidebar</strong> on the left for inputs and controls, and the <strong>viewer</strong> on the right for previewing results.</p>
-<h3 id="sidebar">Sidebar<a class="zola-anchor" href="#sidebar" aria-label="Anchor link for: sidebar">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p>The sidebar is where you configure and launch generations:</p>
-<ul>
-<li><strong>Prompt</strong> -- Type a text description of the 3D model you want (e.g., "a cowboy ninja with a leather duster, bandana mask, and dual katanas on the back")</li>
-<li><strong>Template</strong> -- Optionally select a prompt template to structure your input</li>
-<li><strong>Provider</strong> -- Select the AI provider to use</li>
-<li><strong>Image Model</strong> -- Choose which model generates the image from your text</li>
-<li><strong>Image Model Settings</strong> -- Per-model parameters declared by the provider (aspect ratio, resolution, seed, and so on), shown as sliders, checkboxes, and dropdowns. Values persist per provider and model.</li>
-<li><strong>3D Model</strong> -- Choose which model converts the image to 3D</li>
-<li><strong>3D Model Settings</strong> -- The same, for the image-to-3D model (topology, polycount, PBR, texture resolution, and so on)</li>
-<li><strong>Image only (skip 3D)</strong> -- Stop after the image; no GLB is written</li>
-<li><strong>Generate</strong> -- Start the generation pipeline</li>
-</ul>
-<h3 id="using-an-existing-image">Using an Existing Image<a class="zola-anchor" href="#using-an-existing-image" aria-label="Anchor link for: using-an-existing-image">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p>If you already have an image, you can skip the text-to-image step. Use the image input in the sidebar to load a file directly -- Asset Tap will send it straight to the image-to-3D model.</p>
-<h2 id="generating-a-model">Generating a Model<a class="zola-anchor" href="#generating-a-model" aria-label="Anchor link for: generating-a-model">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>Click <strong>Generate</strong> to start the pipeline. Asset Tap runs in stages:</p>
+<p>Generate or open a character, switch to the 3D tab, and open <strong>Animate</strong>.
+The panel is optional; the viewer stays an inspector until you do.</p>
 <ol>
-<li><strong>Image Generation</strong> -- Your text prompt is sent to the AI provider, which returns an image</li>
-<li><strong>Image Approval</strong> -- Review the generated image before proceeding to 3D conversion</li>
-<li><strong>3D Generation</strong> -- The image is converted to a 3D model (GLB format)</li>
+<li><strong>Rig</strong> -- pose the shipped skeleton on a frozen mesh. Dragging a joint
+never deforms the model. Markers are colored by body part and labeled
+L or R; a legend sits beside the viewport, not over it. Rig always opens
+with joints you can drag.</li>
+<li><strong>Auto-fit</strong> -- a button, not something that runs on open. It guesses a
+T-pose on a readable humanoid and leaves the joints alone on a mesh it
+cannot read as a body. Review the result before you bind.</li>
+<li><strong>Bind</strong> -- skins the mesh to the posed heads. Every joint must sit on
+the body; a joint off the mesh is refused by name. The confirmation says
+how many joints you moved from the auto-fit.</li>
+<li><strong>Clips</strong> -- click a row to play it (preview never writes). Tick the set
+you want and press <strong>Bake</strong>. The panel shows what will be added and
+removed. An empty tick-set is a separate clear, not an overloaded Bake.</li>
 </ol>
-<h3 id="image-approval">Image Approval<a class="zola-anchor" href="#image-approval" aria-label="Anchor link for: image-approval">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p>After the image is generated, Asset Tap shows you a preview so you can decide whether to proceed. If the image doesn't match what you had in mind, you can go back and adjust your prompt.</p>
-<h2 id="3d-viewer">3D Viewer<a class="zola-anchor" href="#3d-viewer" aria-label="Anchor link for: 3d-viewer">
+<p>Animation packs add rows to the clip list. See <a href="https://assettap.dev/docs/guides/animation/#clip-packs">Clip packs</a>.
+Switching clips does not rewrite <code>model.glb</code> until Bake.</p>
+<h2 id="command-line">Command line<a class="zola-anchor" href="#command-line" aria-label="Anchor link for: command-line">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>Once generation completes, the 3D model loads in the built-in viewer. You can interact with the model directly:</p>
-<p>Controls follow Blender's conventions.</p>
-<p><strong>Mouse:</strong></p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Generate a character and rig it in one run</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-rig</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a knight in plate armor</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Rig an existing mesh and bake a walk</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Several clips on one model</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Sword_Attack</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Idle_Loop</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Skinned T-pose, no animation</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-fit-only</span></span></code></pre>
+<p><code>--clip</code> repeats on both <code>--rig</code> and <code>bind</code>. Re-running <code>bind</code> on an
+already-rigged mesh keeps its skeleton and weights, so adding a clip cannot
+undo joints you arranged by hand. Pass <code>--refit</code> to discard the pose.</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Universal-Animation-Library.zip</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Universal-Animation-Library-2.zip</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-model</span><span class="z-l-2 z-d-6"> output/2026-09-08_120000/model.glb</span></span></code></pre>
+<p>A missing clip or pack is a local error (exit 7), not a retryable failure.
+<code>walk</code> is an alias for <code>Walk_Loop</code>; <code>clip list</code> shows the names the pack
+actually contains.</p>
+<p>Machine-readable: <code>asset-tap --json bind --mesh model.glb --clip walk</code>.
+The result names the written model and the full baked clip set -- see the
+<a rel="external" href="https://github.com/nightandwknd/asset-tap/blob/main/docs/CLI_MACHINE_INTERFACE.md">CLI machine interface</a>.</p>
+<h2 id="clip-packs">Clip packs<a class="zola-anchor" href="#clip-packs" aria-label="Anchor link for: clip-packs">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Clips come from <a rel="external" href="https://quaternius.com">Quaternius</a>' CC0 libraries:</p>
 <ul>
-<li><strong>Rotate</strong> -- Left-drag, or middle-click drag, to orbit around the model</li>
-<li><strong>Pan</strong> -- Shift + left-drag, or Shift + middle-click drag</li>
-<li><strong>Zoom</strong> -- Scroll wheel (no modifier)</li>
+<li><a rel="external" href="https://quaternius.com/packs/universalanimationlibrary.html">Universal Animation Library</a>
+(<code>ual1</code>)</li>
+<li><a rel="external" href="https://quaternius.com/packs/universalanimationlibrary2.html">Universal Animation Library 2</a>
+(<code>ual2</code>)</li>
 </ul>
-<p><strong>Trackpad:</strong></p>
-<ul>
-<li><strong>Rotate</strong> -- Two-finger scroll to orbit</li>
-<li><strong>Pan</strong> -- Shift + two-finger scroll</li>
-<li><strong>Zoom</strong> -- Pinch, or Ctrl/Cmd + two-finger scroll</li>
-</ul>
-<p>The 3D tab is an inspector (Grid, Axes, Reset View). A <strong>Reset View</strong> button in the viewer toolbar restores the default camera.</p>
-<h3 id="animation-experimental">Animation (experimental)<a class="zola-anchor" href="#animation-experimental" aria-label="Anchor link for: animation-experimental">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h3>
-<p><strong>Animate</strong> opens an optional panel beside the viewer: Rig, then Bind, then
-the clip list. This path is <a href="https://assettap.dev/docs/guides/animation/">experimental</a> --
-fingers are not weighted, and the panel may change.</p>
-<p><strong>Download free packs</strong> (Welcome, Help, or the Animate empty state) fetches
-the Standard libraries from the latest release (~15 MB, hash-verified).
-Already-installed packs are left alone, so a Source upgrade is not overwritten.</p>
-<p>On an unbound mesh the first step is <strong>Rig</strong>: pose the shipped skeleton on a
-frozen mesh. Dragging a joint never deforms the model. <strong>Auto-fit</strong> is a
-button, not something that runs on open. <strong>Bind</strong> skins the mesh; a joint
-off the body is refused by name. After a bind, click a clip to play it
-(preview never writes) and <strong>Bake</strong> the ticked set into <code>model.glb</code>.</p>
-<p>The full loop, CLI and MCP included: <a href="https://assettap.dev/docs/guides/animation/">Animation (experimental)</a>.</p>
-<p>The viewer supports models from all providers and handles vertex colors, textures, and node transforms automatically.</p>
-<h2 id="library">Library<a class="zola-anchor" href="#library" aria-label="Anchor link for: library">
+<p>The rest pose we ship is derived from the first library. Both packs can sit
+side by side; catalogs merge.</p>
+<p><strong>Out of the box:</strong> <strong>Download free packs</strong> in Welcome, Help, or the Animate
+panel (or <code>asset-tap clip download</code> / <code>--json clip download</code> / MCP
+<code>clip_download</code>) pulls the Standard libraries from the latest Asset Tap
+release. The archive is hash-verified and is <strong>not</strong> inside the app.
+Already-installed packs are left alone, so a Source upgrade you installed
+yourself is never overwritten. <code>clip download --force</code> refreshes only packs
+stamped by a previous download.</p>
+<p>Each Quaternius page also has a free <strong>Standard</strong> download (the site button
+or Itch) and the remaining paid <strong>Source</strong> clips. Those zips install the
+same way: <strong>Add pack...</strong> or <code>clip install --from</code>. The pack id drops the
+tier suffix, so installing Source over Standard replaces that library
+rather than duplicating its clips.</p>
+<h2 id="mcp">MCP<a class="zola-anchor" href="#mcp" aria-label="Anchor link for: mcp">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>The Library view lets you browse all previously generated models. Each entry shows the prompt, timestamp, and a quick preview. Click any entry to load it in the 3D viewer.</p>
-<p>Bundles are loaded from your configured output directory. See <a href="https://assettap.dev/docs/guides/bundle-structure/">Bundle Structure</a> for details on the output format.</p>
-<h2 id="importing-bundles">Importing Bundles<a class="zola-anchor" href="#importing-bundles" aria-label="Anchor link for: importing-bundles">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>Bring bundles into your library from anywhere -- a CLI run that used a custom
-output directory, a bundle someone shared, or an exported archive:</p>
-<ul>
-<li><strong>Drag &amp; drop</strong> -- drop a bundle folder, a <code>.zip</code> archive, or a bundle's
-<code>bundle.json</code> anywhere on the window.</li>
-<li><strong>File → Import Bundle...</strong> -- pick a <code>.zip</code>, or navigate into a bundle
-folder and double-click its <code>bundle.json</code>.</li>
-<li><strong>File → Import Bundle Folder...</strong> -- single-click the folder, then Open
-(double-clicking navigates into it -- that's the OS file picker, not us).</li>
-</ul>
-<p>Imports are copied into your library; the source is left untouched. Zips made
-with macOS's built-in Compress work fine.</p>
-<h2 id="settings">Settings<a class="zola-anchor" href="#settings" aria-label="Anchor link for: settings">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>Open Settings from the gear icon to configure:</p>
-<ul>
-<li><strong>API Keys</strong> -- Add or update provider API keys</li>
-<li><strong>Output Directory</strong> -- Choose where generated models are saved</li>
-</ul>
-<h2 id="templates">Templates<a class="zola-anchor" href="#templates" aria-label="Anchor link for: templates">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>Asset Tap includes prompt templates that help structure your text input for better results. Select a template from the sidebar dropdown, fill in the variables, and the template generates an optimized prompt.</p>
-<p>You can browse available templates with the template selector in the sidebar.</p>
-<h2 id="what-s-next">What's Next<a class="zola-anchor" href="#what-s-next" aria-label="Anchor link for: what-s-next">
+<p><code>generate</code> takes <code>bind: true</code> and <code>clips: ["walk", "Sword_Attack"]</code>. The
+same rules as the CLI: no pack required to rig, a missing clip is a local
+error. Full tool list: <a href="https://assettap.dev/docs/guides/mcp/">MCP server</a>.</p>
+<h2 id="what-this-does-not-do">What this does not do<a class="zola-anchor" href="#what-this-does-not-do" aria-label="Anchor link for: what-this-does-not-do">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1350,19 +1305,20 @@ with macOS's built-in Compress work fine.</p>
 </a>
 </h2>
 <ul>
-<li><a href="https://assettap.dev/docs/guides/cli-usage/">CLI Usage</a> -- Automate generation from the command line</li>
-<li><a href="https://assettap.dev/docs/guides/mcp/">MCP Server</a> -- Drive the same pipeline from an MCP host</li>
-<li><a href="https://assettap.dev/docs/guides/providers/">Providers</a> -- Available models and custom provider configuration</li>
-<li><a href="https://assettap.dev/docs/guides/bundle-structure/">Bundle Structure</a> -- Understanding the output format</li>
-<li><a href="https://assettap.dev/docs/guides/animation/">Animation (experimental)</a> -- Rig a humanoid and bake clips</li>
+<li><strong>Fingers</strong> stay excluded. Hands will not curl with a grab or fist clip.</li>
+<li><strong>Root-motion</strong> (<code>_RM</code>) variants are ignored so preview does not walk the
+model out of the viewport. In-place loops only.</li>
+<li><strong>Props</strong> can be rigged by hand. Auto-fit will not invent a pose on a
+chest or crate; use the <a href="https://assettap.dev/docs/guides/cli-usage/#templates">prop</a>
+template when you are not animating.</li>
+<li><strong>No weight painting, no invented bones, no full animation editor.</strong>
+Bind computes weights from the posed heads.</li>
 </ul>
+<p>A <code>bind</code> step is recorded on <code>bundle.json</code> when you bake -- see
+<a href="https://assettap.dev/docs/guides/bundle-structure/#the-bind-step-experimental">Bundle structure</a>.</p>
 
 
     
-
-
-
-
 
 
 
@@ -1467,21 +1423,13 @@ with macOS's built-in Compress work fine.</p>
   
   <a
     class="docs-prev-next-link docs-prev-next-link-previous"
-    href="https://assettap.dev/docs/getting-started/first-asset/"
+    href="https://assettap.dev/docs/guides/bundle-structure/"
   >
     <span class="docs-prev-next-label"><span class="pagination-arrow" aria-hidden="true">&larr;</span> Previous</span>
-    <span class="docs-prev-next-title">Your First Asset</span>
+    <span class="docs-prev-next-title">Bundle Structure</span>
   </a>
   
 
-  
-  <a
-    class="docs-prev-next-link docs-prev-next-link-next"
-    href="https://assettap.dev/docs/guides/cli-usage/"
-  >
-    <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
-    <span class="docs-prev-next-title">CLI Usage</span>
-  </a>
   
 </nav>
 
@@ -1504,143 +1452,40 @@ with macOS's built-in Compress work fine.</p>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#first-launch">
-        First Launch
+      <a href="https://assettap.dev/docs/guides/animation/#desktop-app">
+        Desktop app
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <details class="docs-toc-group" data-docs-toc-group>
-        <summary class="docs-toc-group-toggle">
-          <a href="https://assettap.dev/docs/guides/using-asset-tap/#main-window">
-            Main Window
-          </a>
-          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
-        </summary>
-
-        
-  
-  <ul class="docs-toc-list">
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#sidebar">
-        Sidebar
-      </a>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#using-an-existing-image">
-        Using an Existing Image
-      </a>
-      
-    </li>
-    
-  </ul>
-  
-
-      </details>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
-      <details class="docs-toc-group" data-docs-toc-group>
-        <summary class="docs-toc-group-toggle">
-          <a href="https://assettap.dev/docs/guides/using-asset-tap/#generating-a-model">
-            Generating a Model
-          </a>
-          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
-        </summary>
-
-        
-  
-  <ul class="docs-toc-list">
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#image-approval">
-        Image Approval
-      </a>
-      
-    </li>
-    
-  </ul>
-  
-
-      </details>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
-      <details class="docs-toc-group" data-docs-toc-group>
-        <summary class="docs-toc-group-toggle">
-          <a href="https://assettap.dev/docs/guides/using-asset-tap/#3d-viewer">
-            3D Viewer
-          </a>
-          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
-        </summary>
-
-        
-  
-  <ul class="docs-toc-list">
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#animation-experimental">
-        Animation (experimental)
-      </a>
-      
-    </li>
-    
-  </ul>
-  
-
-      </details>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#library">
-        Library
+      <a href="https://assettap.dev/docs/guides/animation/#command-line">
+        Command line
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#importing-bundles">
-        Importing Bundles
+      <a href="https://assettap.dev/docs/guides/animation/#clip-packs">
+        Clip packs
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#settings">
-        Settings
+      <a href="https://assettap.dev/docs/guides/animation/#mcp">
+        MCP
       </a>
       
     </li>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#templates">
-        Templates
-      </a>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
-      <a href="https://assettap.dev/docs/guides/using-asset-tap/#what-s-next">
-        What&#39;s Next
+      <a href="https://assettap.dev/docs/guides/animation/#what-this-does-not-do">
+        What this does not do
       </a>
       
     </li>

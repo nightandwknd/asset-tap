@@ -84,7 +84,7 @@
 <link rel="stylesheet" href="https://assettap.dev/main.css">
 
   
-<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust">
+<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, gltf, rigging, animation, rust">
 <meta name="twitter:site" content="@nightandwknd">
 <meta name="twitter:creator" content="@nightandwknd">
 <meta property="og:image:width" content="1200">
@@ -738,6 +738,19 @@
 
 
 
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
 
   </ul>
 </li>
@@ -1025,6 +1038,19 @@
     
   >
     Bundle Structure
+  </a>
+</li>
+
+
+
+
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
   </a>
 </li>
 
@@ -1323,7 +1349,6 @@
 <span class="giallo-l"><span>    ├── bundle.json      # Metadata</span></span>
 <span class="giallo-l"><span>    ├── image.png        # Generated image</span></span>
 <span class="giallo-l"><span>    ├── model.glb        # 3D model</span></span>
-<span class="giallo-l"><span>    ├── model.fbx        # FBX (if Blender installed)</span></span>
 <span class="giallo-l"><span>    └── textures/        # Extracted textures</span></span></code></pre><h3 id="exporting-bundles">Exporting Bundles<a class="zola-anchor" href="#exporting-bundles" aria-label="Anchor link for: exporting-bundles">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1338,23 +1363,7 @@
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Or name an existing bundle while exporting it</span></span>
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-export-bundle</span><span class="z-l-2 z-d-6"> output/2024-12-29_153045</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-name</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">My Robot</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
 <p>Exporting a bundle that has no name exits with an error telling you which command to run.</p>
-<h2 id="fbx-conversion">FBX Conversion<a class="zola-anchor" href="#fbx-conversion" aria-label="Anchor link for: fbx-conversion">
-  <span class="content-icon content-icon-sm" aria-hidden="true">
-    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
-
-  </span>
-</a>
-</h2>
-<p>By default, Asset Tap converts GLB models to FBX if Blender is installed.</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Skip FBX conversion (GLB output only)</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-fbx</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a robot</span><span class="z-l-2 z-d-6">&quot;</span></span>
-<span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Convert a specific bundle or GLB file to FBX after generation</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-fbx</span><span class="z-l-2 z-d-6"> output/2024-12-29_153045</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-fbx</span><span class="z-l-2 z-d-6"> output/2024-12-29_153045/model.glb</span></span>
-<span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Batch convert all existing GLB files to FBX (no API calls)</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-only</span></span></code></pre><h2 id="image-approval">Image Approval<a class="zola-anchor" href="#image-approval" aria-label="Anchor link for: image-approval">
+<h2 id="image-approval">Image Approval<a class="zola-anchor" href="#image-approval" aria-label="Anchor link for: image-approval">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1372,7 +1381,70 @@
 </h2>
 <p>Some 3D models contain WebP textures that aren't supported by all tools. Convert them to PNG:</p>
 <pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Convert WebP textures in existing GLB files to PNG</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-webp</span></span></code></pre><h2 id="complete-flag-reference">Complete Flag Reference<a class="zola-anchor" href="#complete-flag-reference" aria-label="Anchor link for: complete-flag-reference">
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-convert-webp</span></span></code></pre><h2 id="rigging-and-animation-experimental">Rigging and Animation (experimental)<a class="zola-anchor" href="#rigging-and-animation-experimental" aria-label="Anchor link for: rigging-and-animation-experimental">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<blockquote>
+<p><strong>Experimental.</strong> Humanoid rig and clip bake -- the panel, flags, and clip
+names may change. Fingers are not weighted. Full guide:
+<a href="https://assettap.dev/docs/guides/animation/">Animation (experimental)</a>.</p>
+</blockquote>
+<p>Asset Tap rigs humanoid characters and bakes animation clips into the GLB. The
+skeleton ships inside the binary, so rigging itself needs nothing downloaded:</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Generate a character and rig it in one run</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-rig</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a knight in plate armor</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Rig an existing mesh and bake a walk cycle</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Rig only: a skinned T-pose with no animation</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-fit-only</span></span></code></pre>
+<p><code>--clip</code> repeats, on both the generate path and <code>bind</code>. One model carries one
+animation per clip, the way Mixamo and Meshy work, rather than one export per
+clip:</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Sword_Attack</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Idle_Loop</span></span></code></pre>
+<p>Bake is declarative: the model ends up with exactly the clips you named, so
+re-running with a shorter list removes the ones you dropped. Re-running <code>bind</code>
+on a mesh that is already rigged keeps its skeleton and weights, so adding a
+clip cannot undo joints you arranged by hand in the GUI. Pass <code>--refit</code> when
+you do want the pose discarded and recomputed.</p>
+<h3 id="animation-packs">Animation packs<a class="zola-anchor" href="#animation-packs" aria-label="Anchor link for: animation-packs">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>Clips come from <a rel="external" href="https://quaternius.com">Quaternius</a>' CC0
+<a rel="external" href="https://quaternius.com/packs/universalanimationlibrary.html">Universal Animation Library</a>
+and
+<a rel="external" href="https://quaternius.com/packs/universalanimationlibrary2.html">Universal Animation Library 2</a>.
+<code>asset-tap clip download</code> pulls the free Standard libraries from the latest
+Asset Tap release (hash-verified, not in the binary). The remaining paid
+Source clips on those pages install the same way as any other zip. Full
+note: <a href="https://assettap.dev/docs/guides/animation/#clip-packs">Animation (experimental)</a>.</p>
+<p>Install from a download's <code>.zip</code>, an extracted folder, or a single <code>.glb</code>:</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Free Standard packs from the latest Asset Tap release</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-json</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> download</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-force</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> A zip you already have (id is derived from the file name unless you pass --id)</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> install</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-from</span><span class="z-l-2 z-d-6"> Universal-Animation-Library.zip</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> List every clip from every installed pack</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> ...and mark which of them are already baked into a model</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> clip</span><span class="z-l-2 z-d-6"> list</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-model</span><span class="z-l-2 z-d-6"> output/2026-09-08_120000/model.glb</span></span></code></pre>
+<p>Several packs can sit side by side. Clip names are matched across all of them,
+so <code>walk</code> resolves to whichever pack provides it, and a name that no installed
+pack provides is a clear local error rather than a silently empty animation.</p>
+<h2 id="complete-flag-reference">Complete Flag Reference<a class="zola-anchor" href="#complete-flag-reference" aria-label="Anchor link for: complete-flag-reference">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1392,16 +1464,23 @@
 <tr><td><code>--list</code></td><td></td><td>List available models and templates</td></tr>
 <tr><td><code>--list-providers</code></td><td></td><td>List available providers and their models</td></tr>
 <tr><td><code>--inspect-template</code></td><td></td><td>Inspect a template's syntax and preview</td></tr>
-<tr><td><code>--fbx</code></td><td></td><td>Also convert the model to FBX (requires Blender; GLB-only is default)</td></tr>
-<tr><td><code>--convert-fbx</code></td><td></td><td>Convert a specific GLB file or bundle directory to FBX</td></tr>
-<tr><td><code>--convert-only</code></td><td></td><td>Batch convert all existing GLB files to FBX (no API calls)</td></tr>
 <tr><td><code>--convert-webp</code></td><td></td><td>Convert WebP textures in GLB files to PNG</td></tr>
 <tr><td><code>--approve</code></td><td></td><td>Require image approval before 3D generation</td></tr>
 <tr><td><code>--export-bundle</code></td><td></td><td>Export a bundle directory as a zip archive</td></tr>
+<tr><td><code>--rig</code></td><td></td><td>Experimental: rig the mesh to the built-in humanoid skeleton</td></tr>
+<tr><td><code>--clip</code></td><td></td><td>Experimental: clip to bake after rigging (repeatable)</td></tr>
+<tr><td><code>--clip-pack</code></td><td></td><td>Experimental: animation pack directory, overriding installed packs</td></tr>
 </tbody></table>
 
 
     
+
+
+
+
+
+
+
 
 
 
@@ -1662,14 +1741,6 @@
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/cli-usage/#fbx-conversion">
-        FBX Conversion
-      </a>
-      
-    </li>
-    
-    <li class="docs-toc-item docs-toc-level-2">
-      
       <a href="https://assettap.dev/docs/guides/cli-usage/#image-approval">
         Image Approval
       </a>
@@ -1681,6 +1752,35 @@
       <a href="https://assettap.dev/docs/guides/cli-usage/#texture-conversion">
         Texture Conversion
       </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <details class="docs-toc-group" data-docs-toc-group>
+        <summary class="docs-toc-group-toggle">
+          <a href="https://assettap.dev/docs/guides/cli-usage/#rigging-and-animation-experimental">
+            Rigging and Animation (experimental)
+          </a>
+          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
+        </summary>
+
+        
+  
+  <ul class="docs-toc-list">
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="https://assettap.dev/docs/guides/cli-usage/#animation-packs">
+        Animation packs
+      </a>
+      
+    </li>
+    
+  </ul>
+  
+
+      </details>
       
     </li>
     

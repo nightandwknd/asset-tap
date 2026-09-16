@@ -84,7 +84,7 @@
 <link rel="stylesheet" href="https://assettap.dev/main.css">
 
   
-<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust">
+<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, gltf, rigging, animation, rust">
 <meta name="twitter:site" content="@nightandwknd">
 <meta name="twitter:creator" content="@nightandwknd">
 <meta property="og:image:width" content="1200">
@@ -738,6 +738,19 @@
 
 
 
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
 
   </ul>
 </li>
@@ -1031,6 +1044,19 @@
 
 
 
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
 
   </ul>
 </li>
@@ -1173,7 +1199,6 @@
 <span class="giallo-l"><span>    ├── bundle.json            # Metadata</span></span>
 <span class="giallo-l"><span>    ├── image.png              # AI-generated image</span></span>
 <span class="giallo-l"><span>    ├── model.glb              # 3D model (GLB format)</span></span>
-<span class="giallo-l"><span>    ├── model.fbx              # FBX export (if Blender installed)</span></span>
 <span class="giallo-l"><span>    └── textures/              # Extracted textures (if any)</span></span>
 <span class="giallo-l"><span>        ├── texture_0.png</span></span>
 <span class="giallo-l"><span>        └── ...</span></span></code></pre>
@@ -1190,7 +1215,6 @@
 <tr><td><code>bundle.json</code></td><td>Generation metadata</td></tr>
 <tr><td><code>image.png</code></td><td>Generated or input image</td></tr>
 <tr><td><code>model.glb</code></td><td>3D model in GLB format</td></tr>
-<tr><td><code>model.fbx</code></td><td>FBX export (optional)</td></tr>
 <tr><td><code>textures/</code></td><td>Extracted texture files</td></tr>
 </tbody></table>
 <p>This predictable naming means you always know exactly where to find each file.</p>
@@ -1270,6 +1294,27 @@
 <li><code>category</code> -- reserved; omitted until a recipe can name the asset</li>
 </ul>
 <p>Prompt, models, and params live on <code>pipeline.steps[]</code>. Mesh stats live on the model artifact. Version 1 files still load (<code>config</code> / <code>model_info</code>); they are not rewritten.</p>
+<h3 id="the-bind-step-experimental">The <code>bind</code> step (experimental)<a class="zola-anchor" href="#the-bind-step-experimental" aria-label="Anchor link for: the-bind-step-experimental">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<blockquote>
+<p><strong>Experimental.</strong> Humanoid rig and clip bake --
+<a href="https://assettap.dev/docs/guides/animation/">Animation (experimental)</a>.</p>
+</blockquote>
+<p>Rigging a mesh appends one <code>kind: op</code> step with <code>op: "bind"</code>. It takes
+<code>model</code> and produces <code>model</code> (the GLB is rewritten in place). <code>params</code>:</p>
+<ul>
+<li><code>clips</code> -- the model's <strong>full</strong> animation set after the run, not the clips
+this run added. An empty array is a skinned T-pose (<code>--fit-only</code>).</li>
+<li><code>skeleton</code> -- <code>atap-humanoid-1</code>. Joint names are
+<a rel="external" href="https://vrm.dev/">VRM 1.0</a> humanoid bones.</li>
+</ul>
+<p>Re-binding updates this step rather than appending another. A bundle carries
+at most one <code>bind</code> step.</p>
 <h2 id="privacy">Privacy<a class="zola-anchor" href="#privacy" aria-label="Anchor link for: privacy">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1389,6 +1434,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 <nav
   class="docs-prev-next"
   aria-label="Documentation pagination"
@@ -1403,6 +1459,14 @@
   </a>
   
 
+  
+  <a
+    class="docs-prev-next-link docs-prev-next-link-next"
+    href="https://assettap.dev/docs/guides/animation/"
+  >
+    <span class="docs-prev-next-label">Next <span class="pagination-arrow" aria-hidden="true">&rarr;</span></span>
+    <span class="docs-prev-next-title">Animation (experimental)</span>
+  </a>
   
 </nav>
 
@@ -1457,6 +1521,14 @@
       
       <a href="https://assettap.dev/docs/guides/bundle-structure/#fields">
         Fields
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="https://assettap.dev/docs/guides/bundle-structure/#the-bind-step-experimental">
+        The bind step (experimental)
       </a>
       
     </li>

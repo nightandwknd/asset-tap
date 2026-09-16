@@ -84,7 +84,7 @@
 <link rel="stylesheet" href="https://assettap.dev/main.css">
 
   
-<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, fbx, blender, rust">
+<meta name="keywords" content="3d, ai, text-to-3d, asset generation, glb, gltf, rigging, animation, rust">
 <meta name="twitter:site" content="@nightandwknd">
 <meta name="twitter:creator" content="@nightandwknd">
 <meta property="og:image:width" content="1200">
@@ -738,6 +738,19 @@
 
 
 
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
 
   </ul>
 </li>
@@ -1031,6 +1044,19 @@
 
 
 
+<li class="docs-nav-item">
+  <a
+    class="docs-nav-link "
+    href="https://assettap.dev/docs/guides/animation/"
+    
+  >
+    Animation (experimental)
+  </a>
+</li>
+
+
+
+
 
   </ul>
 </li>
@@ -1198,9 +1224,14 @@ Returns, per provider: <code>configured</code>, <code>source</code> (<code>store
 and the <code>env_var</code> name -- never key material.</p>
 <p><strong><code>inspect_bundle</code></strong> -- takes <code>bundle_dir</code>. Reads the bundle's <code>bundle.json</code>.
 Returns <code>{bundle_dir, files[], bundle}</code>.</p>
+<p><strong><code>clip_download</code></strong> -- optional <code>force</code>. Backed by <code>asset-tap --json clip download</code>.
+Returns <code>{status, installed[], already_exists, packs_version}</code>. Fetches the
+free Standard packs (hash-verified). <code>force</code> refreshes only packs stamped by
+a previous download; it never replaces a Source / <code>clip install</code> pack.</p>
 <p><strong><code>generate</code></strong> -- takes a <code>prompt</code> or an <code>image</code> path; optional <code>template</code>,
-<code>provider</code>, <code>image_model</code>, <code>model_3d</code>, <code>params{}</code>, <code>fbx</code> (default false),
-<code>image_only</code>, <code>output_dir</code>, <code>name</code>. Runs the generation pipeline and returns
+<code>provider</code>, <code>image_model</code>, <code>model_3d</code>, <code>params{}</code>,
+<code>image_only</code>, <code>output_dir</code>, <code>name</code>, and the experimental <code>bind</code> /
+<code>clips[]</code> (see below). Runs the generation pipeline and returns
 <code>{status: "success", bundle_dir, duration_ms, bundle}</code>.</p>
 <p>Every tool returns <strong>structured content</strong> (JSON) plus the same JSON as text, so hosts that read either work. <code>list_catalog</code> and <code>auth_status</code> make no API calls -- they're free to use as preflight checks.</p>
 <h2 id="generate-semantics"><code>generate</code> semantics<a class="zola-anchor" href="#generate-semantics" aria-label="Anchor link for: generate-semantics">
@@ -1215,9 +1246,25 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 <li><strong>Non-interactive</strong>: a <code>prompt</code> or <code>image</code> is required (usage error otherwise); no approval steps.</li>
 <li><strong>Long-running</strong> (tens of seconds to minutes). If the host sends a progress token, progress arrives as <code>notifications/progress</code> -- the same stages the CLI streams as NDJSON, in order, all delivered before the tool result. Cancelling the request cancels the pipeline; the result then has <code>kind: "canceled"</code>.</li>
 <li><strong>Errors</strong> are tool errors (<code>isError: true</code>) carrying the wire error shape: <code>kind</code>, <code>message</code>, optional <code>provider</code> / <code>action</code> / <code>retryable</code> / <code>retry_after_secs</code>. Retry only when <code>retryable</code> is true; on <code>unauthorized</code>, ask the human for a key instead of looping.</li>
-<li><code>fbx</code> defaults to <strong>false</strong>: FBX conversion needs Blender; GLB is enough for three.js, Godot, Bevy, and most engines. Pass <code>fbx: true</code> to get FBX.</li>
 <li>Prefer a fresh <code>output_dir</code> per project; runs never overwrite (timestamped bundle directories). <code>name</code> sets <code>bundle.json</code>'s <code>name</code>, not the directory.</li>
 </ul>
+<h2 id="animation-experimental">Animation (experimental)<a class="zola-anchor" href="#animation-experimental" aria-label="Anchor link for: animation-experimental">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<blockquote>
+<p><strong>Experimental.</strong> Same humanoid rig as the desktop app and CLI. Details and
+limits: <a href="https://assettap.dev/docs/guides/animation/">Animation (experimental)</a>.</p>
+</blockquote>
+<p><code>generate</code> accepts <code>bind: true</code> and <code>clips: ["walk", "Sword_Attack"]</code>. The
+skeleton is embedded, so rigging needs nothing installed. A clip no installed
+pack provides is a local error -- <code>clip_download</code> here, or <code>clip list</code> /
+<code>clip install</code> from the CLI.
+Packs: <a href="https://assettap.dev/docs/guides/animation/#clip-packs">Clip packs</a>.
+Older clients passing <code>fbx</code> or <code>no_fbx</code> are ignored; FBX was removed.</p>
 <h2 id="not-this">Not this<a class="zola-anchor" href="#not-this" aria-label="Anchor link for: not-this">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1233,6 +1280,13 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 
 
     
+
+
+
+
+
+
+
 
 
 
@@ -1389,6 +1443,14 @@ Returns <code>{bundle_dir, files[], bundle}</code>.</p>
       
       <a href="https://assettap.dev/docs/guides/mcp/#generate-semantics">
         generate semantics
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="https://assettap.dev/docs/guides/mcp/#animation-experimental">
+        Animation (experimental)
       </a>
       
     </li>
