@@ -85,10 +85,10 @@ Packs live one directory deep under `packs_root()`:
   name is cleaned up (CamelCase split, `Fwd` → `Forward`, `A_TPose` →
   `T-Pose`); the raw id stays on hover. `Loop` is kept: `Jump_Loop` sits
   beside `Jump_Start` and `Jump_Land`.
-- The free Standard libraries live in repo `packs/` (trimmed GLBs) and
+- The Quaternius Standard libraries live in repo `packs/` (trimmed GLBs) and
   ship as a hashed GitHub Release artifact (`clip-packs.zip` +
   `clip-packs-manifest.json`). They are **not** in the binary.
-  `clip download` / Download free packs installs missing ids only;
+  `clip download` / Download animation packs installs missing ids only;
   `--force` refreshes packs stamped by a previous download and never
   replaces a `clip install` / Source pack.
 - Paid Source tiers install the same way (`clip install --from`, or

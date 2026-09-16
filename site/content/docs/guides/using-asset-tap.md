@@ -75,11 +75,11 @@ The 3D tab is an inspector (Grid, Axes, Reset View). A **Reset View** button in 
 ### Animation (experimental)
 
 **Animate** opens an optional panel beside the viewer: Rig, then Bind, then
-the clip list. This path is [experimental](@/docs/guides/animation.md) --
-fingers are not weighted, and the panel may change.
+the clip list. This path is [experimental](@/docs/guides/animation.md).
+Fingers are not weighted, and the panel may change.
 
-**Download free packs** (Welcome, Help, or the Animate empty state) fetches
-the Standard libraries from the latest release (~15 MB, hash-verified).
+**Download animation packs** (Help, or Animate → **Add pack...**) fetches
+the Standard libraries from the latest release (hash-verified).
 Already-installed packs are left alone, so a Source upgrade is not overwritten.
 
 On an unbound mesh the first step is **Rig**: pose the shipped skeleton on a
