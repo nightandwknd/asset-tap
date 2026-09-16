@@ -16,7 +16,7 @@
 ## Checklist
 
 - [ ] PR title / commits follow [Conventional Commits](https://www.conventionalcommits.org/)
-      (used by git-cliff to generate the changelog)
+      (the title is the changelog subject; the body is the release note. Write it for users: see CONTRIBUTING.md)
 - [ ] `make verify` runs clean locally (and `make ci` if you want to match CI exactly)
 - [ ] Docs updated where behavior changed
 - [ ] Tests added or updated where applicable

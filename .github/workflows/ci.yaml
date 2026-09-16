@@ -227,6 +227,19 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  changelog-prepend:
+    name: Changelog Prepend
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+      - run: make changelog-check
+
   # ─── Layer 1: Build + package all platforms in parallel ─────────────
   build-macos:
     name: Build macOS (${{ matrix.target }})
