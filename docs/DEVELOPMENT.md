@@ -465,11 +465,7 @@ impl App {
 
 ### Commit Messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) format. These are parsed by [git-cliff](https://git-cliff.org/) (config: `cliff.toml`) to auto-generate the changelog and GitHub Release notes.
-
-The repo squash-merges, so the PR title is the changelog subject and the PR body
-is the detail under it. Write that body for people who use the app, not for
-reviewers.
+Use [Conventional Commits](https://www.conventionalcommits.org/) format. These are parsed by [git-cliff](https://git-cliff.org/) (config: `cliff.toml`) to prepend each new version onto `CHANGELOG.md` and to write the GitHub Release notes. The squash-body rule lives in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ```
 type(scope): short description

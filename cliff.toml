@@ -2,8 +2,9 @@
 # https://git-cliff.org/docs/configuration
 #
 # The repo squash-merges, so one PR becomes one commit and the changelog gets
-# one entry per PR. The squash body is the release note: write it for people
-# who use the app, not for reviewers. The preprocessors below strip the
+# one entry per PR. The squash body is the release note; write it for users
+# ([CONTRIBUTING.md](CONTRIBUTING.md)). docs(changelog) is omitted so a notes
+# rewrite is not itself a product note. The preprocessors below strip the
 # trailers and separators GitHub adds around the body.
 
 [changelog]
@@ -78,6 +79,7 @@ commit_parsers = [
   { message = "^Merge", skip = true },
   { message = "^Initial commit", skip = true },
   { message = "^release:", skip = true },
+  { message = "^docs\\(changelog\\)", skip = true },
   { message = "^feat", group = "<!-- 00 -->Features" },
   { message = "^fix", group = "<!-- 01 -->Bug Fixes" },
   { message = "^perf", group = "<!-- 02 -->Performance" },

@@ -2,7 +2,7 @@
 	cli gui dev mock mock-delay mock-gui mock-gui-delay refresh-models \
 	test test-core test-cli test-gui test-unit test-integration test-mock test-cli-comprehensive bench \
 	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps udeps-ci \
-	lint-workflows lint-shell \
+	lint-workflows lint-shell changelog-check \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
 	site-serve site-build site-check tokens-check
@@ -19,6 +19,7 @@ CHECK_ZOLA := $(shell command -v zola 2> /dev/null)
 CHECK_EC := $(shell command -v editorconfig-checker 2> /dev/null)
 CHECK_ACTIONLINT := $(shell command -v actionlint 2> /dev/null)
 CHECK_SHELLCHECK := $(shell command -v shellcheck 2> /dev/null)
+CHECK_GIT_CLIFF := $(shell command -v git-cliff 2> /dev/null)
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -164,6 +165,13 @@ ifndef CHECK_SHELLCHECK
 endif
 	shellcheck -S warning scripts/*.sh site/static/install
 
+changelog-check: ## Prove git-cliff prepend keeps the changelog header and latest tag
+ifndef CHECK_GIT_CLIFF
+	@echo "git-cliff not found — install: cargo install git-cliff"
+	@exit 1
+endif
+	./scripts/check-changelog-prepend.sh
+
 fmt: ## Format all code (Rust + other files)
 	cargo fmt --all
 ifndef CHECK_DPRINT
@@ -249,9 +257,9 @@ endif
 clippy-fix: ## Auto-fix clippy warnings where possible
 	cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged -- -D warnings
 
-verify: fmt clippy-fix lint-workflows lint-shell check test ## Run all quality checks with auto-fixes
+verify: fmt clippy-fix lint-workflows lint-shell changelog-check check test ## Run all quality checks with auto-fixes
 
-ci: lock-check fmt-check clippy lint-workflows lint-shell check doc audit udeps-ci test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
+ci: lock-check fmt-check clippy lint-workflows lint-shell changelog-check check doc audit udeps-ci test test-cli-comprehensive site-build ## CI-compatible checks (no modifications)
 
 # =============================================================================
 # Utilities
