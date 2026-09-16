@@ -275,7 +275,7 @@ fn off_mesh_message(off: &[(String, f32)]) -> String {
     let mut names: Vec<String> = off
         .iter()
         .take(3)
-        .map(|(n, d)| format!("{n} ({d:.2} m)"))
+        .map(|(n, d)| format!("{} ({d:.2} m)", user_facing_joint_name(n)))
         .collect();
     if off.len() > 3 {
         names.push(format!("+{} more", off.len() - 3));
@@ -290,6 +290,13 @@ fn off_mesh_message(off: &[(String, f32)]) -> String {
         off.len(),
         names.join(", ")
     )
+}
+
+/// Mixamo legend nouns for chrome and errors. The GLB still stores VRM names.
+fn user_facing_joint_name(name: &str) -> String {
+    HumanBone::parse(name)
+        .map(|b| b.panel_label())
+        .unwrap_or_else(|| name.to_string())
 }
 
 #[cfg(test)]
@@ -432,6 +439,17 @@ mod tests {
         // The clip has to actually move the mesh, or agreeing is meaningless.
         assert!(moved > 0.01, "the fixture clip barely deforms: {moved}");
         assert!(worst < 1e-4, "preview and bake diverge by {worst} m");
+    }
+
+    #[test]
+    fn off_mesh_errors_use_legend_names_not_vrm_wire() {
+        let msg = off_mesh_message(&[
+            ("leftShoulder".into(), 0.07),
+            ("rightShoulder".into(), 0.06),
+        ]);
+        assert!(msg.contains("Left clavicle"));
+        assert!(msg.contains("Right clavicle"));
+        assert!(!msg.contains("leftShoulder"));
     }
 
     fn dist(p: [f32; 3], q: [f32; 3]) -> f32 {

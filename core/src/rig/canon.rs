@@ -161,7 +161,8 @@ pub enum HumanBone {
 /// Note the split between [`BoneGroup::Hips`] (the pelvis itself) and
 /// [`BoneGroup::Hip`] (where each leg pivots), and between
 /// [`BoneGroup::Clavicle`] and [`BoneGroup::Shoulder`]: those are adjacent
-/// markers an author must be able to tell apart.
+/// markers an author must be able to tell apart. Legend labels are Mixamo
+/// nouns (`Clavicle`, `Shoulder`); VRM `leftShoulder` is the clavicle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BoneGroup {
     Hips,
@@ -187,7 +188,7 @@ impl BoneGroup {
             BoneGroup::Spine => "Spine",
             BoneGroup::Neck => "Neck",
             BoneGroup::Head => "Head",
-            BoneGroup::Clavicle => "Collar",
+            BoneGroup::Clavicle => "Clavicle",
             BoneGroup::Shoulder => "Shoulder",
             BoneGroup::Elbow => "Elbow",
             BoneGroup::Wrist => "Wrist",
@@ -212,6 +213,13 @@ impl Side {
         match self {
             Side::Left => "L",
             Side::Right => "R",
+        }
+    }
+
+    pub const fn word(self) -> &'static str {
+        match self {
+            Side::Left => "Left",
+            Side::Right => "Right",
         }
     }
 }
@@ -913,6 +921,19 @@ impl HumanBone {
         !self.is_finger()
     }
 
+    /// Name shown when a marker is selected. Same vocabulary as the legend
+    /// (`Clavicle`, `Shoulder`), not the VRM wire (`leftShoulder`, `leftUpperArm`).
+    pub fn panel_label(self) -> String {
+        match self.side() {
+            Some(side) => format!(
+                "{} {}",
+                side.word(),
+                self.group().label().to_ascii_lowercase()
+            ),
+            None => self.group().label().to_string(),
+        }
+    }
+
     pub fn index(self) -> usize {
         self as usize
     }
@@ -1252,5 +1273,18 @@ mod tests {
         assert_eq!(HumanBone::UpperChest.side(), None);
         let paired = HumanBone::ALL.iter().filter(|b| b.side().is_some()).count();
         assert_eq!(paired, 46, "6 center joints, 23 per side");
+    }
+
+    #[test]
+    fn panel_labels_match_the_legend() {
+        assert_eq!(HumanBone::LeftShoulder.panel_label(), "Left clavicle");
+        assert_eq!(HumanBone::RightShoulder.panel_label(), "Right clavicle");
+        assert_eq!(HumanBone::LeftUpperArm.panel_label(), "Left shoulder");
+        assert_eq!(HumanBone::RightUpperArm.panel_label(), "Right shoulder");
+        assert_eq!(HumanBone::LeftLowerArm.panel_label(), "Left elbow");
+        assert_eq!(HumanBone::LeftHand.panel_label(), "Left wrist");
+        assert_eq!(HumanBone::LeftUpperLeg.panel_label(), "Left hip");
+        assert_eq!(HumanBone::Hips.panel_label(), "Pelvis");
+        assert_eq!(HumanBone::Head.panel_label(), "Head");
     }
 }

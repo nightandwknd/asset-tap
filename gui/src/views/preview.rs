@@ -916,7 +916,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
 
                 if let Some(name) = &selected {
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new(pretty_joint(name)).small());
+                    ui.label(egui::RichText::new(panel_joint(name)).small());
                 }
 
                 ui.add_space(6.0);
@@ -1114,21 +1114,11 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
-/// `leftUpperArm` -> "Left upper arm". The canonical names are a wire format,
-/// not something to read off a panel.
-fn pretty_joint(name: &str) -> String {
-    let mut out = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() && i > 0 {
-            out.push(' ');
-            out.push(ch.to_ascii_lowercase());
-        } else if i == 0 {
-            out.push(ch.to_ascii_uppercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+/// Same words as the legend: VRM `leftShoulder` is "Left clavicle".
+fn panel_joint(name: &str) -> String {
+    asset_tap_core::HumanBone::parse(name)
+        .map(|b| b.panel_label())
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// Side labels over the Rig markers.

@@ -157,6 +157,8 @@ enum WorkbenchDone {
     },
     PackInstalled {
         name: String,
+        id: String,
+        clips: usize,
     },
 }
 
@@ -2381,7 +2383,11 @@ impl App {
         self.runtime.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
                 asset_tap_core::install_pack_from(&dir, None)
-                    .map(|p| WorkbenchDone::PackInstalled { name: p.name })
+                    .map(|p| WorkbenchDone::PackInstalled {
+                        name: p.name,
+                        id: p.id,
+                        clips: p.clips.len(),
+                    })
                     .map_err(|e| e.to_string())
             })
             .await
@@ -2441,11 +2447,11 @@ impl App {
                 WorkbenchDone::Preview { clip } => {
                     self.model_viewer.lock().unwrap().set_clip(*clip);
                 }
-                WorkbenchDone::PackInstalled { name } => {
+                WorkbenchDone::PackInstalled { name, id, clips } => {
                     self.refresh_clip_catalog();
-                    let n = self.clip_catalog.len();
-                    self.toasts
-                        .push(Toast::success(format!("Installed {name} ({n} clips)")));
+                    self.toasts.push(Toast::success(format!(
+                        "Installed {name} ({id}) with {clips} clips"
+                    )));
                 }
             },
             Ok(Err(e)) => {

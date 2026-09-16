@@ -2024,7 +2024,7 @@ mod marker_color_tests {
     #[test]
     fn joints_an_author_grabs_side_by_side_never_share_a_color() {
         // The pairs that sit close enough to confuse: pelvis vs the hip each
-        // leg pivots on, and the collar vs the shoulder just outboard of it.
+        // leg pivots on, and the clavicle vs the shoulder just outboard of it.
         for (a, b) in [
             (HumanBone::Hips, HumanBone::LeftUpperLeg),
             (HumanBone::LeftShoulder, HumanBone::LeftUpperArm),

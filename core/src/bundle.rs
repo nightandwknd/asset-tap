@@ -2685,49 +2685,98 @@ mod tests {
         assert!(disk_val.get("artifacts").is_none());
     }
 
-    /// Two code paths write the `bind` step: `stamp_bind_step` after a bind,
-    /// and `bundle_schema::synthesize_from_v1` when migrating an older bundle.
-    /// They drifted once already (one wrote `clip` + `pack`, the other `clips`
-    /// + `skeleton`), which made a bundle's shape depend on which ran.
+    /// Two code paths write the `bind` step: `stamp_bind_step` after a GUI/CLI
+    /// bind, and `for_generation` / `steps_from_config` when the pipeline
+    /// writes a new bundle. They drifted once already (one wrote `clip` +
+    /// `pack`, the other `clips` + `skeleton`), which made a bundle's shape
+    /// depend on which ran.
     #[test]
     fn both_bind_step_writers_agree_on_shape() {
         use crate::bundle_schema::{PipelineStep, STEP_BIND};
 
-        let dir = tempfile::tempdir().unwrap();
+        let clips = vec!["Walk_Loop".to_string()];
+
+        let stamped_dir = tempfile::tempdir().unwrap();
         let json = r#"{
             "name": "t",
             "version": 2,
             "created_at": "2024-12-29T15:30:45Z",
             "pipeline": { "steps": [] }
         }"#;
-        std::fs::write(dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
-        stamp_bind_step(dir.path(), &["Walk_Loop".to_string()]).unwrap();
-        let loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
-        let stamped = loaded
+        std::fs::write(stamped_dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
+        stamp_bind_step(stamped_dir.path(), &clips).unwrap();
+        let stamped = BundleMetadata::load(stamped_dir.path())
+            .unwrap()
+            .unwrap()
             .pipeline
-            .as_ref()
             .unwrap()
             .steps
-            .iter()
+            .into_iter()
             .find(|s| s.id() == STEP_BIND)
-            .expect("bind step")
-            .clone();
+            .expect("stamped bind step");
 
-        let PipelineStep::Op { params, .. } = &stamped else {
-            panic!("expected op");
-        };
-        let mut keys: Vec<&String> = params.keys().collect();
-        keys.sort();
-        assert_eq!(
-            keys,
-            ["clips", "skeleton"],
-            "bind step params changed; update bundle_schema::steps_from_config to match"
-        );
-        assert_eq!(
-            params.get("skeleton").and_then(|v| v.as_str()),
-            Some(crate::rig::SKELETON_ID)
-        );
-        assert!(params.get("clips").is_some_and(|v| v.is_array()));
+        let gen_dir = tempfile::tempdir().unwrap();
+        std::fs::write(gen_dir.path().join("model.glb"), b"glb").unwrap();
+        let generated = BundleMetadata::for_generation(
+            gen_dir.path(),
+            GenerationConfig {
+                model_3d: "test/model".into(),
+                ..GenerationConfig::default()
+            },
+            None,
+            None,
+            None,
+            true,
+            clips.clone(),
+        )
+        .pipeline
+        .unwrap()
+        .steps
+        .into_iter()
+        .find(|s| s.id() == STEP_BIND)
+        .expect("generated bind step");
+
+        match (&stamped, &generated) {
+            (
+                PipelineStep::Op {
+                    id: stamped_id,
+                    op: stamped_op,
+                    params: stamped_params,
+                    inputs: stamped_in,
+                    outputs: stamped_out,
+                    ..
+                },
+                PipelineStep::Op {
+                    id: generated_id,
+                    op: generated_op,
+                    params: generated_params,
+                    inputs: generated_in,
+                    outputs: generated_out,
+                    ..
+                },
+            ) => {
+                assert_eq!(stamped_id, generated_id);
+                assert_eq!(stamped_op, generated_op);
+                assert_eq!(stamped_in, generated_in);
+                assert_eq!(stamped_out, generated_out);
+                let mut stamped_keys: Vec<&String> = stamped_params.keys().collect();
+                stamped_keys.sort();
+                let mut generated_keys: Vec<&String> = generated_params.keys().collect();
+                generated_keys.sort();
+                assert_eq!(stamped_keys, generated_keys);
+                assert_eq!(stamped_keys, ["clips", "skeleton"]);
+                assert_eq!(
+                    stamped_params.get("skeleton"),
+                    generated_params.get("skeleton")
+                );
+                assert_eq!(stamped_params.get("clips"), generated_params.get("clips"));
+                assert_eq!(
+                    stamped_params.get("skeleton").and_then(|v| v.as_str()),
+                    Some(crate::rig::SKELETON_ID)
+                );
+            }
+            (other_a, other_b) => panic!("expected op, got {other_a:?} / {other_b:?}"),
+        }
     }
 
     #[test]

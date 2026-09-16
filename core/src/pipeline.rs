@@ -846,13 +846,12 @@ async fn bind_stage(
     }
 }
 
-/// This stage is best-effort — failures are reported via progress but do not
-/// fail the pipeline.
 /// Internal pipeline implementation.
 ///
-/// Orchestrates the three pipeline stages in sequence:
+/// Orchestrates the pipeline stages in sequence:
 /// 1. Image acquisition (download, local file, or AI generation)
-/// 2. 3D model generation from the image
+/// 2. 3D model generation from the image (unless image-only)
+/// 3. Optional bind + clip bake
 async fn run_pipeline_internal(
     config: PipelineConfig,
     image_provider: Arc<dyn Provider>,
@@ -948,8 +947,8 @@ async fn run_pipeline_internal(
     // Stage 2 (3D) and model stats are skipped when the caller asked
     // for an image-only run. The bundle still saves below with whatever stages
     // did run.
-    let (resolved_3d_model, model_info) = if config.skip_3d {
-        (None, None)
+    let (resolved_3d_model, model_info, bind_err) = if config.skip_3d {
+        (None, None, None)
     } else {
         // Stage 2: Generate 3D model
         let model_3d_params = if config.model_3d_params.is_empty() {
@@ -974,17 +973,22 @@ async fn run_pipeline_internal(
             return Err(Error::Cancelled);
         }
 
-        // Stage 3: Bind + clip (optional). Failure is fatal — the user asked
-        // for a rigged character, not a silent mesh-only fallback.
-        if config.bind {
+        // Stage 3: Bind + clip (optional). Failure is still fatal — the user
+        // asked for a rigged character, not a silent mesh-only fallback — but
+        // the paid image and model are already on disk, so we keep going
+        // through texture extract + bundle.json and return the error after.
+        let bind_err = if config.bind {
             bind_stage(
                 &model_path,
                 &config.bind_clips(),
                 config.clip_pack.clone(),
                 &progress_tx,
             )
-            .await?;
-        }
+            .await
+            .err()
+        } else {
+            None
+        };
 
         // Textures come out of the GLB itself, not out of Blender. This used
         // to be a side effect of the FBX conversion, which meant the
@@ -1001,7 +1005,7 @@ async fn run_pipeline_internal(
 
         // Extract model stats from the GLB before saving metadata
         let model_info = crate::bundle::extract_model_info(&model_path);
-        (Some(resolved_3d_model), model_info)
+        (Some(resolved_3d_model), model_info, bind_err)
     };
 
     // Save bundle metadata
@@ -1029,18 +1033,27 @@ async fn run_pipeline_internal(
         );
     }
 
+    let bound = config.bind && bind_err.is_none();
     let metadata = BundleMetadata::for_generation(
         &gen_dir,
         gen_config,
         model_info,
         Some(image_provider.id()),
         Some(model_3d_provider.id()),
-        config.bind,
-        config.bind_clips(),
+        bound,
+        if bound {
+            config.bind_clips()
+        } else {
+            Vec::new()
+        },
     );
 
     if let Err(e) = metadata.save(&gen_dir) {
         tracing::warn!("Failed to save bundle metadata: {}", e);
+    }
+
+    if let Some(e) = bind_err {
+        return Err(e);
     }
 
     Ok(output)

@@ -146,9 +146,10 @@ Inspect (default): Grid / Axes / Reset. No fit, clips, or bake.
   include it in the write.
 - **Bake is never a destroy button.** An empty set would strip animation,
   which is a different intent. Bake is disabled at zero. Removing
-  everything is an explicit **Clear animation** that confirms first, shown
-  only when the model has clips. The panel states the delta
-  (`3 in model -> 2 after bake (-1)`) before the write.
+  everything is an explicit **Clear animation** that confirms first. It
+  stays visible (disabled) when the mesh is fitted but has no clips, so
+  the action is not mistaken for a missing control. The panel states the
+  delta (`3 in model -> 2 after bake (-1)`) before the write.
 - **Failure preserves a usable asset.** Stage beside the destination,
   validate, then rename. Metadata (`stamp_bind_step`) runs after the
   model write; a stamp failure leaves a valid GLB. Never silently apply
@@ -171,7 +172,9 @@ and focus loss. Frame, Front, and Side belong with Rig only.
 
 Joints are colored by body part (`HumanBone::group`) and labeled L/R
 (`HumanBone::side`). The legend sits in the Animate column, not over the
-viewport. All placeable bind joints stay draggable.
+viewport. All placeable bind joints stay draggable. Chrome and Bind
+refusals use Mixamo nouns (clavicle, shoulder) so the collarbone is not
+labeled "shoulder"; the GLB still stores VRM names.
 
 ```text
 Inspect:    [Animate] | Grid / Axes / Reset

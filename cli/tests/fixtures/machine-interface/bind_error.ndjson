@@ -1,2 +1,2 @@
 {"event":"start","interface":"1.0","generator":"asset-tap/26.8.19"}
-{"event":"result","status":"error","kind":"validation_error","message":"2 joints are off the mesh: leftShoulder (0.07 m), rightShoulder (0.06 m). Park every joint on the body, then Bind."}
+{"event":"result","status":"error","kind":"validation_error","message":"2 joints are off the mesh: Left clavicle (0.07 m), Right clavicle (0.06 m). Park every joint on the body, then Bind."}
