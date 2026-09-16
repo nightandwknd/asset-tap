@@ -78,7 +78,7 @@ The 3D tab is an inspector (Grid, Axes, Reset View). A **Reset View** button in 
 the clip list. This path is [experimental](@/docs/guides/animation.md) --
 fingers are not weighted, and the panel may change.
 
-**Download free packs** (Welcome, Help, or the Animate empty state) fetches
+**Download animation packs** (Help, or Animate → **Add pack...**) fetches
 the Standard libraries from the latest release (~15 MB, hash-verified).
 Already-installed packs are left alone, so a Source upgrade is not overwritten.
 

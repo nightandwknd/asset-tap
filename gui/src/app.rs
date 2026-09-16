@@ -110,7 +110,7 @@ pub(crate) fn is_no_op_run(skip_3d: bool, has_existing_image: bool) -> bool {
 /// Embedded logo image for in-app branding (512x512 with "ASSET TAP" text).
 const LOGO_BYTES: &[u8] = include_bytes!("../../assets/logo.png");
 
-use crate::constants::{asset_type, callback};
+use crate::constants::{asset_type, callback, clip_packs};
 use crate::icons;
 use crate::texture_cache::TextureCache;
 use crate::viewer::model::{ModelViewer, SharedModelViewer};
@@ -120,9 +120,7 @@ use crate::views::library::LibraryBrowser;
 use crate::views::settings::SettingsModal;
 use crate::views::walkthrough::Walkthrough;
 use crate::views::welcome_modal::WelcomeModal;
-use asset_tap_core::constants::files::{
-    CLIP_PACKS_SIZE_LABEL, DEMO_BUNDLE_SIZE_LABEL, bundle as bundle_files,
-};
+use asset_tap_core::constants::files::{DEMO_BUNDLE_SIZE_LABEL, bundle as bundle_files};
 use asset_tap_core::{
     bundle::load_bundle,
     history::{ErrorInfo, GenerationHistory},
@@ -2724,7 +2722,6 @@ impl eframe::App for App {
             self.settings_modal.is_open,
             self.logo_texture.as_ref(),
             self.pending_demo_download.is_some(),
-            self.pending_clip_packs_download.is_some(),
         ) {
             // Update settings and state from welcome modal
             self.settings.output_dir = output_dir;
@@ -2764,9 +2761,6 @@ impl eframe::App for App {
         // Handle demo download request from welcome modal
         if self.welcome_modal.download_requested {
             self.show_demo_download_confirm = true;
-        }
-        if self.welcome_modal.packs_download_requested {
-            self.show_clip_packs_download_confirm = true;
         }
 
         // Demo download confirmation dialog
@@ -2859,7 +2853,7 @@ impl eframe::App for App {
             let mut confirmed = false;
             let mut dismissed = backdrop_clicked;
 
-            egui::Window::new("Download animation packs")
+            egui::Window::new(clip_packs::DOWNLOAD_ACTION)
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -2867,19 +2861,12 @@ impl eframe::App for App {
                     ui.set_width(400.0);
                     ui.add_space(8.0);
 
-                    ui.label(
-                        egui::RichText::new(
-                            "Download Quaternius's free Standard libraries (CC0) so clip preview and bake work out of the box?",
-                        )
-                        .size(14.0),
-                    );
+                    ui.label(egui::RichText::new(clip_packs::DOWNLOAD_PROMPT).size(14.0));
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new(format!(
-                            "About {CLIP_PACKS_SIZE_LABEL}. Hash-verified. Already-installed packs are left alone."
-                        ))
-                        .size(12.0)
-                        .weak(),
+                        egui::RichText::new(clip_packs::download_detail())
+                            .size(12.0)
+                            .weak(),
                     );
 
                     ui.add_space(16.0);
@@ -3192,12 +3179,13 @@ impl eframe::App for App {
                     }
                     let packs_downloading = self.pending_clip_packs_download.is_some();
                     let packs_label = if packs_downloading {
-                        "Downloading Animation Packs..."
+                        clip_packs::DOWNLOAD_BUSY
                     } else {
-                        "Download Animation Packs"
+                        clip_packs::DOWNLOAD_ACTION
                     };
                     if ui
                         .add_enabled(!packs_downloading, egui::Button::new(packs_label))
+                        .on_hover_text(clip_packs::DOWNLOAD_HOVER)
                         .clicked()
                     {
                         self.show_clip_packs_download_confirm = true;

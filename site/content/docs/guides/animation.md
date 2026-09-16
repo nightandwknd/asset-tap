@@ -42,8 +42,8 @@ The panel is optional; the viewer stays an inspector until you do.
    never deforms the model. Markers are colored by body part and labeled
    L or R; a legend sits beside the viewport, not over it. Rig always opens
    with joints you can drag.
-2. **Auto-fit** -- a button, not something that runs on open. It guesses a
-   T-pose on a readable humanoid and leaves the joints alone on a mesh it
+2. **Auto-fit** -- a button, not something that runs on open. It fits the
+   skeleton to a readable humanoid and leaves the joints alone on a mesh it
    cannot read as a body. Review the result before you bind.
 3. **Bind** -- skins the mesh to the posed heads. Every joint must sit on
    the body; a joint off the mesh is refused by name. The confirmation says
@@ -102,8 +102,8 @@ Clips come from [Quaternius](https://quaternius.com)' CC0 libraries:
 The rest pose we ship is derived from the first library. Both packs can sit
 side by side; catalogs merge.
 
-**Out of the box:** **Download free packs** in Welcome, Help, or the Animate
-panel (or `asset-tap clip download` / `--json clip download` / MCP
+**Out of the box:** **Download animation packs** in Help or Animate →
+**Add pack...** (or `asset-tap clip download` / `--json clip download` / MCP
 `clip_download`) pulls the Standard libraries from the latest Asset Tap
 release. The archive is hash-verified and is **not** inside the app.
 Already-installed packs are left alone, so a Source upgrade you installed

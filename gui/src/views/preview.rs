@@ -845,7 +845,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_enabled_ui(!busy, |ui| {
                     if ui
                         .add_sized([ui.available_width(), 24.0], egui::Button::new("Auto-fit"))
-                        .on_hover_text("Guess the skeleton. Review, then Bind or Undo / Cancel.")
+                        .on_hover_text("Fit the skeleton to this mesh.")
                         .clicked()
                     {
                         app.start_reseed();
@@ -895,9 +895,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                     ui.add_enabled_ui(!busy && !seeding, |ui| {
                         if ui
                             .add_sized([84.0, 26.0], egui::Button::new("Bind"))
-                            .on_hover_text(
-                                "Skin the mesh to this skeleton. Clip preview unlocks after.",
-                            )
+                            .on_hover_text("Skin the mesh to this skeleton.")
                             .clicked()
                         {
                             app.commit_place();
@@ -906,7 +904,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                     ui.add_enabled_ui(!busy, |ui| {
                         if ui
                             .button("Cancel")
-                            .on_hover_text("Discard this pose and leave")
+                            .on_hover_text("Discard this pose and close Rig.")
                             .clicked()
                         {
                             app.model_viewer.lock().unwrap().exit_place();
@@ -953,12 +951,6 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                         ui.spinner();
                     }
                 });
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new("Clip preview unlocks after Bind.")
-                        .small()
-                        .weak(),
-                );
                 return;
             }
 
@@ -1057,7 +1049,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                 );
             } else if checked > 0 {
                 ui.label(
-                    egui::RichText::new(format!("{checked} in model \u{2014} up to date"))
+                    egui::RichText::new(format!("{checked} in model, up to date"))
                         .small()
                         .weak(),
                 );
@@ -1074,8 +1066,7 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                             format!("Bake {checked} clips")
                         };
                         let button = ui.button(label).on_hover_text(
-                            "Write the ticked clips into model.glb. The file ends up with \
-                         exactly this set, so unticking one removes it.",
+                            "Write these clips into model.glb. Unticked clips are removed.",
                         );
                         if button.clicked()
                             && let Some(path) = model_path.clone()
@@ -1207,24 +1198,13 @@ fn render_clip_list(app: &mut App, ui: &mut egui::Ui, fitted: bool, busy: bool) 
                 .weak(),
         );
         ui.add_space(4.0);
-        render_quaternius_pack_links(app, ui);
-        ui.add_space(4.0);
-        let downloading = app.clip_packs_downloading();
-        if ui
-            .add_enabled(
-                !downloading,
-                egui::Button::new(if downloading {
-                    "Downloading packs…"
-                } else {
-                    "Download free packs"
-                }),
-            )
-            .on_hover_text("Quaternius Standard (CC0), hash-verified from the latest release")
-            .clicked()
-        {
-            app.request_clip_packs_download();
+        if app.clip_packs_downloading() {
+            ui.label(
+                egui::RichText::new(crate::constants::clip_packs::DOWNLOAD_BUSY)
+                    .small()
+                    .weak(),
+            );
         }
-        ui.add_space(4.0);
         render_install_pack_button(app, ui);
         return;
     }
@@ -1338,7 +1318,7 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
         ui.menu_button("Add pack\u{2026}", |ui| {
             if ui
                 .button("From archive or file\u{2026}")
-                .on_hover_text("The .zip straight from the download, or a .glb / .gltf")
+                .on_hover_text("A zip, .glb, or .gltf")
                 .clicked()
             {
                 if let Some(file) = rfd::FileDialog::new()
@@ -1367,9 +1347,12 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
             if ui
                 .add_enabled(
                     !app.clip_packs_downloading(),
-                    egui::Button::new("Download free packs\u{2026}"),
+                    egui::Button::new(format!(
+                        "{}\u{2026}",
+                        crate::constants::clip_packs::DOWNLOAD_ACTION
+                    )),
                 )
-                .on_hover_text("Quaternius Standard (CC0) from the latest Asset Tap release")
+                .on_hover_text(crate::constants::clip_packs::DOWNLOAD_HOVER)
                 .clicked()
             {
                 app.request_clip_packs_download();
@@ -1378,35 +1361,15 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
             render_quaternius_pack_menu_links(app, ui);
         })
         .response
-        .on_hover_text("Install a Quaternius library. The library is found for you.");
-    });
-}
-
-fn render_quaternius_pack_links(app: &mut App, ui: &mut egui::Ui) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("Quaternius (CC0):").small().weak());
-        if ui
-            .link(egui::RichText::new("Library").small())
-            .on_hover_text(asset_tap_core::rig::UAL1_PAGE)
-            .clicked()
-        {
-            crate::app::open_with_system(asset_tap_core::rig::UAL1_PAGE, Some(&mut app.toasts));
-        }
-        ui.label(egui::RichText::new("·").small().weak());
-        if ui
-            .link(egui::RichText::new("Library 2").small())
-            .on_hover_text(asset_tap_core::rig::UAL2_PAGE)
-            .clicked()
-        {
-            crate::app::open_with_system(asset_tap_core::rig::UAL2_PAGE, Some(&mut app.toasts));
-        }
+        .on_hover_text("Install or download an animation library");
     });
 }
 
 fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
+    const SOURCE_HOVER: &str = "Quaternius page. Paid Source has extra clips";
     if ui
         .button("Universal Animation Library\u{2026}")
-        .on_hover_text(asset_tap_core::rig::UAL1_PAGE)
+        .on_hover_text(SOURCE_HOVER)
         .clicked()
     {
         crate::app::open_with_system(asset_tap_core::rig::UAL1_PAGE, Some(&mut app.toasts));
@@ -1414,7 +1377,7 @@ fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
     }
     if ui
         .button("Universal Animation Library 2\u{2026}")
-        .on_hover_text(asset_tap_core::rig::UAL2_PAGE)
+        .on_hover_text(SOURCE_HOVER)
         .clicked()
     {
         crate::app::open_with_system(asset_tap_core::rig::UAL2_PAGE, Some(&mut app.toasts));

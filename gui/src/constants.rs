@@ -1,7 +1,7 @@
 //! UI constants for the asset-tap GUI.
 //!
-//! This module provides centralized constants for spacing, timing, and other
-//! UI-related values used throughout the GUI.
+//! This module provides centralized constants for spacing, timing, copy, and
+//! other UI-related values used throughout the GUI.
 
 /// Spacing constants for UI layout
 pub mod spacing {
@@ -19,6 +19,21 @@ pub mod timing {
 
     /// Toast fade-in duration in seconds
     pub const TOAST_FADE_IN_DURATION: f32 = 0.2;
+}
+
+/// Clip-pack download copy. The question is the confirm; hover is a statement.
+/// Size lives only on the confirm.
+pub mod clip_packs {
+    use asset_tap_core::constants::files::CLIP_PACKS_SIZE_LABEL;
+
+    pub const DOWNLOAD_ACTION: &str = "Download animation packs";
+    pub const DOWNLOAD_BUSY: &str = "Downloading animation packs...";
+    pub const DOWNLOAD_HOVER: &str = "Two animation packs by Quaternius";
+    pub const DOWNLOAD_PROMPT: &str = "Download two animation packs by Quaternius?";
+
+    pub fn download_detail() -> String {
+        format!("About {CLIP_PACKS_SIZE_LABEL}. Packs you already have are not replaced.")
+    }
 }
 
 /// Asset type identifiers for internal dispatch
