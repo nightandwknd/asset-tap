@@ -2,10 +2,11 @@
 # https://git-cliff.org/docs/configuration
 #
 # The repo squash-merges, so one PR becomes one commit and the changelog gets
-# one entry per PR. The squash body is the release note; write it for users
+# one entry per PR. GitHub is set to COMMIT_OR_PR_TITLE + COMMIT_MESSAGES
+# (the PR body is not used). Write commit messages for users
 # ([CONTRIBUTING.md](CONTRIBUTING.md)). docs(changelog) is omitted so a notes
 # rewrite is not itself a product note. The preprocessors below strip the
-# trailers and separators GitHub adds around the body.
+# trailers and separators GitHub adds around the concatenated commits.
 
 [changelog]
 header = "# Changelog\n\nAll notable changes to Asset Tap are documented here."
