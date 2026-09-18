@@ -10,7 +10,10 @@
 //! rig. Rig opens with the shipped skeleton scaled to the mesh, so every asset
 //! auto-fit turns away is still riggable by hand.
 
-use asset_tap_core::{default_bind_markers, seed_bind_markers, test_support::glb};
+use asset_tap_core::{
+    BindOptions, baked_clip_names, bind_mesh, default_bind_markers, foreign_rig_joints,
+    seed_bind_markers, test_support::glb,
+};
 
 /// Minimal single-mesh GLB from positions + indices.
 fn box_glb(w: f32, h: f32, d: f32) -> Vec<u8> {
@@ -241,4 +244,136 @@ fn damaged_input_is_refused_without_panicking() {
             "{label}: a damaged file carries no rig we could name"
         );
     }
+}
+
+/// Split a GLB into its JSON document and BIN chunk.
+fn split_glb(glb: &[u8]) -> (serde_json::Value, Vec<u8>) {
+    let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    let json: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+    let bin_len =
+        u32::from_le_bytes(glb[20 + json_len..24 + json_len].try_into().unwrap()) as usize;
+    let bin = glb[28 + json_len..28 + json_len + bin_len].to_vec();
+    (json, bin)
+}
+
+/// A GLB that parses but whose indices point past the end of their arrays.
+///
+/// The rig loads without the crate's document validation (a required texture
+/// extension must not refuse a bind), and without it these are not errors
+/// but `unwrap()`s the first time a node, primitive or skin is touched. Each
+/// of these took a GUI job down; every entry point must refuse them instead.
+#[test]
+fn out_of_range_indices_are_refused_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let (base, bin) = split_glb(&dense_box_glb(1.0, 1.8, 0.6, 6));
+
+    type Mutate = Box<dyn Fn(&mut serde_json::Value)>;
+    let cases: Vec<(&str, Mutate)> = vec![
+        (
+            "material out of range",
+            Box::new(|d| {
+                d["meshes"][0]["primitives"][0]["material"] = serde_json::json!(7);
+            }),
+        ),
+        (
+            "POSITION accessor out of range",
+            Box::new(|d| {
+                d["meshes"][0]["primitives"][0]["attributes"]["POSITION"] = serde_json::json!(42);
+            }),
+        ),
+        (
+            "node mesh out of range",
+            Box::new(|d| {
+                d["nodes"][0]["mesh"] = serde_json::json!(3);
+            }),
+        ),
+        (
+            "skin joint out of range",
+            Box::new(|d| {
+                d["skins"] = serde_json::json!([{ "joints": [0, 55] }]);
+            }),
+        ),
+        (
+            "indices accessor out of range",
+            Box::new(|d| {
+                d["meshes"][0]["primitives"][0]["indices"] = serde_json::json!(9);
+            }),
+        ),
+        (
+            "accessor bufferView out of range",
+            Box::new(|d| {
+                d["accessors"][0]["bufferView"] = serde_json::json!(12);
+            }),
+        ),
+    ];
+
+    for (label, mutate) in cases {
+        let mut doc = base.clone();
+        mutate(&mut doc);
+        let path = dir.path().join(format!("{}.glb", label.replace(' ', "_")));
+        std::fs::write(&path, glb(&serde_json::to_vec(&doc).unwrap(), Some(&bin))).unwrap();
+
+        let err = default_bind_markers(&path)
+            .err()
+            .unwrap_or_else(|| panic!("{label}: Rig's starting skeleton should refuse it"));
+        assert!(
+            matches!(err, asset_tap_core::BindError::Gltf { .. }),
+            "{label}: expected BindError::Gltf, got {err:?}"
+        );
+        assert!(
+            foreign_rig_joints(&path).is_err(),
+            "{label}: foreign-rig check should refuse it"
+        );
+        assert!(
+            asset_tap_core::is_fitted(&path).is_err(),
+            "{label}: fitted check should refuse it"
+        );
+        assert!(
+            baked_clip_names(&path).is_err(),
+            "{label}: clip listing should refuse it"
+        );
+        let out = dir.path().join("out.glb");
+        let options = BindOptions {
+            fit_only: true,
+            clips: Vec::new(),
+            ..Default::default()
+        };
+        assert!(
+            bind_mesh(&path, &out, &options).is_err(),
+            "{label}: bind should refuse it"
+        );
+        assert!(!out.exists(), "{label}: nothing may be written");
+    }
+}
+
+/// A NaN vertex is refused with a message, never sorted into a panic.
+///
+/// Every distance downstream — landmark bands, inverse-distance weights, the
+/// on-mesh shell — compares floats, and a NaN used to reach a
+/// `partial_cmp().unwrap()`.
+#[test]
+fn a_nan_vertex_is_refused_not_sorted() {
+    let dir = tempfile::tempdir().unwrap();
+    let (doc, mut bin) = split_glb(&dense_box_glb(1.0, 1.8, 0.6, 6));
+    // Poison the second vertex's triple. Positions start at BIN offset 0.
+    for k in 0..3 {
+        let off = 12 + k * 4;
+        bin[off..off + 4].copy_from_slice(&f32::NAN.to_le_bytes());
+    }
+    let path = dir.path().join("nan.glb");
+    std::fs::write(&path, glb(&serde_json::to_vec(&doc).unwrap(), Some(&bin))).unwrap();
+
+    let err = default_bind_markers(&path).unwrap_err().to_string();
+    assert!(err.contains("non-finite"), "{err}");
+    let err = seed_bind_markers(&path).unwrap_err().to_string();
+    assert!(err.contains("non-finite"), "{err}");
+    let out = dir.path().join("out.glb");
+    let options = BindOptions {
+        fit_only: true,
+        clips: Vec::new(),
+        ..Default::default()
+    };
+    let err = bind_mesh(&path, &out, &options).unwrap_err().to_string();
+    assert!(err.contains("non-finite"), "{err}");
+    assert!(!out.exists());
 }

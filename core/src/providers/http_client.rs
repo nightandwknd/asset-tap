@@ -265,6 +265,15 @@ pub(crate) fn apply_param_overrides(
 }
 
 /// Generic HTTP client that executes provider configurations.
+///
+/// **Not an entry point.** Go through [`DynamicProvider`](super::DynamicProvider)
+/// (the [`Provider`](super::Provider) trait): it resolves which model a request
+/// needs, detects `${image_url}` templates and uploads (or inlines) the image
+/// accordingly, and applies parameter overrides. The execution methods here
+/// are crate-private for that reason — a consumer that called `generate_3d`
+/// directly hit "Model does not support file uploads" on every URL-based 3D
+/// model, because it skipped exactly that dispatch. The public surface is
+/// construction and cancel-flag wiring, which the provider layer needs.
 #[derive(Clone)]
 pub struct HttpProviderClient {
     config: ProviderConfig,
@@ -308,7 +317,7 @@ impl HttpProviderClient {
     }
 
     /// Generate an image using text-to-image model.
-    pub async fn generate_image(
+    pub(crate) async fn generate_image(
         &self,
         prompt: &str,
         model_id: &str,
@@ -343,7 +352,7 @@ impl HttpProviderClient {
     }
 
     /// Generate a 3D model using image-to-3D model with file upload.
-    pub async fn generate_3d(
+    pub(crate) async fn generate_3d(
         &self,
         image_path: &Path,
         model_id: &str,
@@ -366,7 +375,7 @@ impl HttpProviderClient {
     }
 
     /// Execute a model with an image URL parameter.
-    pub async fn execute_model_with_url(
+    pub(crate) async fn execute_model_with_url(
         &self,
         model: &ModelConfig,
         image_url: &str,
@@ -382,7 +391,7 @@ impl HttpProviderClient {
     }
 
     /// Upload image bytes and get a public URL using the provider's upload config.
-    pub async fn upload_image(&self, image_data: &[u8]) -> Result<String> {
+    pub(crate) async fn upload_image(&self, image_data: &[u8]) -> Result<String> {
         let upload_config = self
             .config
             .provider

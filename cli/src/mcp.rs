@@ -108,7 +108,7 @@ pub struct GenerateArgs {
     pub bind: bool,
     /// Clips to bake in. The model gets one animation per clip, as Mixamo and
     /// Meshy do, rather than one export per clip. Ignored unless `bind`;
-    /// defaults to `walk`. Names come from `list_catalog`.
+    /// defaults to `walk`. Names come from `list_catalog` → `clips`.
     #[serde(default)]
     pub clips: Option<Vec<String>>,
 }
@@ -235,7 +235,7 @@ impl AssetTapServer {
 
     #[tool(
         name = "list_catalog",
-        description = "List available providers, models (with their parameter schemas), and prompt templates. Same document as `asset-tap --list --json`.",
+        description = "List available providers, models (with their parameter schemas), prompt templates, and the installed animation clip ids (`clips`, what `generate` accepts in `clips[]`). Same document as `asset-tap --list --json`.",
         annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false)
     )]
     async fn list_catalog(&self) -> Result<CallToolResult, McpError> {
@@ -293,7 +293,7 @@ impl AssetTapServer {
                 ))
             }
             Err(err) => Ok(tool_error(
-                serde_json::to_value(machine::ClipDownloadErrorDocument::from_error(&err))
+                serde_json::to_value(machine::ErrorDocument::from_clip_download_error(&err))
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?,
             )),
         }
@@ -555,11 +555,19 @@ mod tests {
         assert!(cli.rig);
     }
 
+    /// No `clips` passes no `--clip`: the argv asks for a rig and leaves the
+    /// clip choice to the pipeline, which bakes `walk` by default (the same
+    /// default `bind` without `--clip` applies). It is not a rig-only run;
+    /// there is no `fit_only` in `GenerateArgs`.
     #[test]
-    fn bind_without_clips_asks_for_a_rig_and_no_animation() {
+    fn bind_without_clips_asks_for_a_rig_and_leaves_the_walk_default_to_the_pipeline() {
         let argv = generate_args(None).to_argv();
         let cli = crate::Cli::try_parse_from(&argv).expect("argv must parse");
         assert!(cli.rig);
-        assert!(cli.clip.is_empty());
+        assert!(
+            cli.clip.is_empty(),
+            "no --clip: the pipeline default (walk) applies"
+        );
+        assert!(!argv.iter().any(|a| a == "--fit-only"));
     }
 }

@@ -78,7 +78,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin gh-pages --depth=1
+          # No gh-pages yet (first publish): nothing to keep.
+          git fetch origin gh-pages --depth=1 2>/dev/null || exit 0
           git checkout origin/gh-pages -- pr-preview 2>/dev/null || true
           if [ -d pr-preview ]; then
             mkdir -p site/public
@@ -86,7 +87,8 @@ jobs:
             for dir in site/public/pr-preview/pr-*; do
               [ -d "$dir" ] || continue
               n="${dir##*/pr-}"
-              state=$(gh pr view "$n" --json state --jq .state 2>/dev/null || echo CLOSED)
+              # gh failing (rate limit, outage) is not "closed": keep the preview.
+              state=$(gh pr view "$n" --json state --jq .state 2>/dev/null) || continue
               if [ "$state" != "OPEN" ]; then
                 rm -rf "$dir"
               fi

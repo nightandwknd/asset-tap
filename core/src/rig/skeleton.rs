@@ -384,13 +384,16 @@ fn first_present(arm: &Armature, names: &[&str]) -> Option<String> {
         .map(|s| (*s).to_string())
 }
 
+/// The node to scale and translate so the whole rest pose resizes: the
+/// armature wrapper, else the skeleton root, else whatever has no parent.
+/// Both names are canonical constants; the armature is always
+/// [`crate::rig::canon::armature`] or a fitted copy of it.
 fn root_index(arm: &Armature) -> Option<usize> {
-    for name in ["Rig", "root", "Root", "Armature"] {
-        if let Some(&i) = arm.name_to_index.get(name) {
-            return Some(i);
-        }
-    }
-    arm.joints.iter().position(|j| j.parent.is_none())
+    use crate::rig::canon::{ARMATURE_NAME, ROOT_NAME};
+    [ARMATURE_NAME, ROOT_NAME]
+        .iter()
+        .find_map(|n| arm.joint_index(n))
+        .or_else(|| arm.joints.iter().position(|j| j.parent.is_none()))
 }
 
 pub fn load_document(path: &Path) -> Result<(gltf::Document, Vec<gltf::buffer::Data>), BindError> {
@@ -435,12 +438,79 @@ fn read_gltf(path: &Path) -> Result<gltf::Gltf, BindError> {
     // Such a file is perfectly good geometry: the texture bytes are copied
     // through verbatim and nothing on this path reads a pixel or resolves a
     // texture, so an image extension is not ours to have an opinion about.
-    // Structural problems that *would* matter still surface, in
-    // `import_buffers` and when accessors are read.
-    gltf::Gltf::from_slice_without_validation(&bytes).map_err(|e| BindError::Gltf {
+    // Structural problems that *would* matter are checked right after, by
+    // `check_indices`: skipping the crate's validation also skips its
+    // index-range checks, and the crate `unwrap()`s an out-of-range index the
+    // moment the node, primitive or skin is touched.
+    let gltf = gltf::Gltf::from_slice_without_validation(&bytes).map_err(|e| BindError::Gltf {
         path: path.to_path_buf(),
         message: e.to_string(),
-    })
+    })?;
+    check_indices(&gltf.document).map_err(|message| BindError::Gltf {
+        path: path.to_path_buf(),
+        message,
+    })?;
+    Ok(gltf)
+}
+
+/// Run the crate's document validation, admitting only the errors this path
+/// deliberately tolerates.
+///
+/// Admitted: `Unsupported` (an `extensionsRequired` entry the crate does not
+/// implement, such as `EXT_texture_webp`) and a `Missing` core
+/// `textures[].source`, which omitting the fallback under a required texture
+/// extension legally implies. Everything else, and in particular every
+/// `IndexOutOfBounds`, is returned as the error message: a material, mesh,
+/// accessor or skin-joint index past the end of its array is `unwrap()`ed by
+/// the crate on first use, which took the GUI down from a malformed drop.
+pub(crate) fn check_indices(doc: &gltf::Document) -> Result<(), String> {
+    use gltf::json::validation::{Error, Validate};
+    let root = doc.as_json();
+    // The crate's own validator indexes `root.accessors[POSITION]` directly
+    // while checking a primitive's `min`/`max`, so that one index has to be
+    // range-checked before the validator may run at all.
+    for (mi, mesh) in root.meshes.iter().enumerate() {
+        for (pi, prim) in mesh.primitives.iter().enumerate() {
+            let attrs = prim
+                .attributes
+                .values()
+                .chain(prim.targets.iter().flatten().flat_map(|t| {
+                    [
+                        t.positions.as_ref(),
+                        t.normals.as_ref(),
+                        t.tangents.as_ref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                }));
+            for acc in attrs {
+                if acc.value() >= root.accessors.len() {
+                    return Err(format!(
+                        "meshes[{mi}].primitives[{pi}]: accessor {} out of range ({} accessors)",
+                        acc.value(),
+                        root.accessors.len()
+                    ));
+                }
+            }
+        }
+    }
+    let mut fatal: Vec<String> = Vec::new();
+    root.validate(root, gltf::json::Path::new, &mut |path, error| {
+        let path = path();
+        let admitted = match error {
+            Error::Unsupported => true,
+            Error::Missing => path.0.starts_with("textures[") && path.0.ends_with(".source"),
+            _ => false,
+        };
+        if !admitted {
+            fatal.push(format!("{path}: {error}"));
+        }
+    });
+    if fatal.is_empty() {
+        Ok(())
+    } else {
+        Err(fatal.join("; "))
+    }
 }
 
 #[cfg(test)]

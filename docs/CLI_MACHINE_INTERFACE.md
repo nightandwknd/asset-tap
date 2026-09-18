@@ -1,6 +1,6 @@
 # Asset Tap CLI Machine Interface — Spec v1
 
-Status: **implemented in asset-tap** (`--json`, interface version 1.0) · Last updated: 2026-09-13
+Status: **implemented in asset-tap** (`--json`, interface version 1.1) · Last updated: 2026-09-18
 Consumers: first-party editor integrations, and any future external tooling.
 
 Implementation: the wire format lives in [cli/src/machine.rs](../cli/src/machine.rs);
@@ -37,7 +37,27 @@ The `interface` field (in the `start` event and in catalog documents) is a
   **tolerate** a MINOR higher than the one they were built against, and must
   **ignore unknown fields** on known events/documents regardless of MINOR.
 
-Current version: `"1.0"`.
+Current version: `"1.1"`. Single-sourced from `machine::INTERFACE_VERSION`;
+every golden fixture that carries `interface` states it verbatim, and the test
+suite asserts exact equality (not just MAJOR), so a wire change without a bump
+fails in this repo before it reaches a consumer.
+
+### 1.1 (from 1.0) — additive; consumers built against 1.0 keep working
+
+- `result` success gained `model`, `joints`, `vertices`, `clips` (the `bind`
+  shape), and `bundle_dir` is now **optional**: present on a generation run,
+  absent on `bind`. A 1.0 consumer that required `bundle_dir` must read it
+  only when `model` is absent.
+- The catalog (`--list --json`, MCP `list_catalog`) gained `clips`: the ids
+  every installed animation pack provides.
+- New single-document commands, each described in §3: `auth list --json`,
+  `clip list --json`, `clip download --json` (and its error object, which
+  `clip list` shares).
+- The `bind` progress stage was added; the `fbx_conversion` stage and the
+  `blender_not_found` error kind were **removed** with the FBX pipeline.
+  Removing a stage/kind is not a MAJOR bump: consumers already treat unknown
+  stages as informational and unknown kinds as `unknown`, and neither can be
+  emitted by any 1.x binary, so no parser branch is invalidated.
 
 ## 1. `--json` mode
 
@@ -101,7 +121,7 @@ Success:
 }
 ```
 
-- `bundle_dir` (required): absolute path to the created bundle directory. Everything else about the output (name, models, mesh stats, provenance) is read from `bundle_dir/bundle.json` — this event intentionally does not duplicate it.
+- `bundle_dir` (optional since 1.1; always present on a generation run): absolute path to the created bundle directory. Everything else about the output (name, models, mesh stats, provenance) is read from `bundle_dir/bundle.json` — this event intentionally does not duplicate it. A `bind` run has no bundle and reports `model` instead (below).
 
 Error:
 
@@ -142,12 +162,13 @@ Bind success (`asset-tap --json bind ...`) reports the written model rather than
 ```
 
 - `model` (required): absolute path to the written GLB.
-- `clips` (required): the full baked set, in the model, after the run. Bake is declarative, so this is the model's complete animation list, not the clips this invocation added. Empty after `--fit-only`.
+- `clips` (required): the full baked set, in the model, after the run. Bake is declarative, so this is the model's complete animation list, not the clips this invocation added. Empty after `--fit-only`. Without `--clip` and without `--fit-only`, `bind` bakes `walk`.
 - `joints` / `vertices`: mesh stats for the written model.
+- `--clip-pack DIR` overrides the installed packs, the same flag as the root `--clip-pack` (`--pack` is a hidden alias kept for older scripts).
 
-Bind errors use the same error shape as a generation run:
+Bind errors use the same error shape as a generation run, and every one of them ends in a `result` — including a `--mesh` directory that holds no `model.glb`, which is refused after `start` and still closes the stream:
 
-- `io_error` (exit 7) — the local setup is wrong: an unreadable mesh, no animation pack installed, or a clip name no installed pack provides. Fixed by `clip install`, never by retrying.
+- `io_error` (exit 7) — the local setup is wrong: an unreadable mesh, a bundle directory without `model.glb`, no animation pack installed, or a clip name no installed pack provides. Fixed by `clip install`, never by retrying.
 - `validation_error` (exit 4) — the mesh itself is refused: joints sitting off the body, or an asset the rig cannot fit. The message names what was wrong.
 
 Cancellation is typed end-to-end: user signals, image rejection, and provider-side cancels (a job canceled server-side) all produce `status: canceled` — never a generic error.
@@ -227,7 +248,7 @@ Exit codes apply in `--json` mode and (where feasible) in human mode, with one d
 - `parameters` mirrors the provider-YAML parameter definitions: `name`, `label`, `description`, `type` (`float`|`integer`|`boolean`|`string`|`select`), `default`, `min`, `max`, `step`, `options`, `widget` (`slider`|`input`). Optional fields omitted when unset.
 - `description` (string): human-readable provider description (shared with the human `--list-providers` output — both render from one catalog).
 - `configured` (bool): whether the provider's API key is present — lets a consumer build its form _and_ its preflight warnings from one call. Key material itself must never appear in output.
-- `asset-tap --list --json` additionally includes a `templates` array: `{id, name, description, category, variables: [{name, description, required}], examples}`.
+- `asset-tap --list --json` additionally includes a `templates` array: `{id, name, description, category, variables: [{name, description, required}], examples}`, and (since 1.1) a `clips` array of strings: the clip ids every installed animation pack provides, in pack order — exactly the names `--clip` and MCP `generate.clips[]` accept. Empty when no pack is installed (`clip download` fills it). `clip list --json` is the same set with pack provenance per row.
 
 ### `auth list --json` — key preflight
 
@@ -280,9 +301,11 @@ the human listing:
 `asset-tap --json clip list` (optional `--model PATH`) emits a single JSON
 **array** (not NDJSON, not wrapped in `{event, …}`). Each row is
 `{id, name, pack_id, pack_name}`; with `--model` each row also has `baked`
-(bool).
+(bool). When `--model` cannot be read, stdout carries the same error object
+`clip download` uses — `{status: "error", kind, message}`, `io_error`, exit 7
+— never nothing.
 
-### `clip download --json` — free Standard packs
+### `clip download --json` — Standard packs from the release
 
 `asset-tap --json clip download` emits a single JSON object (not NDJSON),
 the same shape MCP `clip_download` returns:
@@ -304,8 +327,10 @@ the same shape MCP `clip_download` returns:
 - `--force` refreshes only packs stamped by a previous `clip download`. It
   never replaces a pack from `clip install` (Source or custom).
 - On failure the document is `{status: "error", kind, message}` where `kind`
-  is `network_error` (exit 6) or `io_error` (exit 7). A missing `sha256` on
-  the release manifest is `io_error` (fail closed).
+  is `network_error` (exit 6: the request failed or the host answered with
+  a non-success status) or `io_error` (exit 7: everything else). A missing
+  `sha256` on the release manifest and a hash mismatch are `io_error` (fail
+  closed). Classification is by error type, not message text.
 - Added 2026-09-13 as a new document under interface `1.0`.
 
 `clip install` still rejects `--json` (exit 2): it writes a pack and has no
@@ -324,7 +349,10 @@ wire result to report.
 
 ## 6. Fixtures & acceptance
 
-- This repo and its consumers vendor **identical golden fixture files**: sample NDJSON streams for `success`, `provider_error`, `rate_limited_retry`, `canceled`, plus a sample catalog JSON. Consumers' parser tests and asset-tap's output tests run against the same files — that's the drift alarm.
+- This repo and its consumers vendor **identical golden fixture files** from `cli/tests/fixtures/machine-interface/`. Consumers' parser tests and asset-tap's output tests run against the same files — that's the drift alarm. The full set a consumer must vendor:
+  - NDJSON streams: `success.ndjson`, `provider_error.ndjson`, `rate_limited_retry.ndjson`, `canceled.ndjson`, `bind_success.ndjson`, `bind_error.ndjson`.
+  - Single documents: `catalog.json` (`--list --json`, with `templates` and `clips`), `auth_catalog.json` (`auth list --json`), `clip_download.json`, `clip_download_already_exists.json`, `clip_download_error.json` (the error object `clip list --json` also uses).
+  - Every fixture that carries `interface` states the current version verbatim.
 - Acceptance checklist for the asset-tap implementation:
   - [x] `--json` produces valid NDJSON on stdout; nothing else on stdout.
   - [x] `start` is first, `result` is last, exactly one of each per run.
@@ -377,9 +405,10 @@ and exit codes — they can't read the repo. The binary must be self-describing:
 ## 8. MCP server (same shapes, different transport)
 
 `asset-tap mcp` (see [MCP.md](MCP.md)) exposes this interface's documents as
-MCP tools: `list_catalog` returns the §3 catalog, `auth_status` the §3 auth
-document, `clip_download` the §3 `clip download` document, and `generate`
-returns the §1 `result` fields (`bundle_dir`, `duration_ms`; on error
+MCP tools: `list_catalog` returns the §3 catalog (with `templates` and
+`clips`), `auth_status` the §3 auth document, `clip_download` the §3
+`clip download` document, `inspect_bundle` a bundle's `bundle.json`, and
+`generate` returns the §1 `result` fields (`bundle_dir`, `duration_ms`; on error
 `kind`/`message`/`action`/`retryable`) as structured tool content, with §1
 `progress` mapped to MCP progress notifications. It is implemented over the
 same code paths, so it follows this spec's versioning: a change here is a

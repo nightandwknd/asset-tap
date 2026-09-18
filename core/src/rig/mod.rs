@@ -15,7 +15,7 @@ mod landmarks;
 mod onmesh;
 mod pack;
 mod play;
-mod skeleton;
+pub(crate) mod skeleton;
 mod weights;
 mod write;
 
@@ -86,20 +86,32 @@ fn resolve_options_clips(options: &BindOptions) -> Result<Vec<(ClipPack, String)
 ///
 /// With [`BindOptions::fit_only`], no clip is applied. Otherwise this is
 /// `fit_mesh` + `apply_clip`.
+///
+/// **A rigged mesh keeps its skeleton and weights unless `refit`.** That
+/// rule is checked first, before fit-only / empty-clips is considered:
+/// re-fitting an already-rigged mesh throws away its pose and re-weights to
+/// the auto-fit, and someone who arranged joints by hand would silently lose
+/// that work. So on a fitted mesh without `refit`:
+///
+/// - `fit_only` (or an empty clip set, which is the same request) is a no-op
+///   on the rig: the file is rewritten with its existing skeleton, weights
+///   **and clips**, since none were explicitly given.
+/// - a clip set is baked onto the rig that is already there.
 pub fn bind_mesh(
     mesh_glb: &Path,
     out_glb: &Path,
     options: &BindOptions,
 ) -> Result<BindReport, BindError> {
+    let keep_rig = !options.refit && is_fitted(mesh_glb)?;
     if options.fit_only || options.clips.is_empty() {
-        return export::fit_and_write(mesh_glb, out_glb);
+        return if keep_rig {
+            export::rewrite_fitted(mesh_glb, out_glb)
+        } else {
+            export::fit_and_write(mesh_glb, out_glb)
+        };
     }
     let clips = resolve_options_clips(options)?;
-    // Re-fitting an already-rigged mesh throws away its pose and re-weights
-    // to the auto-fit. Someone who arranged joints by hand and then asked for
-    // another clip would silently lose that work, so bake onto the rig that
-    // is already there unless a re-fit was asked for.
-    if !options.refit && is_fitted(mesh_glb)? {
+    if keep_rig {
         return export::apply_clips_and_write(mesh_glb, &clips, out_glb);
     }
     export::bind_and_write(mesh_glb, &clips, out_glb)
@@ -122,9 +134,28 @@ pub fn fit_mesh_from_heads(
     mesh_glb: &Path,
     out_glb: &Path,
     heads: &[(String, [f32; 3])],
+    options: &BindOptions,
+) -> Result<BindReport, BindError> {
+    fit_mesh_from_heads_keeping(mesh_glb, out_glb, heads, &[], options)
+}
+
+/// [`fit_mesh_from_heads`], re-baking `keep_clips` onto the new fit.
+///
+/// A re-Bind of a mesh that already carries baked animation rebuilds the
+/// skin, and a fit writes exactly the clips it is given — so without this
+/// the baked set was silently dropped. Pass [`baked_clip_names`] (or the
+/// panel's ticked set) to keep it. Each name is resolved through the pack
+/// catalog ([`find_clip`]); names that no installed pack provides come back
+/// in [`BindReport::dropped_clips`] instead of failing the bind, so the
+/// caller can tell the author what did not survive.
+pub fn fit_mesh_from_heads_keeping(
+    mesh_glb: &Path,
+    out_glb: &Path,
+    heads: &[(String, [f32; 3])],
+    keep_clips: &[String],
     _options: &BindOptions,
 ) -> Result<BindReport, BindError> {
-    export::fit_and_write_heads(mesh_glb, out_glb, Some(heads))
+    export::fit_and_write_heads(mesh_glb, out_glb, Some(heads), keep_clips)
 }
 
 /// Auto-fit: the canonical skeleton solved onto the mesh's landmarks.
@@ -143,8 +174,11 @@ pub fn default_bind_markers(mesh_glb: &Path) -> Result<Vec<BindMarker>, BindErro
     export::default_bind_markers(mesh_glb)
 }
 
-/// Heads that Bind would refuse: `(joint, metres to the nearest vertex)`,
-/// farthest first. Empty means every head is inside or hugging the mesh.
+/// Heads that Bind would refuse: `(joint, metres to the nearest point on the
+/// mesh surface)`, farthest first. Empty means every head is inside or
+/// hugging the mesh. Surface, not nearest vertex: on coarse geometry the
+/// nearest corner over-reports, and the number reaches the author as how far
+/// to drag.
 pub fn heads_off_mesh(
     mesh_glb: &Path,
     heads: &[(String, [f32; 3])],
@@ -170,11 +204,6 @@ pub(crate) fn clip_overlay_for_rest(clip_id: &str, rest_glb: &Path) -> Result<Ve
     export::animation_overlay_for_rest(&pack.gltf_path, &clip, rest_glb)
 }
 
-/// Does this model already carry a canonical rig?
-///
-/// True when it has a skin and its nodes include canonical joints, which is
-/// what [`bind_mesh`] uses to decide between baking onto the existing rig and
-/// fitting a fresh one.
 /// `Some(joint_count)` when the mesh carries a skin that is not ours.
 ///
 /// [`is_fitted`] answers "is this rigged *by us*", and a foreign rig makes it
@@ -183,33 +212,42 @@ pub(crate) fn clip_overlay_for_rest(clip_id: &str, rest_glb: &Path) -> Result<Ve
 /// cannot name, but it silently discards work someone else did. Callers use
 /// this to say so first.
 ///
-/// Naming is the test, as everywhere else: the armature is canonicalized on
-/// load, so a skin whose joints yield no [`HumanBone`] is one we do not know.
+/// Naming is the test, as everywhere else, and it is the same test as
+/// [`is_fitted`]: a skin whose joints do not read as the canonical scheme is
+/// one we do not know.
 pub fn foreign_rig_joints(model_glb: &Path) -> Result<Option<usize>, BindError> {
     let doc = skeleton::import_json_only(model_glb)?;
-    let Some(skin) = doc.skins().next() else {
-        return Ok(None);
-    };
-    let joints: Vec<_> = skin.joints().collect();
-    if joints.is_empty() {
-        return Ok(None);
-    }
-    let ours = joints
-        .iter()
-        .filter_map(|n| n.name())
-        .any(|n| canon::HumanBone::parse(n).is_some());
-    Ok((!ours).then_some(joints.len()))
+    Ok(match skin_is_canonical(&doc) {
+        Some((false, n)) => Some(n),
+        _ => None,
+    })
 }
 
+/// Does this model already carry a canonical rig?
+///
+/// True when its first skin's joints read as our own scheme — enough of
+/// them to clear [`BoneScheme::detect`]'s threshold, `hips` among them —
+/// which is what [`bind_mesh`] uses to decide between baking onto the
+/// existing rig and fitting a fresh one. Any node called `head` somewhere in
+/// the document is not a rig; a foreign skin with one such name is foreign.
 pub fn is_fitted(model_glb: &Path) -> Result<bool, BindError> {
     let doc = skeleton::import_json_only(model_glb)?;
-    if doc.skins().next().is_none() {
-        return Ok(false);
+    Ok(matches!(skin_is_canonical(&doc), Some((true, _))))
+}
+
+/// `(canonical?, joint_count)` for the first skin, or `None` when the model
+/// has no skin (or an empty one). Shared by [`is_fitted`] and
+/// [`foreign_rig_joints`] so the two can never disagree on what "ours" means.
+fn skin_is_canonical(doc: &gltf::Document) -> Option<(bool, usize)> {
+    let skin = doc.skins().next()?;
+    let names: Vec<&str> = skin.joints().filter_map(|n| n.name()).collect();
+    let count = skin.joints().count();
+    if count == 0 {
+        return None;
     }
-    Ok(doc
-        .nodes()
-        .filter_map(|n| n.name())
-        .any(|n| canon::HumanBone::parse(n).is_some()))
+    let ours = BoneScheme::detect(names.iter().copied()) == Some(BoneScheme::Vrm)
+        && names.contains(&HumanBone::Hips.as_str());
+    Some((ours, count))
 }
 
 /// Animation names already baked into `model_glb`, in file order.
@@ -247,6 +285,9 @@ pub struct BindReport {
     pub moved_joints: usize,
     /// Largest such move, metres.
     pub max_moved_m: f32,
+    /// Clips the caller asked to keep across a re-fit that no installed pack
+    /// could supply, so they are not in `clips`. Empty on every other path.
+    pub dropped_clips: Vec<String>,
 }
 
 /// Bind failures. Missing pack is the one agents can recover from
@@ -303,6 +344,7 @@ fn user_facing_joint_name(name: &str) -> String {
 mod tests {
     use super::*;
     use glam::Vec3;
+    use skeleton::Armature;
 
     /// A rig we cannot name is reported, so Bind can say it before replacing it.
     ///
@@ -441,6 +483,305 @@ mod tests {
         assert!(worst < 1e-4, "preview and bake diverge by {worst} m");
     }
 
+    /// A pack whose rest differs from the embedded one must still preview
+    /// and bake to the same pose.
+    ///
+    /// [`preview_and_bake_agree_pose_for_pose`] builds its pack from
+    /// `canon::armature()`, so it could not see the two paths retargeting
+    /// against different rests: Bake shifted translations from the canonical
+    /// rest, Preview from the pack's. Identical while the pack *is* the
+    /// canonical rest; a library authored on a taller mannequin split them.
+    #[test]
+    fn preview_and_bake_agree_on_a_pack_whose_rest_differs() {
+        let _env = crate::test_support::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::set_var(pack::CLIPS_DIR_ENV, dir.path()) };
+
+        // The same clip, on an armature whose hips rest 12 cm higher and
+        // whose upper arm sits 3 cm further out than the embedded skeleton.
+        let mut arm = canon::armature();
+        let hips = arm.name_to_index["hips"];
+        arm.joints[hips].translation.y += 0.12;
+        let upper = arm.name_to_index[HumanBone::LeftUpperArm.as_str()];
+        arm.joints[upper].translation.x += 0.03;
+        let src = dir.path().join("tall.glb");
+        std::fs::write(&src, moving_pack_glb_on(&arm)).unwrap();
+        install_pack_from(&src, Some("tall")).expect("install");
+
+        let (preview, played) = preview_and_bake(dir.path(), "Reach");
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::remove_var(pack::CLIPS_DIR_ENV) };
+
+        let (moved, worst) = compare_playback(&preview, &played);
+        assert!(moved > 0.01, "the fixture clip barely deforms: {moved}");
+        assert!(worst < 1e-4, "preview and bake diverge by {worst} m");
+    }
+
+    /// A CUBICSPLINE library clip previews and bakes to the same pose, and
+    /// actually curves: the writer keeps the three-samples-per-key layout,
+    /// so the player has to evaluate it rather than read tangents as keys.
+    #[test]
+    fn cubic_spline_clips_preview_and_bake_alike() {
+        let _env = crate::test_support::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::set_var(pack::CLIPS_DIR_ENV, dir.path()) };
+
+        let src = dir.path().join("cubic.glb");
+        std::fs::write(&src, cubic_pack_glb()).unwrap();
+        install_pack_from(&src, Some("cubic")).expect("install");
+
+        let (preview, played) = preview_and_bake(dir.path(), "Bob");
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::remove_var(pack::CLIPS_DIR_ENV) };
+
+        let (moved, worst) = compare_playback(&preview, &played);
+        assert!(moved > 0.01, "the fixture clip barely deforms: {moved}");
+        assert!(worst < 1e-4, "preview and bake diverge by {worst} m");
+        // Both keys are at rest; only the tangents move the body mid-clip
+        // (along the hips' local axis, whatever `root`'s rest rotation makes
+        // of that in world space). Read as LINEAR the clip would be
+        // motionless at every key and wildly wrong between them.
+        let (mut rest_pose, mut mid, mut end) = (Vec::new(), Vec::new(), Vec::new());
+        preview.sample_positions_rest_into(&mut rest_pose);
+        preview.sample_positions_into(preview.duration * 0.5, &mut mid);
+        preview.sample_positions_into(preview.duration, &mut end);
+        let far = |a: &[[f32; 3]], b: &[[f32; 3]]| {
+            a.iter()
+                .zip(b.iter())
+                .map(|(p, q)| dist(*p, *q))
+                .fold(0.0f32, f32::max)
+        };
+        let lift = far(&rest_pose, &mid);
+        assert!(lift > 0.02, "the tangents should move the mesh: {lift}");
+        assert!(far(&rest_pose, &end) < 1e-3, "and both keys sit at rest");
+    }
+
+    /// Fit a fresh humanoid, then preview and bake `clip` onto it.
+    fn preview_and_bake(dir: &Path, clip: &str) -> (SkinnedClip, SkinnedClip) {
+        let mesh = dir.join("mesh.glb");
+        std::fs::write(&mesh, humanoid_glb()).unwrap();
+        let rest = dir.join("rest.glb");
+        fit_mesh(&mesh, &rest, &BindOptions::default()).expect("fit");
+        let preview = preview_skinned_clip(clip, &rest).expect("preview");
+        let baked = dir.join("baked.glb");
+        let options = BindOptions {
+            clips: vec![clip.into()],
+            ..BindOptions::default()
+        };
+        bind_mesh(&rest, &baked, &options).expect("bake");
+        let played = SkinnedClip::from_glb(&baked).expect("load the bake");
+        assert!(
+            (preview.duration - played.duration).abs() < 1e-4,
+            "durations differ: preview {} baked {}",
+            preview.duration,
+            played.duration
+        );
+        (preview, played)
+    }
+
+    /// `(how far the clip moves the mesh, worst preview/bake disagreement)`.
+    fn compare_playback(preview: &SkinnedClip, played: &SkinnedClip) -> (f32, f32) {
+        let mut moved = 0.0f32;
+        let mut worst = 0.0f32;
+        let (mut a, mut b, mut rest_pose) = (Vec::new(), Vec::new(), Vec::new());
+        preview.sample_positions_rest_into(&mut rest_pose);
+        for i in 0..=6 {
+            let t = preview.duration * i as f32 / 6.0;
+            preview.sample_positions_into(t, &mut a);
+            played.sample_positions_into(t, &mut b);
+            assert_eq!(a.len(), b.len(), "vertex counts differ at t={t}");
+            for ((p, q), r) in a.iter().zip(b.iter()).zip(rest_pose.iter()) {
+                worst = worst.max(dist(*p, *q));
+                moved = moved.max(dist(*p, *r));
+            }
+        }
+        (moved, worst)
+    }
+
+    /// `bind --fit-only` on a rigged mesh is a no-op on the rig.
+    ///
+    /// It used to reach `fit_and_write` before the fitted check, so a mesh
+    /// whose joints had been arranged by hand was silently re-fitted to the
+    /// auto-fit, and its baked clips went with it. The contract is the one
+    /// `bind_mesh` already applied to clips: a rigged mesh keeps skeleton and
+    /// weights unless `--refit`.
+    #[test]
+    fn fit_only_on_a_rigged_mesh_keeps_the_rig_and_its_clips() {
+        let _env = crate::test_support::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::set_var(pack::CLIPS_DIR_ENV, dir.path()) };
+        let src = dir.path().join("library.glb");
+        std::fs::write(&src, moving_pack_glb()).unwrap();
+        install_pack_from(&src, Some("t")).expect("install");
+
+        let mesh = dir.path().join("mesh.glb");
+        std::fs::write(&mesh, humanoid_glb()).unwrap();
+        let model = dir.path().join("model.glb");
+        // Fit, nudge a knee by hand, then bake a clip: an authored rig.
+        fit_mesh(&mesh, &model, &BindOptions::default()).expect("fit");
+        let mut heads: Vec<(String, [f32; 3])> = seed_bind_markers(&mesh)
+            .unwrap()
+            .into_iter()
+            .map(|m| (m.name, m.world))
+            .collect();
+        let knee = heads
+            .iter_mut()
+            .find(|(n, _)| n == HumanBone::LeftLowerLeg.as_str())
+            .unwrap();
+        knee.1[1] -= 0.06;
+        fit_mesh_from_heads(&mesh, &model, &heads, &BindOptions::default()).expect("bind");
+        let knee_y = |p: &Path| {
+            SkinnedClip::from_glb(p)
+                .unwrap()
+                .bind_markers()
+                .into_iter()
+                .find(|m| m.name == HumanBone::LeftLowerLeg.as_str())
+                .unwrap()
+                .world[1]
+        };
+        let authored = knee_y(&model);
+        bind_mesh(
+            &model,
+            &model,
+            &BindOptions {
+                clips: vec!["Reach".into()],
+                ..Default::default()
+            },
+        )
+        .expect("bake");
+        assert_eq!(baked_clip_names(&model).unwrap(), ["Reach"]);
+
+        // Fit-only, and an empty set: neither re-fits, neither strips.
+        for options in [
+            BindOptions {
+                fit_only: true,
+                clips: Vec::new(),
+                ..Default::default()
+            },
+            BindOptions {
+                clips: Vec::new(),
+                ..Default::default()
+            },
+        ] {
+            let report = bind_mesh(&model, &model, &options).expect("fit-only on rigged");
+            assert_eq!(report.clips, ["Reach"], "existing clips are reported");
+            assert!(
+                (knee_y(&model) - authored).abs() < 1e-5,
+                "the authored knee moved: {} -> {}",
+                authored,
+                knee_y(&model)
+            );
+            assert_eq!(baked_clip_names(&model).unwrap(), ["Reach"]);
+        }
+
+        // `--refit` is the explicit way to throw the pose away.
+        bind_mesh(
+            &model,
+            &model,
+            &BindOptions {
+                fit_only: true,
+                clips: Vec::new(),
+                refit: true,
+                ..Default::default()
+            },
+        )
+        .expect("refit");
+        assert!(
+            (knee_y(&model) - authored).abs() > 0.03,
+            "refit should return to the auto-fit knee"
+        );
+        assert!(baked_clip_names(&model).unwrap().is_empty());
+
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::remove_var(pack::CLIPS_DIR_ENV) };
+    }
+
+    /// Re-Bind keeps the clips it is asked to keep, and names the ones it
+    /// could not source rather than failing.
+    #[test]
+    fn a_refit_from_heads_keeps_the_baked_clips_it_is_told_to() {
+        let _env = crate::test_support::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::set_var(pack::CLIPS_DIR_ENV, dir.path()) };
+        let src = dir.path().join("library.glb");
+        std::fs::write(&src, moving_pack_glb()).unwrap();
+        install_pack_from(&src, Some("t")).expect("install");
+
+        let mesh = dir.path().join("mesh.glb");
+        std::fs::write(&mesh, humanoid_glb()).unwrap();
+        let model = dir.path().join("model.glb");
+        bind_mesh(
+            &mesh,
+            &model,
+            &BindOptions {
+                clips: vec!["Reach".into()],
+                ..Default::default()
+            },
+        )
+        .expect("bind");
+        let baked = baked_clip_names(&model).unwrap();
+        assert_eq!(baked, ["Reach"]);
+
+        let heads: Vec<(String, [f32; 3])> = seed_bind_markers(&model)
+            .unwrap()
+            .into_iter()
+            .map(|m| (m.name, m.world))
+            .collect();
+
+        // Without the keep list the old behaviour stands: a fit writes
+        // exactly the clips it is given, which is none.
+        fit_mesh_from_heads(&model, &model, &heads, &BindOptions::default()).expect("re-bind");
+        assert!(baked_clip_names(&model).unwrap().is_empty());
+
+        // With it, the baked set survives the re-fit, and a name no pack has
+        // is reported rather than fatal.
+        let mut keep = baked.clone();
+        keep.push("Foreign_Clip".into());
+        let report =
+            fit_mesh_from_heads_keeping(&model, &model, &heads, &keep, &BindOptions::default())
+                .expect("re-bind keeping clips");
+        assert_eq!(baked_clip_names(&model).unwrap(), baked);
+        assert_eq!(report.clips, baked);
+        assert_eq!(report.dropped_clips, ["Foreign_Clip"]);
+
+        // SAFETY: serialized by env_lock().
+        unsafe { std::env::remove_var(pack::CLIPS_DIR_ENV) };
+    }
+
+    /// One recognizable name in a foreign skin does not make it ours.
+    ///
+    /// `is_fitted` used to be true if *any* node in the document parsed as a
+    /// canonical bone, so a rig from elsewhere with a joint called `head` was
+    /// treated as fitted by us, and Bind baked onto a skeleton it could not
+    /// animate. The threshold is `BoneScheme::detect`'s, on the skin's joints.
+    #[test]
+    fn a_foreign_skin_with_one_canonical_name_is_not_fitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let arm = canon::armature();
+        let mut glb = tests_support_skinned(&arm.skin, false);
+        // Rename one foreign joint to `head`, in place, in the JSON chunk.
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        doc["nodes"][5]["name"] = serde_json::json!("head");
+        glb = crate::test_support::glb(&serde_json::to_vec(&doc).unwrap(), None);
+        let path = dir.path().join("theirs.glb");
+        std::fs::write(&path, glb).unwrap();
+
+        assert!(
+            !is_fitted(&path).unwrap(),
+            "one `head` is not a rig of ours"
+        );
+        assert_eq!(
+            foreign_rig_joints(&path).unwrap(),
+            Some(arm.skin.len()),
+            "and it is reported as foreign"
+        );
+    }
+
     #[test]
     fn off_mesh_errors_use_legend_names_not_vrm_wire() {
         let msg = off_mesh_message(&[
@@ -459,8 +800,37 @@ mod tests {
     /// A library with one clip that swings an arm, so the comparison has
     /// something to compare.
     fn moving_pack_glb() -> Vec<u8> {
+        moving_pack_glb_on(&canon::armature())
+    }
+
+    /// One clip that lifts the hips with CUBICSPLINE tangents only: both keys
+    /// sit at rest, so a player that ignores tangents sees no motion.
+    fn cubic_pack_glb() -> Vec<u8> {
         use export::{AnimChannel, AnimData};
         let arm = canon::armature();
+        let hips = arm.name_to_index["hips"];
+        let r = arm.joints[hips].translation;
+        // Per key: in-tangent, value, out-tangent. Out of key 0 rises at
+        // 0.4 m/s; into key 1 falls at the same rate. Peak ≈ +5 cm.
+        let anim = AnimData {
+            channels: vec![AnimChannel {
+                node: hips,
+                path: "translation",
+                times: vec![0.0, 1.0],
+                values: vec![
+                    0.0, 0.0, 0.0, r.x, r.y, r.z, 0.0, 0.4, 0.0, //
+                    0.0, -0.4, 0.0, r.x, r.y, r.z, 0.0, 0.0, 0.0,
+                ],
+                interpolation: "CUBICSPLINE",
+            }],
+        };
+        let bytes = write::write_animation_glb(&arm, &anim, "Bob").unwrap();
+        with_skin(&bytes, &arm.skin)
+    }
+
+    /// [`moving_pack_glb`] authored against `arm`'s rest.
+    fn moving_pack_glb_on(arm: &Armature) -> Vec<u8> {
+        use export::{AnimChannel, AnimData};
         let node = arm.name_to_index[HumanBone::LeftUpperArm.as_str()];
         let hips = arm.name_to_index["hips"];
         let rest_hips = arm.joints[hips].translation;
@@ -513,7 +883,7 @@ mod tests {
         // `write_animation_glb` is the *overlay* writer and emits no `skins`,
         // but a pack is loaded as an armature, which needs one. Only
         // `skin.joints()` is read, so the joint list alone is enough.
-        let bytes = write::write_animation_glb(&arm, &anim, "Reach").unwrap();
+        let bytes = write::write_animation_glb(arm, &anim, "Reach").unwrap();
         with_skin(&bytes, &arm.skin)
     }
 

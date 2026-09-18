@@ -250,7 +250,7 @@ impl WelcomeModal {
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("•").size(14.0));
-                    ui.label("Preview and export in multiple formats");
+                    ui.label("Preview in 3D, rig and animate, export as GLB");
                 });
 
                 ui.add_space(16.0);

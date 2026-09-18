@@ -126,6 +126,10 @@ async fn catalog_and_auth_match_the_cli_documents() {
         sc.get("templates").is_some(),
         "list_catalog includes templates"
     );
+    assert!(
+        sc["clips"].is_array(),
+        "list_catalog includes the installed clip ids (what generate.clips[] accepts)"
+    );
 
     // auth_status == AuthCatalog: sources are the enum's strings, never a key.
     let r = svc

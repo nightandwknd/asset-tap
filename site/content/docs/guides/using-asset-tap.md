@@ -68,7 +68,7 @@ Controls follow Blender's conventions.
 
 - **Rotate** -- Two-finger scroll to orbit
 - **Pan** -- Shift + two-finger scroll
-- **Zoom** -- Pinch, or Ctrl/Cmd + two-finger scroll
+- **Zoom** -- Pinch, or Ctrl/Cmd + two-finger scroll (a mouse wheel zooms with no modifier)
 
 The 3D tab is an inspector (Grid, Axes, Reset View). A **Reset View** button in the viewer toolbar restores the default camera.
 

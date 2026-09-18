@@ -89,23 +89,33 @@ pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
     let document = gltf::Gltf::from_slice_without_validation(&glb_data)
         .ok()?
         .document;
+    // Parsing without validation admits image extensions but also skips the
+    // crate's index-range checks, and the crate unwraps every index it
+    // follows. Stats are optional, so a malformed file yields none.
+    crate::rig::skeleton::check_indices(&document).ok()?;
 
+    // A POSITION accessor shared by several primitives (one mesh split by
+    // material) is one vertex buffer, not several, so count each accessor
+    // once. Triangles depend on the primitive's mode: lines and points make
+    // none, and a strip or fan makes n-2 from n indices.
+    let mut seen_positions = std::collections::HashSet::new();
     let mut vertex_count: usize = 0;
     let mut triangle_count: usize = 0;
 
     for mesh in document.meshes() {
         for primitive in mesh.primitives() {
-            // Vertex count from POSITION accessor
-            if let Some(accessor) = primitive.get(&gltf::Semantic::Positions) {
+            let positions = primitive.get(&gltf::Semantic::Positions);
+            if let Some(accessor) = &positions
+                && seen_positions.insert(accessor.index())
+            {
                 vertex_count += accessor.count();
             }
 
-            // Triangle count from index accessor or vertex count
-            if let Some(indices) = primitive.indices() {
-                triangle_count += indices.count() / 3;
-            } else if let Some(accessor) = primitive.get(&gltf::Semantic::Positions) {
-                triangle_count += accessor.count() / 3;
-            }
+            let n = match primitive.indices() {
+                Some(indices) => indices.count(),
+                None => positions.as_ref().map(|a| a.count()).unwrap_or(0),
+            };
+            triangle_count += triangles_for_mode(primitive.mode(), n);
         }
     }
 
@@ -115,6 +125,16 @@ pub fn extract_model_info(glb_path: &Path) -> Option<ModelInfo> {
         vertex_count,
         triangle_count,
     })
+}
+
+/// Triangles a primitive of `mode` draws from `n` indices (or vertices).
+fn triangles_for_mode(mode: gltf::mesh::Mode, n: usize) -> usize {
+    use gltf::mesh::Mode;
+    match mode {
+        Mode::Triangles => n / 3,
+        Mode::TriangleStrip | Mode::TriangleFan => n.saturating_sub(2),
+        Mode::Points | Mode::Lines | Mode::LineLoop | Mode::LineStrip => 0,
+    }
 }
 
 /// Load `bundle.json` if present, stamp the bind step, and write it back.
@@ -128,6 +148,7 @@ pub fn stamp_bind_step(bundle_dir: &Path, clips: &[String]) -> Result<(), Bundle
         Some(m) => m,
         None => return Ok(()),
     };
+    meta.upgrade_to_v2(bundle_dir);
     meta.stamp_bind_step(clips);
     refresh_model_artifact_from_glb(&mut meta, bundle_dir);
     meta.save(bundle_dir)
@@ -233,7 +254,7 @@ pub struct GenerationView {
 impl Default for BundleMetadata {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: SCHEMA_VERSION,
             name: None,
             created_at: Utc::now(),
             config: None,
@@ -258,38 +279,13 @@ impl BundleMetadata {
         Self::default()
     }
 
-    /// Create metadata with generation config.
-    pub fn with_config(config: GenerationConfig) -> Self {
-        Self {
-            config: Some(config),
-            generator: Some(GENERATOR.to_string()),
-            ..Default::default()
-        }
-    }
-
     /// Build v2 metadata for a finished generation, from files already on disk.
     ///
     /// Writes `artifacts` / `pipeline` only. v1 `config` / `model_info` are
     /// omitted. Does not rewrite existing v1 bundles.
-    pub fn for_generation(
-        bundle_dir: &Path,
-        config: GenerationConfig,
-        model_info: Option<ModelInfo>,
-        image_provider_id: Option<&str>,
-        model_3d_provider_id: Option<&str>,
-        bind: bool,
-        clips: Vec<String>,
-    ) -> Self {
-        let manifest = bundle_schema::GenerationManifest {
-            config,
-            model_info,
-            image_provider_id: image_provider_id.map(str::to_string),
-            model_3d_provider_id: model_3d_provider_id.map(str::to_string),
-            bind,
-            clips,
-        };
+    pub fn for_generation(bundle_dir: &Path, manifest: &bundle_schema::GenerationManifest) -> Self {
         let (artifacts, primary, pipeline) =
-            bundle_schema::describe_generation(bundle_dir, &manifest);
+            bundle_schema::describe_generation(bundle_dir, manifest);
         Self {
             version: SCHEMA_VERSION,
             generator: Some(GENERATOR.to_string()),
@@ -297,6 +293,38 @@ impl BundleMetadata {
             primary,
             pipeline: Some(pipeline),
             ..Default::default()
+        }
+    }
+
+    /// Upgrade a v1 file in memory before a write touches its provenance.
+    ///
+    /// A v1 bundle has `config` / `model_info` and no `artifacts` /
+    /// `pipeline`. Writing a `bind` step or an attach onto it as-is either
+    /// gets discarded by [`Self::v2_view`] (which prefers the synthesized v1
+    /// view while `artifacts` is empty) or relabels the generation as an
+    /// import. So the inventory is described from `config` and the files on
+    /// disk first — the same synthesis a reader would do — and the v1 fields
+    /// are dropped, since everything they held is now in v2 form. Readers
+    /// never call this: a v1 file is not rewritten on load.
+    pub fn upgrade_to_v2(&mut self, bundle_dir: &Path) {
+        if self.version >= SCHEMA_VERSION {
+            return;
+        }
+        let (artifacts, primary, pipeline) = match &self.config {
+            Some(config) => bundle_schema::describe_generation(
+                bundle_dir,
+                &bundle_schema::GenerationManifest::from_v1(config, self.model_info.as_ref()),
+            ),
+            None => bundle_schema::describe_files(bundle_dir, self.model_info.as_ref()),
+        };
+        self.artifacts = artifacts;
+        self.primary = primary;
+        self.pipeline = Some(pipeline);
+        self.version = SCHEMA_VERSION;
+        self.config = None;
+        self.model_info = None;
+        if self.generator.is_none() {
+            self.generator = Some(GENERATOR.to_string());
         }
     }
 
@@ -441,7 +469,7 @@ impl BundleMetadata {
             );
         }
         let (artifacts, primary, pipeline) =
-            bundle_schema::synthesize_from_v1(self.config.as_ref(), self.model_info.as_ref());
+            bundle_schema::synthesize_from_v1(self.config.as_ref(), self.model_info.as_ref(), None);
         (artifacts, primary, None, pipeline)
     }
 
@@ -519,26 +547,10 @@ impl BundleMetadata {
     /// Insert or update the `bind` pipeline step.
     ///
     /// `clips` is the full baked set — empty after a fit-only bind. The
-    /// skeleton is recorded rather than a pack id: fitting uses the embedded
-    /// canonical rig and touches no pack at all, so naming one was a fiction.
+    /// step itself comes from `bundle_schema::bind_step`, the one writer
+    /// shared with the pipeline.
     pub fn stamp_bind_step(&mut self, clips: &[String]) {
-        let mut params = HashMap::new();
-        params.insert(
-            "clips".into(),
-            Value::Array(clips.iter().map(|c| Value::String(c.clone())).collect()),
-        );
-        params.insert(
-            "skeleton".into(),
-            Value::String(crate::rig::SKELETON_ID.into()),
-        );
-        let step = bundle_schema::PipelineStep::Op {
-            id: bundle_schema::STEP_BIND.to_string(),
-            op: bundle_schema::ops::BIND.to_string(),
-            params,
-            inputs: vec![bundle_schema::ARTIFACT_MODEL.to_string()],
-            outputs: vec![bundle_schema::ARTIFACT_MODEL.to_string()],
-            duration_ms: None,
-        };
+        let step = bundle_schema::bind_step(clips);
         let pipeline = self
             .pipeline
             .get_or_insert_with(bundle_schema::BundlePipeline::default);
@@ -648,6 +660,16 @@ impl BundleMetadata {
             ));
             self.created_at = now;
         }
+
+        // v2 references: every id cited must resolve. A dangling ref is
+        // dropped with a warning rather than failing the load, so a hand-
+        // edited or half-written manifest still opens.
+        issues.extend(bundle_schema::dedupe_artifact_ids(&mut self.artifacts));
+        issues.extend(bundle_schema::prune_dangling_refs(
+            &mut self.artifacts,
+            &mut self.primary,
+            self.pipeline.as_mut(),
+        ));
 
         issues
     }
@@ -1409,51 +1431,42 @@ fn clear_textures(bundle_dir: &Path) {
 /// `--image-only`, or a failed 3D stage — and the user adds the other.
 fn restamp_after_attach(bundle_dir: &Path, attached: &str) -> Result<(), String> {
     let model_info = extract_model_info(&bundle_dir.join(files::MODEL_GLB));
-    let (artifacts, primary, import_pipeline) =
-        bundle_schema::describe_import(bundle_dir, None, model_info.as_ref());
 
-    match BundleMetadata::load(bundle_dir).map_err(|e| e.to_string())? {
-        None => {
-            let metadata = BundleMetadata::for_import(bundle_dir, None, None);
-            metadata.save(bundle_dir).map_err(|e| e.to_string())
-        }
-        Some(mut metadata) => {
-            if pipeline_is_import_only(&metadata.pipeline) {
-                metadata.artifacts = artifacts;
-                metadata.primary = primary;
-                metadata.pipeline = Some(import_pipeline);
-            } else {
-                let imported = bundle_schema::merge_attached_artifacts(
-                    &mut metadata.artifacts,
-                    artifacts,
-                    attached,
-                );
-                if metadata.primary.is_none() {
-                    metadata.primary = primary;
-                }
-                // Those artifacts now cite the `import` step, so it has to be
-                // in the pipeline or they dangle.
-                bundle_schema::ensure_import_step(
-                    metadata.pipeline.get_or_insert_with(Default::default),
-                    &imported,
-                );
-            }
-            metadata.save(bundle_dir).map_err(|e| e.to_string())
-        }
-    }
-}
-
-fn pipeline_is_import_only(pipeline: &Option<bundle_schema::BundlePipeline>) -> bool {
-    let Some(p) = pipeline else {
-        return true;
+    let Some(mut metadata) = BundleMetadata::load(bundle_dir).map_err(|e| e.to_string())? else {
+        let metadata = BundleMetadata::for_import(bundle_dir, None, None);
+        return metadata.save(bundle_dir).map_err(|e| e.to_string());
     };
-    p.steps.is_empty()
-        || p.steps.iter().all(|s| {
-            matches!(
-                s,
-                bundle_schema::PipelineStep::Op { op, .. } if op == bundle_schema::ops::IMPORT
-            )
-        })
+
+    // A v1 file has provenance only in `config`; described from that first,
+    // or the attach below would read "no pipeline" as "nothing generated".
+    metadata.upgrade_to_v2(bundle_dir);
+
+    let pipeline = metadata.pipeline.get_or_insert_with(Default::default);
+    if pipeline.is_import_only() {
+        // Re-describe from disk, keeping the original filename the first
+        // import recorded: this attach did not rename anything.
+        let source = pipeline.import_source().map(str::to_string);
+        let (artifacts, primary, import_pipeline) =
+            bundle_schema::describe_import(bundle_dir, source.as_deref(), model_info.as_ref());
+        metadata.artifacts = artifacts;
+        metadata.primary = primary;
+        metadata.pipeline = Some(import_pipeline);
+    } else {
+        let (artifacts, primary, _) =
+            bundle_schema::describe_import(bundle_dir, None, model_info.as_ref());
+        let imported =
+            bundle_schema::merge_attached_artifacts(&mut metadata.artifacts, artifacts, attached);
+        if metadata.primary.is_none() {
+            metadata.primary = primary;
+        }
+        // The step that generated the replaced file no longer produces it,
+        // and a rig on the old mesh does not survive onto the new one.
+        bundle_schema::retire_replaced_output(pipeline, attached);
+        // Those artifacts now cite the `import` step, so it has to be
+        // in the pipeline or they dangle.
+        bundle_schema::ensure_import_step(pipeline, &imported);
+    }
+    metadata.save(bundle_dir).map_err(|e| e.to_string())
 }
 
 /// Import a bundle from a zip archive into the output directory.
@@ -2111,7 +2124,7 @@ mod tests {
         assert!(meta.name.is_none());
         assert!(meta.tags.is_empty());
         assert!(!meta.favorite);
-        assert_eq!(meta.version, 1);
+        assert_eq!(meta.version, SCHEMA_VERSION);
     }
 
     #[test]
@@ -3097,7 +3110,311 @@ mod tests {
             !textures.join("old_basecolor.png").exists(),
             "the previous model's textures must not survive it"
         );
+
+        // The generated branch: a bundle with real provenance, a rig, and
+        // textures attributed to its `model` step. Replacing the mesh must
+        // retire all three, not just the files.
+        let gen_dir = tmp.path().join("generated");
+        std::fs::create_dir_all(gen_dir.join(files::TEXTURES_DIR)).unwrap();
+        std::fs::write(gen_dir.join(files::IMAGE), b"png").unwrap();
+        std::fs::write(gen_dir.join(files::MODEL_GLB), b"glb").unwrap();
+        std::fs::write(
+            gen_dir.join(files::TEXTURES_DIR).join("old_basecolor.png"),
+            b"stale",
+        )
+        .unwrap();
+        let meta = BundleMetadata::for_generation(
+            &gen_dir,
+            &bundle_schema::GenerationManifest {
+                config: GenerationConfig {
+                    prompt: Some("a hero".into()),
+                    image_model: Some("fal-ai/nano-banana-2".into()),
+                    model_3d: "fal-ai/trellis-2".into(),
+                    ..GenerationConfig::default()
+                },
+                bind: true,
+                clips: vec!["walk".into()],
+                ..Default::default()
+            },
+        );
+        assert!(meta.artifacts.iter().any(|a| a.id == "tex_old_basecolor"));
+        meta.save(&gen_dir).unwrap();
+
+        attach_to_bundle(&gen_dir, &replacement).expect("attach onto generated");
+        let meta = BundleMetadata::load(&gen_dir).unwrap().unwrap();
+        assert!(
+            !meta.artifacts.iter().any(|a| a.role == roles::TEXTURE),
+            "stale texture artifacts must go with their files: {:?}",
+            meta.artifacts
+        );
+        let model = meta.artifacts.iter().find(|a| a.id == "model").unwrap();
+        assert_eq!(model.produced_by.as_deref(), Some("import"));
+        let image = meta.artifacts.iter().find(|a| a.id == "image").unwrap();
+        assert_eq!(image.produced_by.as_deref(), Some("image"));
+        let steps = &meta.pipeline.as_ref().unwrap().steps;
+        assert!(
+            !steps.iter().any(|s| s.id() == bundle_schema::STEP_BIND),
+            "the rig on the old mesh does not carry over"
+        );
+        let old_producer = steps.iter().find(|s| s.id() == "model").unwrap();
+        assert!(
+            old_producer.outputs().is_empty(),
+            "the model step no longer produces the replaced file"
+        );
+        let import = steps.iter().find(|s| s.id() == "import").unwrap();
+        assert_eq!(import.outputs(), ["model"]);
     }
+
+    #[test]
+    fn attaching_to_a_v1_generated_bundle_keeps_its_provenance() {
+        // v1: `config` only, image-only run (no 3D stage).
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle_dir = tmp.path().join("v1");
+        std::fs::create_dir_all(&bundle_dir).unwrap();
+        std::fs::write(bundle_dir.join(files::IMAGE), b"png").unwrap();
+        std::fs::write(
+            bundle_dir.join(BUNDLE_METADATA_FILE),
+            r#"{
+                "version": 1,
+                "name": "keep me",
+                "created_at": "2024-12-29T15:30:45Z",
+                "config": {
+                    "prompt": "a crate",
+                    "image_model": "fal-ai/nano-banana-2"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        attach_to_bundle(&bundle_dir, &glb).expect("attach glb");
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.version, SCHEMA_VERSION);
+        assert_eq!(meta.name.as_deref(), Some("keep me"));
+        assert!(meta.config.is_none(), "upgraded in place");
+        let image = meta.artifacts.iter().find(|a| a.id == "image").unwrap();
+        assert_eq!(
+            image.produced_by.as_deref(),
+            Some("image"),
+            "a v1 generation must not be relabeled as an import"
+        );
+        let model = meta.artifacts.iter().find(|a| a.id == "model").unwrap();
+        assert_eq!(model.produced_by.as_deref(), Some("import"));
+        let steps = &meta.pipeline.as_ref().unwrap().steps;
+        match &steps[0] {
+            PipelineStep::Model { modality, .. } => {
+                assert_eq!(modality, modalities::TEXT_TO_IMAGE)
+            }
+            other => panic!("expected the generation step first, got {other:?}"),
+        }
+        let import = steps
+            .iter()
+            .find(|s| s.id() == "import")
+            .expect("import op");
+        assert_eq!(import.outputs(), ["model"]);
+    }
+
+    #[test]
+    fn attaching_to_an_import_keeps_the_original_filename() {
+        let tmp = tempfile::tempdir().unwrap();
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        let bundle_dir =
+            import_bundle(&glb, &tmp.path().join("library")).expect("loose glb imports");
+        let png = tmp.path().join("still.png");
+        std::fs::write(&png, PLACEHOLDER_PNG).unwrap();
+        attach_to_bundle(&bundle_dir, &png).expect("attach image");
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        let pipeline = meta.pipeline.as_ref().unwrap();
+        assert_eq!(pipeline.import_source(), Some("hero.glb"));
+        assert_eq!(
+            pipeline.import_step().unwrap().outputs(),
+            ["image", "model"]
+        );
+    }
+
+    #[test]
+    fn stamp_bind_step_upgrades_a_v1_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(files::MODEL_GLB), tiny_glb(&[(4, 6)])).unwrap();
+        std::fs::write(
+            dir.path().join(BUNDLE_METADATA_FILE),
+            r#"{
+                "version": 1,
+                "created_at": "2024-12-29T15:30:45Z",
+                "config": {
+                    "prompt": "a crate",
+                    "image_model": "fal-ai/nano-banana-2",
+                    "model_3d": "fal-ai/trellis-2"
+                },
+                "model_info": {
+                    "file_size": 1, "format": "GLB",
+                    "vertex_count": 1, "triangle_count": 1
+                }
+            }"#,
+        )
+        .unwrap();
+        stamp_bind_step(dir.path(), &["walk".into()]).unwrap();
+
+        let loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.version, SCHEMA_VERSION);
+        assert!(loaded.config.is_none() && loaded.model_info.is_none());
+        let (artifacts, primary, _, pipeline) = loaded.v2_view();
+        assert_eq!(primary.as_deref(), Some("model"));
+        assert!(
+            pipeline
+                .steps
+                .iter()
+                .any(|s| s.id() == bundle_schema::STEP_BIND),
+            "the bind step must survive v2_view, not be discarded with the v1 fields"
+        );
+        assert_eq!(pipeline.steps.len(), 3, "{:?}", pipeline.steps);
+        let model = artifacts.iter().find(|a| a.id == "model").unwrap();
+        assert_eq!(
+            model.vertex_count,
+            Some(6),
+            "stats refreshed from the GLB after upgrade"
+        );
+        assert!(model.sha256.is_some());
+    }
+
+    #[test]
+    fn unknown_step_kind_survives_load_and_save() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(BUNDLE_METADATA_FILE),
+            r#"{
+                "version": 2,
+                "name": "from the future",
+                "tags": ["keep"],
+                "favorite": true,
+                "notes": "still here",
+                "created_at": "2024-12-29T15:30:45Z",
+                "artifacts": [{"id": "model", "role": "model", "path": "model.glb"}],
+                "primary": "model",
+                "pipeline": {"steps": [
+                    {"kind": "future_thing", "id": "ft", "knob": 7, "outputs": ["model"]}
+                ]}
+            }"#,
+        )
+        .unwrap();
+        let loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.name.as_deref(), Some("from the future"));
+        assert_eq!(loaded.tags, ["keep"]);
+        assert!(loaded.favorite);
+        assert_eq!(loaded.notes.as_deref(), Some("still here"));
+        loaded.save(dir.path()).unwrap();
+        let reloaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        match &reloaded.pipeline.unwrap().steps[0] {
+            PipelineStep::Other { kind, fields } => {
+                assert_eq!(kind, "future_thing");
+                assert_eq!(fields["knob"], 7);
+                assert_eq!(fields["outputs"], serde_json::json!(["model"]));
+            }
+            other => panic!("expected the unknown step preserved, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_drops_dangling_v2_refs_with_a_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(BUNDLE_METADATA_FILE),
+            r#"{
+                "version": 2,
+                "created_at": "2024-12-29T15:30:45Z",
+                "artifacts": [
+                    {"id": "model", "role": "model", "path": "model.glb", "produced_by": "model"},
+                    {"id": "model", "role": "model", "path": "dup.glb"},
+                    {"id": "image", "role": "image", "path": "image.png", "produced_by": "gone"}
+                ],
+                "primary": "nothing",
+                "pipeline": {"steps": [
+                    {"kind": "model", "id": "model", "model": "m", "modality": "text_to_3d",
+                     "inputs": ["ghost"], "outputs": ["model", "phantom"]}
+                ]}
+            }"#,
+        )
+        .unwrap();
+        let mut loaded = BundleMetadata::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.artifacts.len(), 2);
+        assert!(loaded.primary.is_none());
+        assert!(loaded.artifacts[1].produced_by.is_none());
+        let step = &loaded.pipeline.as_ref().unwrap().steps[0];
+        assert!(step.inputs().is_empty());
+        assert_eq!(step.outputs(), ["model"]);
+        assert!(loaded.validate_and_sanitize().is_empty(), "idempotent");
+    }
+
+    /// A GLB whose one mesh has one primitive per `(mode, index_count)`,
+    /// all sharing a single 6-vertex POSITION accessor.
+    fn tiny_glb(primitives: &[(u32, usize)]) -> Vec<u8> {
+        let verts = 6usize;
+        let bin_len = verts * 12;
+        let mut accessors = vec![serde_json::json!({
+            "bufferView": 0, "componentType": 5126, "count": verts, "type": "VEC3",
+            "min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]
+        })];
+        let mut views =
+            vec![serde_json::json!({"buffer": 0, "byteOffset": 0, "byteLength": bin_len})];
+        let mut bin = vec![0u8; bin_len];
+        let mut prims = Vec::new();
+        for (mode, n) in primitives {
+            let offset = bin.len();
+            for i in 0..*n {
+                bin.extend_from_slice(&((i % verts) as u16).to_le_bytes());
+            }
+            while !bin.len().is_multiple_of(4) {
+                bin.push(0);
+            }
+            views.push(serde_json::json!({"buffer": 0, "byteOffset": offset, "byteLength": n * 2}));
+            accessors.push(serde_json::json!({
+                "bufferView": views.len() - 1, "componentType": 5123, "count": n, "type": "SCALAR"
+            }));
+            prims.push(serde_json::json!({
+                "attributes": {"POSITION": 0}, "indices": accessors.len() - 1, "mode": mode
+            }));
+        }
+        let json = serde_json::json!({
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": bin.len()}],
+            "bufferViews": views,
+            "accessors": accessors,
+            "meshes": [{"primitives": prims}],
+        });
+        let mut json = serde_json::to_vec(&json).unwrap();
+        while !json.len().is_multiple_of(4) {
+            json.push(b' ');
+        }
+        let total = 12 + 8 + json.len() + 8 + bin.len();
+        let mut out = Vec::with_capacity(total);
+        out.extend_from_slice(b"glTF");
+        out.extend_from_slice(&2u32.to_le_bytes());
+        out.extend_from_slice(&(total as u32).to_le_bytes());
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"JSON");
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"BIN\0");
+        out.extend_from_slice(&bin);
+        out
+    }
+
+    #[test]
+    fn extract_model_info_honours_mode_and_shared_positions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(files::MODEL_GLB);
+        // triangles(6) = 2, strip(6) = 4, fan(5) = 3, lines(4) = 0, points(6) = 0
+        std::fs::write(&path, tiny_glb(&[(4, 6), (5, 6), (6, 5), (1, 4), (0, 6)])).unwrap();
+        let info = extract_model_info(&path).expect("parses");
+        assert_eq!(info.vertex_count, 6, "one shared accessor, counted once");
+        assert_eq!(info.triangle_count, 9);
+        assert_eq!(info.format, "GLB");
+    }
+
+    const PLACEHOLDER_PNG: &[u8] = include_bytes!("api/mock/assets/placeholder.png");
 
     #[test]
     fn importing_an_undecodable_image_is_refused() {
@@ -3406,73 +3723,56 @@ mod tests {
         assert!(parsed.artifacts.is_empty());
     }
 
+    /// Every ```json block in docs/guides/BUNDLE_STRUCTURE.md, in order.
+    fn doc_json_examples() -> Vec<String> {
+        let doc = include_str!("../../docs/guides/BUNDLE_STRUCTURE.md");
+        doc.split("```json")
+            .skip(1)
+            .map(|rest| rest.split("```").next().unwrap().to_string())
+            .collect()
+    }
+
     #[test]
     fn test_docs_bundle_v2_example_matches_struct() {
-        // Mirrors the current (version 2) example in docs/guides/BUNDLE_STRUCTURE.md.
-        let doc_example = r#"{
-            "version": 2,
-            "name": "a cowboy ninja",
-            "created_at": "2024-12-29T15:30:45Z",
-            "primary": "model",
-            "artifacts": [
-                {
-                    "id": "image",
-                    "role": "image",
-                    "path": "image.png",
-                    "mime": "image/png",
-                    "produced_by": "image"
-                },
-                {
-                    "id": "model",
-                    "role": "model",
-                    "path": "model.glb",
-                    "mime": "model/gltf-binary",
-                    "produced_by": "model",
-                    "vertex_count": 27398,
-                    "triangle_count": 9132
-                }
-            ],
-            "pipeline": {
-                "steps": [
-                    {
-                        "id": "image",
-                        "kind": "model",
-                        "provider": "fal.ai",
-                        "model": "fal-ai/nano-banana-2",
-                        "modality": "text_to_image",
-                        "prompt": "a cowboy ninja",
-                        "outputs": ["image"]
-                    },
-                    {
-                        "id": "model",
-                        "kind": "model",
-                        "provider": "fal.ai",
-                        "model": "fal-ai/trellis-2",
-                        "modality": "image_to_3d",
-                        "inputs": ["image"],
-                        "outputs": ["model"]
-                    }
-                ]
-            }
-        }"#;
+        // The first example in docs/guides/BUNDLE_STRUCTURE.md is the current
+        // (version 2) shape. It is read from the doc itself, so the doc and
+        // the struct cannot drift apart silently. The key set and order of a
+        // real run are checked against it in
+        // core/tests/pipeline_execution_tests.rs (mock feature).
+        let examples = doc_json_examples();
+        let doc_example = examples.first().expect("doc has a json example");
 
         let parsed: BundleMetadata = serde_json::from_str(doc_example)
             .expect("v2 docs example JSON must deserialize into BundleMetadata");
         assert_eq!(parsed.version, 2);
         assert_eq!(parsed.primary.as_deref(), Some("model"));
         assert!(parsed.category.is_none());
-        assert_eq!(parsed.artifacts.len(), 2);
+        assert!(parsed.artifacts.len() >= 2);
+        assert!(parsed.duration_ms.is_some(), "a real run records duration");
         let steps = &parsed.pipeline.as_ref().expect("pipeline").steps;
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].id(), "image");
         assert_eq!(steps[1].id(), "model");
+        for step in steps {
+            match step {
+                PipelineStep::Model { duration_ms, .. } => assert!(duration_ms.is_some()),
+                other => panic!("expected model steps, got {other:?}"),
+            }
+        }
         assert!(parsed.config.is_none());
         assert!(parsed.model_info.is_none());
         let view = parsed.generation_view();
-        assert_eq!(view.prompt.as_deref(), Some("a cowboy ninja"));
-        assert_eq!(view.image_model.as_deref(), Some("fal-ai/nano-banana-2"));
-        assert_eq!(view.model_3d.as_deref(), Some("fal-ai/trellis-2"));
-        assert_eq!(view.vertex_count, Some(27398));
+        assert!(view.prompt.is_some());
+        assert!(view.image_model.is_some());
+        assert!(view.model_3d.is_some());
+        assert!(view.vertex_count.is_some());
+
+        // Re-serializing yields the same keys: nothing in the example is a
+        // field the struct silently drops, and nothing the struct adds is
+        // missing from the doc.
+        let doc_value: Value = serde_json::from_str(doc_example).unwrap();
+        let ours = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(doc_value, ours, "doc example must round-trip unchanged");
     }
 
     #[test]
@@ -3482,17 +3782,17 @@ mod tests {
         std::fs::write(dir.path().join("model.glb"), b"glb").unwrap();
         let meta = BundleMetadata::for_generation(
             dir.path(),
-            GenerationConfig {
-                prompt: Some("a crate".into()),
-                image_model: Some("fal-ai/nano-banana-2".into()),
-                model_3d: "fal-ai/trellis-2".into(),
-                ..GenerationConfig::default()
+            &bundle_schema::GenerationManifest {
+                config: GenerationConfig {
+                    prompt: Some("a crate".into()),
+                    image_model: Some("fal-ai/nano-banana-2".into()),
+                    model_3d: "fal-ai/trellis-2".into(),
+                    ..GenerationConfig::default()
+                },
+                image_provider_id: Some("fal.ai".into()),
+                model_3d_provider_id: Some("fal.ai".into()),
+                ..Default::default()
             },
-            None,
-            Some("fal.ai"),
-            Some("fal.ai"),
-            false,
-            Vec::new(),
         );
         let json = serde_json::to_value(&meta).unwrap();
         assert_eq!(json["version"], 2);
@@ -3536,10 +3836,13 @@ mod tests {
         let clips = vec!["Walk_Loop".to_string()];
 
         let stamped_dir = tempfile::tempdir().unwrap();
+        // The model artifact has to exist: a `bind` step naming a missing
+        // artifact is a dangling ref that load repairs by dropping it.
         let json = r#"{
             "name": "t",
             "version": 2,
             "created_at": "2024-12-29T15:30:45Z",
+            "artifacts": [{"id": "model", "role": "model", "path": "model.glb"}],
             "pipeline": { "steps": [] }
         }"#;
         std::fs::write(stamped_dir.path().join(BUNDLE_METADATA_FILE), json).unwrap();
@@ -3558,15 +3861,15 @@ mod tests {
         std::fs::write(gen_dir.path().join("model.glb"), b"glb").unwrap();
         let generated = BundleMetadata::for_generation(
             gen_dir.path(),
-            GenerationConfig {
-                model_3d: "test/model".into(),
-                ..GenerationConfig::default()
+            &bundle_schema::GenerationManifest {
+                config: GenerationConfig {
+                    model_3d: "test/model".into(),
+                    ..GenerationConfig::default()
+                },
+                bind: true,
+                clips: clips.clone(),
+                ..Default::default()
             },
-            None,
-            None,
-            None,
-            true,
-            clips.clone(),
         )
         .pipeline
         .unwrap()

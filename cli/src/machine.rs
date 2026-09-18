@@ -23,7 +23,13 @@ use std::io::Write;
 /// - **MINOR** bumps on additive, backward-compatible changes (a new event
 ///   variant, a new optional field). Consumers should ignore unknown fields
 ///   and tolerate a MINOR higher than the one they were built against.
-pub const INTERFACE_VERSION: &str = "1.0";
+///
+/// History (the spec's Versioning section carries the full delta):
+/// - `1.1`: bind `result` fields (`model`, `joints`, `vertices`, `clips`),
+///   `bundle_dir` optional, `clips` in the catalog, the `clip list` /
+///   `clip download` / `auth list` documents; the `fbx_conversion` stage and
+///   `blender_not_found` kind are gone.
+pub const INTERFACE_VERSION: &str = "1.1";
 
 /// Exit code for usage errors (matches clap's default).
 pub const EXIT_USAGE: u8 = 2;
@@ -566,16 +572,28 @@ impl ClipDownloadDocument {
     }
 }
 
-/// Single-document `--json clip download` error payload (not NDJSON).
+/// Single-document error payload (`{status: "error", kind, message}`) for
+/// the `--json` subcommands that emit one JSON object rather than an NDJSON
+/// stream: `clip download` and `clip list`. MCP `clip_download` returns the
+/// same object as its tool error.
 #[derive(Debug, Serialize)]
-pub struct ClipDownloadErrorDocument {
+pub struct ErrorDocument {
     pub status: &'static str,
     pub kind: &'static str,
     pub message: String,
 }
 
-impl ClipDownloadErrorDocument {
-    pub fn from_error(err: &anyhow::Error) -> Self {
+impl ErrorDocument {
+    pub fn from_wire(wire: WireError) -> Self {
+        Self {
+            status: "error",
+            kind: wire.kind,
+            message: wire.message,
+        }
+    }
+
+    /// `clip download` failure, classified by type ([`clip_download_error_kind`]).
+    pub fn from_clip_download_error(err: &anyhow::Error) -> Self {
         Self {
             status: "error",
             kind: clip_download_error_kind(err),
@@ -585,18 +603,28 @@ impl ClipDownloadErrorDocument {
 }
 
 /// Classify a `clip download` failure onto the wire (`network_error` | `io_error`).
+///
+/// Typed, like [`classify_bind_error`]: the fetch layer reports a
+/// [`ReleaseFetchError`](asset_tap_core::release_fetch::ReleaseFetchError)
+/// whose variant says whether the network was the problem; a pack that
+/// would not install is a [`ClipPackError`](asset_tap_core::rig::ClipPackError).
+/// Anything else (a temp dir, a zip that will not open) is the local machine.
 pub fn clip_download_error_kind(err: &anyhow::Error) -> &'static str {
-    let lower = err.to_string().to_ascii_lowercase();
-    if lower.contains("http ")
-        || lower.contains("error sending")
-        || lower.contains("timed out")
-        || lower.contains("connection")
-        || lower.contains("dns")
-    {
-        KIND_NETWORK_ERROR
-    } else {
-        KIND_IO_ERROR
+    for cause in err.chain() {
+        if let Some(fetch) =
+            cause.downcast_ref::<asset_tap_core::release_fetch::ReleaseFetchError>()
+        {
+            return if fetch.is_network() {
+                KIND_NETWORK_ERROR
+            } else {
+                KIND_IO_ERROR
+            };
+        }
+        if let Some(pack) = cause.downcast_ref::<asset_tap_core::rig::ClipPackError>() {
+            return classify_pack_error(pack).kind;
+        }
     }
+    KIND_IO_ERROR
 }
 
 // ---------------------------------------------------------------------------
@@ -729,6 +757,10 @@ pub struct Catalog {
     pub providers: Vec<CatalogProvider>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub templates: Option<Vec<CatalogTemplate>>,
+    /// Clip ids every installed pack provides (`--list --json` only) — the
+    /// names `--clip` / MCP `clips[]` accept. Empty when no pack is installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clips: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -794,7 +826,9 @@ pub struct CatalogTemplateVariable {
 
 /// Build the catalog document from the live registry.
 ///
-/// `include_templates` adds the `templates` array (`--list --json`).
+/// `include_templates` adds the `templates` and `clips` arrays (`--list
+/// --json`): the full "what can I ask for" document, versus the
+/// providers-only `--list-providers --json`.
 pub fn build_catalog(registry: &ProviderRegistry, include_templates: bool) -> Catalog {
     let providers = registry
         .list_all()
@@ -851,10 +885,18 @@ pub fn build_catalog(registry: &ProviderRegistry, include_templates: bool) -> Ca
             .collect()
     });
 
+    let clips = include_templates.then(|| {
+        asset_tap_core::list_clips()
+            .into_iter()
+            .map(|c| c.id)
+            .collect()
+    });
+
     Catalog {
         interface: INTERFACE_VERSION,
         providers,
         templates,
+        clips,
     }
 }
 
@@ -938,15 +980,34 @@ mod tests {
 
     #[test]
     fn clip_download_classifies_http_as_network_and_hash_as_io() {
-        let http = anyhow::anyhow!("Failed to fetch release manifest: HTTP 404");
+        use asset_tap_core::release_fetch::ReleaseFetchError;
+        let http: anyhow::Error = ReleaseFetchError::Status {
+            what: "fetch release manifest",
+            status: 404,
+        }
+        .into();
         assert_eq!(clip_download_error_kind(&http), KIND_NETWORK_ERROR);
-        let hash = anyhow::anyhow!(
-            "Release manifest is missing a sha256 hash; refusing to install unverified download"
-        );
+        // Wrapped with context, as `download_clip_packs` callers may do.
+        let wrapped = http.context("clip download failed");
+        assert_eq!(clip_download_error_kind(&wrapped), KIND_NETWORK_ERROR);
+
+        let hash: anyhow::Error = ReleaseFetchError::MissingHash.into();
         assert_eq!(clip_download_error_kind(&hash), KIND_IO_ERROR);
         assert_eq!(
             exit_code_for_kind(clip_download_error_kind(&hash)),
             EXIT_LOCAL
         );
+        let integrity: anyhow::Error = ReleaseFetchError::Integrity("mismatch".into()).into();
+        assert_eq!(clip_download_error_kind(&integrity), KIND_IO_ERROR);
+    }
+
+    /// Message text no longer drives classification: an untyped error whose
+    /// text merely looks like a network failure stays local.
+    #[test]
+    fn clip_download_message_text_does_not_classify() {
+        let fake = anyhow::anyhow!("HTTP 503: connection reset (from a zip entry name)");
+        assert_eq!(clip_download_error_kind(&fake), KIND_IO_ERROR);
+        let pack: anyhow::Error = asset_tap_core::rig::ClipPackError::Missing("ual1".into()).into();
+        assert_eq!(clip_download_error_kind(&pack), KIND_IO_ERROR);
     }
 }

@@ -211,9 +211,9 @@ enum Command {
         action: DemoAction,
     },
     /// Serve the Model Context Protocol over stdio (for MCP hosts: Claude
-    /// Desktop, Cursor, IDE agents). Same internals as the CLI: the
-    /// tools are `list_catalog`, `auth_status`, `inspect_bundle`, `generate`.
-    /// Add with e.g. `claude mcp add asset-tap -- asset-tap mcp`.
+    /// Desktop, Cursor, IDE agents). Same internals as the CLI: the tools
+    /// are `list_catalog`, `auth_status`, `inspect_bundle`, `clip_download`,
+    /// `generate`. Add with e.g. `claude mcp add asset-tap -- asset-tap mcp`.
     Mcp,
     /// Rig a mesh and bake clips into it.
     ///
@@ -225,10 +225,12 @@ enum Command {
         mesh: PathBuf,
         /// Clip to bake in (`walk`, `Walk_Loop`, …). Repeat for several:
         /// the model gets one animation per clip, as Mixamo and Meshy do,
-        /// rather than one export per clip.
+        /// rather than one export per clip. Defaults to `walk` when omitted;
+        /// use --fit-only for a rig with no animation.
         #[arg(long, value_name = "NAME")]
         clip: Vec<String>,
-        /// Fit and weight only: a skinned T-pose, no animation
+        /// Fit and weight only: a skinned T-pose, no animation (without
+        /// this, no --clip means `walk`)
         #[arg(long)]
         fit_only: bool,
         /// Re-fit even if the mesh is already rigged, discarding its pose.
@@ -240,9 +242,10 @@ enum Command {
         /// Output GLB (default: overwrite the mesh, or write next to a bundle)
         #[arg(short, long, value_name = "PATH")]
         output: Option<PathBuf>,
-        /// Clip-pack directory
-        #[arg(long, value_name = "DIR")]
-        pack: Option<PathBuf>,
+        /// Clip-pack directory (overrides the installed pack; same flag as
+        /// the root `--clip-pack`)
+        #[arg(long, value_name = "DIR", alias = "pack")]
+        clip_pack: Option<PathBuf>,
     },
     /// Manage humanoid clip packs
     Clip {
@@ -483,10 +486,10 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
         fit_only,
         refit,
         output,
-        pack,
+        clip_pack,
     }) = cli.command
     {
-        return handle_bind(mesh, clip, fit_only, refit, output, pack, cli.json);
+        return handle_bind(mesh, clip, fit_only, refit, output, clip_pack, cli.json);
     }
 
     // Show banner for main commands (not for --list, --inspect, or --json,
@@ -1550,7 +1553,7 @@ async fn handle_clip_download(json: bool, force: bool) -> anyhow::Result<ExitCod
         }
         Err(e) => {
             if json {
-                let doc = machine::ClipDownloadErrorDocument::from_error(&e);
+                let doc = machine::ErrorDocument::from_clip_download_error(&e);
                 println!("{}", serde_json::to_string_pretty(&doc)?);
                 return Ok(ExitCode::from(machine::exit_code_for_kind(doc.kind)));
             }
@@ -1586,7 +1589,19 @@ async fn handle_clip(action: ClipAction, json: bool) -> anyhow::Result<ExitCode>
             let clips = asset_tap_core::list_clips();
             // What the model already holds, so `bake` is not guesswork.
             let baked = match &model {
-                Some(path) => asset_tap_core::baked_clip_names(path)?,
+                Some(path) => match asset_tap_core::baked_clip_names(path) {
+                    Ok(b) => b,
+                    // Under --json stdout must carry a document either way,
+                    // so an unreadable model is the same error object
+                    // `clip download` writes, not an empty stdout.
+                    Err(e) if json => {
+                        let doc =
+                            machine::ErrorDocument::from_wire(machine::classify_bind_error(&e));
+                        println!("{}", serde_json::to_string_pretty(&doc)?);
+                        return Ok(ExitCode::from(machine::exit_code_for_kind(doc.kind)));
+                    }
+                    Err(e) => return Err(e.into()),
+                },
                 None => Vec::new(),
             };
             if json {
@@ -1658,14 +1673,28 @@ fn handle_bind(
     if json {
         machine::emit(&machine::Event::start());
     }
+    // Machine mode reports through the wire contract only: stdout is the
+    // transport, so a stray human line would corrupt the stream, and once
+    // `start` is out every failure must end in a `result` (spec §1).
+    let fail = |wire: machine::WireError| -> anyhow::Result<ExitCode> {
+        if json {
+            let code = machine::exit_code_for_kind(wire.kind);
+            machine::emit(&machine::Event::result_error(wire, None));
+            return Ok(ExitCode::from(code));
+        }
+        Err(machine::KindedError {
+            kind: wire.kind,
+            message: wire.message,
+        }
+        .into())
+    };
     let mesh = if mesh.is_dir() {
         let glb = mesh.join(bundle_files::MODEL_GLB);
         if !glb.is_file() {
-            return Err(machine::KindedError {
-                kind: machine::KIND_IO_ERROR,
-                message: format!("no {} in {}", bundle_files::MODEL_GLB, mesh.display()),
-            }
-            .into());
+            return fail(machine::WireError::bare(
+                machine::KIND_IO_ERROR,
+                format!("no {} in {}", bundle_files::MODEL_GLB, mesh.display()),
+            ));
         }
         glb
     } else {
@@ -1688,16 +1717,9 @@ fn handle_bind(
     if !json {
         println!("Binding {} …", mesh.display());
     }
-    // Machine mode reports through the wire contract only: stdout is the
-    // transport, so a stray human line would corrupt the stream.
     let report = match asset_tap_core::bind_mesh(&mesh, &out, &options) {
         Ok(r) => r,
-        Err(e) if json => {
-            let wire = machine::classify_bind_error(&e);
-            let code = machine::exit_code_for_kind(wire.kind);
-            machine::emit(&machine::Event::result_error(wire, None));
-            return Ok(ExitCode::from(code));
-        }
+        Err(e) if json => return fail(machine::classify_bind_error(&e)),
         Err(e) => return Err(e.into()),
     };
 
@@ -2343,6 +2365,23 @@ fn print_summary(output: &asset_tap_core::PipelineOutput) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `bind --pack DIR` was renamed to `--clip-pack` (the root flag's name);
+    /// the old spelling stays as a hidden alias so existing scripts keep
+    /// working.
+    #[test]
+    fn bind_accepts_clip_pack_and_its_pack_alias() {
+        for flag in ["--clip-pack", "--pack"] {
+            let cli = Cli::try_parse_from(["asset-tap", "bind", "--mesh", "m.glb", flag, "/packs"])
+                .unwrap_or_else(|e| panic!("{flag}: {e}"));
+            match cli.command {
+                Some(Command::Bind { clip_pack, .. }) => {
+                    assert_eq!(clip_pack.as_deref(), Some(std::path::Path::new("/packs")));
+                }
+                _ => panic!("{flag}: expected bind"),
+            }
+        }
+    }
 
     #[test]
     fn empty_param_value_parses_as_null() {

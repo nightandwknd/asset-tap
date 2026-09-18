@@ -21,20 +21,76 @@ pub fn bind_and_write(
 }
 
 pub fn fit_and_write(mesh_glb: &Path, out_glb: &Path) -> Result<BindReport, BindError> {
-    fit_and_write_heads(mesh_glb, out_glb, None)
+    fit_and_write_heads(mesh_glb, out_glb, None, &[])
 }
 
 /// Bind from arranged heads. The heads define the skeleton and the weights
 /// are computed from that skeleton (Meshy / Mixamo). A head off the mesh is
 /// refused by name before anything is written — see [`super::onmesh`].
+///
+/// `keep_clips` are animation names to re-bake onto the new fit, resolved
+/// through the pack catalog ([`super::find_clip`]). A re-Bind of a mesh that
+/// already carries baked clips used to write an empty set and silently drop
+/// them; passing `baked_clip_names` here keeps them. Names that no installed
+/// pack provides any more (a foreign animation, an uninstalled pack) are not
+/// an error: they come back in [`BindReport::dropped_clips`] so the caller can
+/// say so.
 pub fn fit_and_write_heads(
     mesh_glb: &Path,
     out_glb: &Path,
     heads: Option<&[(String, [f32; 3])]>,
+    keep_clips: &[String],
 ) -> Result<BindReport, BindError> {
     let fitted = fit_from_mesh(mesh_glb, heads)?;
-    write_fitted(out_glb, &fitted, &[])?;
-    Ok(fitted.into_report(canon::SKELETON_ID, Vec::new()))
+    let mut resolved = Vec::with_capacity(keep_clips.len());
+    let mut dropped = Vec::new();
+    for clip in keep_clips {
+        match super::find_clip(clip) {
+            Ok(found) => resolved.push(found),
+            Err(_) => dropped.push(clip.clone()),
+        }
+    }
+    let prepared = prepare_clips(&resolved, &fitted.rest_before, &fitted.arm)?;
+    write_fitted(out_glb, &fitted, &prepared.refs())?;
+    let pack_id = if resolved.is_empty() {
+        canon::SKELETON_ID.to_string()
+    } else {
+        prepared.pack_id()
+    };
+    let mut report = fitted.into_report(&pack_id, prepared.names());
+    report.dropped_clips = dropped;
+    Ok(report)
+}
+
+/// Rewrite an already-fitted mesh unchanged: same skeleton, weights and
+/// clips. What `bind --fit-only` means on a rigged mesh without `--refit`.
+///
+/// Goes through the same staged, validated write as every other path so a
+/// damaged source is refused rather than copied.
+pub fn rewrite_fitted(rest_glb: &Path, out_glb: &Path) -> Result<BindReport, BindError> {
+    let (rest_doc, rest_buffers) = skeleton::load_document(rest_glb)?;
+    let baked = bake_mesh(&rest_doc, &rest_buffers)?;
+    let clips: Vec<String> = rest_doc
+        .animations()
+        .filter_map(|a| a.name().map(str::to_string))
+        .collect();
+    let joint_count = rest_doc.skins().next().map_or(0, |s| s.joints().count());
+    let bytes = std::fs::read(rest_glb).map_err(|e| BindError::Io {
+        path: rest_glb.to_path_buf(),
+        source: e,
+    })?;
+    write::write_bytes_atomic(out_glb, &bytes)?;
+    let landmarks = mesh_landmarks(&baked.positions_flat()).unwrap_or_else(|_| dummy_landmarks());
+    Ok(BindReport {
+        pack_id: canon::SKELETON_ID.to_string(),
+        clips,
+        joint_count,
+        vertex_count: baked.vertex_count(),
+        landmarks,
+        moved_joints: 0,
+        max_moved_m: 0.0,
+        dropped_clips: Vec::new(),
+    })
 }
 
 /// Heads Bind would refuse, farthest first. Reads only the mesh.
@@ -163,6 +219,7 @@ pub fn apply_clips_and_write(
         landmarks,
         moved_joints: 0,
         max_moved_m: 0.0,
+        dropped_clips: Vec::new(),
     })
 }
 
@@ -218,6 +275,7 @@ impl Fitted {
             landmarks: self.landmarks,
             moved_joints: self.moved.count,
             max_moved_m: self.moved.max_m,
+            dropped_clips: Vec::new(),
         }
     }
 }
@@ -492,7 +550,7 @@ fn bake_mesh(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Result<Bak
     let mut parts = Vec::new();
     for mesh in doc.meshes() {
         let world = mesh_world_for(doc, mesh.index());
-        let normal_m = Mat4::from_mat3(glam::Mat3::from_quat(Quat::from_mat4(&world)));
+        let normal_m = normal_matrix(world);
         let mut primitives = Vec::new();
         for prim in mesh.primitives() {
             if prim.morph_targets().len() > 0 {
@@ -520,6 +578,15 @@ fn bake_mesh(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Result<Bak
                 return Err(BindError::Failed(
                     "primitive has no POSITION vertices".into(),
                 ));
+            }
+            // A NaN or infinite vertex poisons every distance downstream:
+            // landmark bands, inverse-distance weights, the on-mesh shell.
+            // Refuse it here, once, with a message, rather than let it surface
+            // as a sort panic on the GUI thread.
+            if let Some(i) = positions.iter().position(|p| !p.is_finite()) {
+                return Err(BindError::Failed(format!(
+                    "mesh has a non-finite POSITION (vertex {i}); the model is damaged"
+                )));
             }
             let normals = reader.read_normals().map(|n| {
                 n.map(|v| {
@@ -565,6 +632,24 @@ fn bake_mesh(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Result<Bak
         return Err(BindError::Failed("mesh glTF has no primitives".into()));
     }
     Ok(BakedMesh { parts })
+}
+
+/// The matrix that carries normals through `world`: the inverse-transpose of
+/// its upper 3×3.
+///
+/// A rotation pulled out of the matrix (`Quat::from_mat4`) is only right for a
+/// rigid transform. Provider output routinely carries a non-uniform node scale
+/// (a Z-up bake, a squashed axis), and under that the rotation is ill-defined
+/// and the normals it produces tilt off the surface. A singular matrix has no
+/// inverse; fall back to the plain 3×3 rather than emit NaN normals.
+fn normal_matrix(world: Mat4) -> Mat4 {
+    let m = glam::Mat3::from_mat4(world);
+    let det = m.determinant();
+    if det.is_finite() && det.abs() > 1e-12 {
+        Mat4::from_mat3(m.inverse().transpose())
+    } else {
+        Mat4::from_mat3(m)
+    }
 }
 
 fn primitive_mode(mode: gltf::mesh::Mode) -> u32 {
@@ -698,8 +783,10 @@ fn extract_animation(
             gltf::animation::Interpolation::Step => "STEP",
             gltf::animation::Interpolation::CubicSpline => "CUBICSPLINE",
         };
-        // gltf-rs yields one sample per time (tangents already applied). A
-        // shared time accessor with mixed key counts is what crashed Blender
+        // The output accessor is read raw: LINEAR / STEP hold one sample per
+        // time, CUBICSPLINE three (in-tangent, value, out-tangent). Anything
+        // else is a channel we cannot play or write. A shared time accessor
+        // with mixed key counts is what crashed Blender
         // (`assign sequence of size 33 to slice of size 2`).
         let n_times = times.len();
         let n_samples = values.len() / comps;
@@ -799,7 +886,15 @@ fn prepare_clip_anim(
     let mut anim = extract_animation(doc, buffers, &clip_name)?;
     let pack_arm = skeleton::load_from_gltf(doc)?;
     rebase_channels(&mut anim, &pack_arm, canon_rest);
-    retarget_translations(canon_rest, fitted, &mut anim);
+    // Translation keys are authored against the *pack's* rest, so that is
+    // what they are shifted from. Expressed in canonical index space so the
+    // delta lines up with the rebased channels. Preview and Bake both come
+    // through here with `canon_rest` = `canon::armature()`, which is what
+    // makes them agree pose for pose even on a pack whose rest differs from
+    // the embedded one.
+    let mut pack_rest = canon_rest.clone();
+    overlay_trs_by_name(&mut pack_rest, &pack_arm);
+    retarget_translations(&pack_rest, fitted, &mut anim);
     drop_scale_channels(&mut anim);
     if anim.channels.is_empty() {
         return Err(BindError::Failed(format!(
@@ -829,16 +924,27 @@ fn rebase_channels(anim: &mut AnimData, src: &Armature, dst: &Armature) {
 }
 
 /// Shift translation keys so they sit on the fitted rest, not the pack rest.
+///
+/// A CUBICSPLINE channel stores `[in-tangent, value, out-tangent]` per key.
+/// Only the value is a position; the tangents are derivatives and shifting
+/// them would bend every curve.
 fn retarget_translations(src: &Armature, dst: &Armature, anim: &mut AnimData) {
     for ch in &mut anim.channels {
         if ch.path != "translation" || ch.node >= src.joints.len() {
             continue;
         }
         let delta = dst.joints[ch.node].translation - src.joints[ch.node].translation;
-        for sample in ch.values.chunks_mut(3) {
-            sample[0] += delta.x;
-            sample[1] += delta.y;
-            sample[2] += delta.z;
+        let (stride, at) = if ch.interpolation == "CUBICSPLINE" {
+            (9, 3)
+        } else {
+            (3, 0)
+        };
+        for key in ch.values.chunks_mut(stride) {
+            if let Some(sample) = key.get_mut(at..at + 3) {
+                sample[0] += delta.x;
+                sample[1] += delta.y;
+                sample[2] += delta.z;
+            }
         }
     }
 }
@@ -854,17 +960,24 @@ fn drop_scale_channels(anim: &mut AnimData) {
 /// Animation-only GLB retargeted onto a fitted rest (same space as Bake).
 ///
 /// The viewer overlays this via `SkinnedClip` without rewriting `model.glb`.
+///
+/// Built exactly the way [`apply_clips_and_write`] builds a bake: the
+/// canonical armature overlaid with the rest GLB's joints, and the clip
+/// prepared against it. It used to start from the pack's own armature
+/// instead, which agreed with Bake only as long as the pack's rest matched
+/// the embedded one; `preview_and_bake_agree_on_a_pack_whose_rest_differs`
+/// is the guard.
 pub fn animation_overlay_for_rest(
     source: &Path,
     clip: &str,
     rest_glb: &Path,
 ) -> Result<Vec<u8>, BindError> {
     let (src_doc, src_buffers) = skeleton::load_document(source)?;
-    let pack_rest = skeleton::load_from_gltf(&src_doc)?;
     let rest_doc = skeleton::import_json_only(rest_glb)?;
-    let mut fitted = pack_rest.clone();
+    let canon_rest = canon::armature();
+    let mut fitted = canon_rest.clone();
     overlay_trs_by_name(&mut fitted, &skeleton::load_from_gltf(&rest_doc)?);
-    let (anim, clip_name) = prepare_clip_anim(&src_doc, &src_buffers, clip, &pack_rest, &fitted)?;
+    let (anim, clip_name) = prepare_clip_anim(&src_doc, &src_buffers, clip, &canon_rest, &fitted)?;
     write::write_animation_glb(&fitted, &anim, &clip_name)
 }
 

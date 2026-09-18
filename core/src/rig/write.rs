@@ -65,11 +65,13 @@ pub(super) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), BindEr
     Ok(())
 }
 
+/// Rename `tmp` over `dest` in one step on every platform.
+///
+/// `std::fs::rename` replaces an existing destination on Windows too
+/// (`MOVEFILE_REPLACE_EXISTING`). Removing `dest` first is worse than
+/// pointless: if the rename then fails, the caller deletes `tmp` as well and
+/// the author is left with neither the old asset nor the new one.
 fn replace_file(tmp: &Path, dest: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    if dest.exists() {
-        fs::remove_file(dest)?;
-    }
     fs::rename(tmp, dest)
 }
 
@@ -95,8 +97,13 @@ fn validate_glb(bytes: &[u8]) -> Result<(), BindError> {
     // texture encoding, on a path that never reads a pixel and copies the image
     // bytes through verbatim. What we actually stake the write on is below:
     // meshes exist, and every buffer resolves.
+    //
+    // "Without validation" is not "unchecked": index ranges are still verified
+    // by `check_indices`, because the crate `unwrap()`s an out-of-range
+    // accessor, material, mesh or skin joint the moment it is touched.
     let gltf::Gltf { document, blob } = gltf::Gltf::from_slice_without_validation(bytes)
         .map_err(|e| BindError::Failed(e.to_string()))?;
+    super::skeleton::check_indices(&document).map_err(BindError::Failed)?;
     gltf::import_buffers(&document, None, blob)
         .map_err(|e| BindError::Failed(format!("staged GLB is invalid: {e}")))?;
     Ok(())
@@ -142,13 +149,9 @@ pub(super) fn write_skinned_glb(
     let ibm_flat: Vec<f32> = ibms.iter().flat_map(|m| m.to_cols_array()).collect();
     let ibm_acc = bin.push_f32(&ibm_flat, "MAT4", None);
 
-    let keep: Vec<usize> = arm
-        .joints
-        .iter()
-        .enumerate()
-        .filter(|(_, j)| j.name != "Mannequin")
-        .map(|(i, _)| i)
-        .collect();
+    // Every armature node is written: the armature is `canon::armature()`
+    // (or a fitted copy of it), so there is no pack mesh node to skip.
+    let keep: Vec<usize> = (0..arm.joints.len()).collect();
     let remap: HashMap<usize, usize> = keep
         .iter()
         .enumerate()
@@ -209,7 +212,7 @@ pub(super) fn write_skinned_glb(
 
     let scene_root = arm
         .name_to_index
-        .get("Rig")
+        .get(super::canon::ARMATURE_NAME)
         .and_then(|i| remap.get(i).copied())
         .or_else(|| {
             arm.joints
@@ -232,7 +235,7 @@ pub(super) fn write_skinned_glb(
         "nodes": nodes,
         "meshes": meshes_json,
         "skins": [{
-            "name": "Rig",
+            "name": super::canon::ARMATURE_NAME,
             "skeleton": scene_root,
             "joints": skin_joints,
             "inverseBindMatrices": ibm_acc
@@ -380,7 +383,8 @@ pub(super) fn patch_animations_glb(
 ///
 /// Only reachability matters here: an accessor survives if a mesh primitive, a
 /// skin, or an animation sampler names it, and a bufferView survives if a
-/// surviving accessor or an image names it.
+/// surviving accessor (including its `sparse` indices and values), an image,
+/// or a primitive's `KHR_draco_mesh_compression` names it.
 fn prune_unused(mut doc: Value, data: Vec<u8>) -> Result<(Value, Vec<u8>), BindError> {
     let mut used_acc: BTreeSet<usize> = BTreeSet::new();
     let idx = |v: Option<&Value>| v.and_then(|v| v.as_u64()).map(|n| n as usize);
@@ -420,10 +424,18 @@ fn prune_unused(mut doc: Value, data: Vec<u8>) -> Result<(Value, Vec<u8>), BindE
             .get(old)
             .ok_or_else(|| BindError::Failed(format!("accessor {old} out of range")))?;
         used_views.extend(idx(a.get("bufferView")));
+        for part in ["indices", "values"] {
+            used_views.extend(idx(a.pointer(&format!("/sparse/{part}/bufferView"))));
+        }
         kept_acc.push(a.clone());
     }
     for image in array(&doc, "images") {
         used_views.extend(idx(image.get("bufferView")));
+    }
+    for mesh in array(&doc, "meshes") {
+        for prim in mesh.get("primitives").into_iter().flat_map(as_array) {
+            used_views.extend(idx(prim.pointer(DRACO_VIEW)));
+        }
     }
 
     let views = array(&doc, "bufferViews");
@@ -459,12 +471,21 @@ fn prune_unused(mut doc: Value, data: Vec<u8>) -> Result<(Value, Vec<u8>), BindE
         if let Some(bv) = idx(a.get("bufferView")) {
             a["bufferView"] = json!(view_map[&bv]);
         }
+        for part in ["indices", "values"] {
+            let ptr = format!("/sparse/{part}/bufferView");
+            if let Some(bv) = idx(a.pointer(&ptr)) {
+                *a.pointer_mut(&ptr).expect("just read") = json!(view_map[&bv]);
+            }
+        }
     }
     remap_indices(&mut doc, &acc_map, &view_map);
     doc["accessors"] = json!(kept_acc);
     doc["bufferViews"] = json!(kept_views);
     Ok((doc, out))
 }
+
+/// JSON pointer to a primitive's Draco-compressed bufferView.
+const DRACO_VIEW: &str = "/extensions/KHR_draco_mesh_compression/bufferView";
 
 fn array(doc: &Value, key: &str) -> Vec<Value> {
     doc.get(key)
@@ -509,6 +530,9 @@ fn remap_indices(doc: &mut Value, acc: &HashMap<usize, usize>, view: &HashMap<us
                         }
                     }
                 }
+                if let Some(n) = prim.pointer(DRACO_VIEW).and_then(|v| get(view, v)) {
+                    *prim.pointer_mut(DRACO_VIEW).expect("just read") = json!(n);
+                }
             }
         }
     }
@@ -548,13 +572,9 @@ pub(super) fn write_animation_glb(
     clip_name: &str,
 ) -> Result<Vec<u8>, BindError> {
     let mut bin = Bin::new();
-    let keep: Vec<usize> = arm
-        .joints
-        .iter()
-        .enumerate()
-        .filter(|(_, j)| j.name != "Mannequin")
-        .map(|(i, _)| i)
-        .collect();
+    // Every armature node is written: the armature is `canon::armature()`
+    // (or a fitted copy of it), so there is no pack mesh node to skip.
+    let keep: Vec<usize> = (0..arm.joints.len()).collect();
     let remap: HashMap<usize, usize> = keep
         .iter()
         .enumerate()
@@ -589,7 +609,7 @@ pub(super) fn write_animation_glb(
 
     let scene_root = arm
         .name_to_index
-        .get("Rig")
+        .get(super::canon::ARMATURE_NAME)
         .and_then(|i| remap.get(i).copied())
         .unwrap_or(0);
     bin.pad();
@@ -1442,6 +1462,83 @@ mod tests {
         fs::write(&path, &one).unwrap();
         let again = patch_animations_glb(&path, &arm, &[(&a, "walk")]).unwrap();
         assert_eq!(again.len(), one.len(), "re-bake must be idempotent in size");
+    }
+
+    /// `prune_unused` keeps the bufferViews a sparse accessor and a Draco
+    /// primitive name, and remaps them like any other.
+    ///
+    /// Reachability used to stop at `accessors[].bufferView`, so a re-bake of
+    /// a mesh carrying a sparse accessor dropped `sparse.indices.bufferView`
+    /// and `sparse.values.bufferView` from the buffer while the accessor still
+    /// pointed at them — past the end after compaction.
+    #[test]
+    fn prune_keeps_sparse_and_draco_buffer_views() {
+        // Views: 0 dense positions, 1 stale (unreferenced), 2 sparse indices,
+        // 3 sparse values, 4 draco payload. Only 1 may be dropped.
+        let mut data = Vec::new();
+        let mut view = |bytes: &[u8]| {
+            while !data.len().is_multiple_of(4) {
+                data.push(0);
+            }
+            let off = data.len();
+            data.extend_from_slice(bytes);
+            json!({ "buffer": 0, "byteOffset": off, "byteLength": bytes.len() })
+        };
+        let views = vec![
+            view(&[1u8; 36]),
+            view(&[9u8; 40]),
+            view(&[2u8; 4]),
+            view(&[3u8; 12]),
+            view(&[4u8; 16]),
+        ];
+        let doc = json!({
+            "asset": { "version": "2.0" },
+            "meshes": [{ "primitives": [{
+                "attributes": { "POSITION": 0 },
+                "extensions": { "KHR_draco_mesh_compression": {
+                    "bufferView": 4, "attributes": { "POSITION": 0 } } }
+            }]}],
+            "accessors": [{
+                "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+                "sparse": {
+                    "count": 1,
+                    "indices": { "bufferView": 2, "componentType": 5125 },
+                    "values": { "bufferView": 3 }
+                }
+            }],
+            "bufferViews": views,
+            "buffers": [{ "byteLength": data.len() }]
+        });
+
+        let (out, bytes) = prune_unused(doc, data).unwrap();
+        let views = out["bufferViews"].as_array().unwrap();
+        assert_eq!(views.len(), 4, "only the unreferenced view is dropped");
+        let acc = &out["accessors"][0];
+        let slice = |v: &Value| {
+            let off = v["byteOffset"].as_u64().unwrap() as usize;
+            let len = v["byteLength"].as_u64().unwrap() as usize;
+            bytes[off..off + len].to_vec()
+        };
+        let at = |ptr: &str| views[out.pointer(ptr).unwrap().as_u64().unwrap() as usize].clone();
+        assert_eq!(slice(&at("/accessors/0/bufferView")), vec![1u8; 36]);
+        assert_eq!(
+            slice(&at("/accessors/0/sparse/indices/bufferView")),
+            vec![2u8; 4]
+        );
+        assert_eq!(
+            slice(&at("/accessors/0/sparse/values/bufferView")),
+            vec![3u8; 12]
+        );
+        assert_eq!(
+            slice(&at(
+                "/meshes/0/primitives/0/extensions/KHR_draco_mesh_compression/bufferView"
+            )),
+            vec![4u8; 16]
+        );
+        assert!(
+            acc["sparse"]["count"] == 1,
+            "sparse block otherwise untouched"
+        );
     }
 
     #[test]

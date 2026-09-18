@@ -160,17 +160,37 @@ Inspect (default): Grid / Axes / Reset. No fit, clips, or bake.
   the action is not mistaken for a missing control. The panel states the
   delta (`3 in model -> 2 after bake (-1)`) before the write.
 - **Failure preserves a usable asset.** Stage beside the destination,
-  validate, then rename. Metadata (`stamp_bind_step`) runs after the
-  model write; a stamp failure leaves a valid GLB. Never silently apply
-  pending edits to another asset.
+  validate, then rename (one `rename`, on every platform: removing the
+  destination first would lose both copies if the rename then failed).
+  Metadata (`stamp_bind_step`) runs after the model write; a stamp
+  failure leaves a valid GLB. Never silently apply pending edits to
+  another asset. Pack install is the same shape: the whole pack is
+  built in `<packs_root>/.<id>.partial`, then swapped over the old
+  directory, so a failed install keeps the installed pack and a
+  `.gltf` → `.glb` upgrade leaves no stale sidecars.
+- **Re-Bind keeps what it is told to.** A fit writes exactly the clips
+  it is given, so re-Binding a mesh that already carries baked animation
+  used to drop the set silently. `fit_mesh_from_heads_keeping(mesh, out,
+  heads, keep_clips, options)` re-bakes `keep_clips` (pass
+  `baked_clip_names`, or the panel's ticked set) onto the new fit. Each
+  name resolves through the pack catalog; anything no installed pack
+  provides is returned in `BindReport::dropped_clips` rather than
+  failing the bind, so the panel can say what did not survive.
 - **CLI / MCP match the panel.** `--rig` and MCP `generate` `bind`
   mean fit + optional clips. `bind --fit-only` writes skinned rest.
   A rigged mesh keeps its skeleton and weights unless `--refit` is
-  passed. There is no standalone MCP bind tool.
+  passed — that check comes **first**: on a rigged mesh, `--fit-only`
+  (or an empty clip set) is a no-op on the rig and keeps its baked
+  clips too, since none were explicitly given. There is no standalone
+  MCP bind tool.
 
 A foreign skin we cannot name is announced rather than silently replaced.
-`is_fitted` means rigged _by us_. Bind still overwrites that skin (we
-cannot animate a skeleton we cannot name), but Rig warns first.
+`is_fitted` means rigged _by us_: the first skin's joints read as the
+canonical scheme (`BoneScheme::detect`'s threshold, `hips` among them).
+One node called `head` in someone else's rig is not ours, and
+`foreign_rig_joints` uses the same test so the two cannot disagree.
+Bind still overwrites that skin (we cannot animate a skeleton we cannot
+name), but Rig warns first.
 
 ## Controls
 
@@ -219,8 +239,15 @@ with tests.
 Textures come out of the GLB (`core/src/textures.rs`). The extension
 follows the actual bytes, not the declared MIME type. The rig path does
 not read pixels: provider WebP (`EXT_texture_webp` with no core
-`source`) loads without glTF document validation so a texture encoding
-cannot refuse a bind.
+`source`) loads without the crate's document validation so a texture
+encoding cannot refuse a bind. "Without validation" is not "unchecked":
+`skeleton::check_indices` still runs the validator and admits only those
+two findings (an unsupported required extension, a missing
+`textures[].source`). Every other finding, and every out-of-range
+index in particular, is `BindError::Gltf` — the crate `unwrap()`s a bad
+material, mesh, accessor or skin-joint index the moment it is touched.
+A non-finite `POSITION` is refused in the mesh bake for the same reason;
+every float sort downstream is `total_cmp`.
 
 ## Known limits
 
@@ -245,12 +272,23 @@ cannot refuse a bind.
 - `fit_mesh`: landmarks, fit, weights, skinned rest; no animation.
 - `fit_mesh_from_heads`: auto-fit for scale, apply arranged heads, then
   weight. Refuses off-mesh heads. `BindReport` says what the pose changed.
-- `heads_off_mesh`: the same check without a write.
+- `heads_off_mesh`: the same check without a write. Distances are to
+  the nearest point on the mesh **surface**, not the nearest vertex: on
+  coarse geometry the nearest corner over-reports, and the number is
+  what the refusal tells the author to drag.
 - `seed_bind_markers` / `default_bind_markers`: overlay only; no write.
 - `apply_clip`: retarget onto fitted rest, without reweighting.
 - `bind_mesh` / `--rig`: fit + apply, or fit-only with the explicit option.
 - `clip_overlay_for_rest` / `SkinnedClip`: preview using the same
-  preparation as Bake.
+  preparation as Bake — both overlay the rest GLB onto
+  `canon::armature()` and shift translations from the **pack's** rest,
+  so a library authored on a different mannequin previews and bakes to
+  the same pose (`preview_and_bake_agree_on_a_pack_whose_rest_differs`).
+- CUBICSPLINE clips are written as the pack stores them (three samples
+  per key) and `SkinnedClip` evaluates the Hermite curve; only the
+  middle sample of each triple is a position, so retargeting shifts that
+  and leaves the tangents alone. `read_animation` refuses an output
+  accessor that does not match the key count instead of indexing past it.
 - `canon::armature`: embedded rest (`Rig` → `root` → 52 joints).
 - `skeleton::canonicalize`: rename a loaded armature to VRM names.
 - `pack::find_clip`: the single resolver. Preview and Bake both use it.
@@ -265,7 +303,10 @@ cannot refuse a bind.
   into space is not a test; under correct semantics that bone owns
   nothing.
 - Sticks skip excluded bones (`is_bind_bone`) and join the next bind
-  ancestor.
+  ancestor. `is_bind_bone` / `is_placeable_joint` are canonical-scheme
+  lookups: a name is a bind bone exactly when it maps to a non-finger
+  `HumanBone`, so wrappers, mesh nodes, and leaf tips are excluded by
+  not parsing, not by a name list.
 - Playback time is clip time, not mixer wall time.
 - Never reintroduce a scheme-specific string test. Quaternius renamed
   its rig once already.

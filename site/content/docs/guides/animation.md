@@ -136,5 +136,9 @@ error. Full tool list: [MCP server](@/docs/guides/mcp.md).
 - **No weight painting, no invented bones, no full animation editor.**
   Bind computes weights from the posed heads.
 
-A `bind` step is recorded on `bundle.json` when you bake. See
+A `bind` step is recorded on `bundle.json` when you Bind and again when you
+bake. Re-binding a model that already carries baked clips keeps them: each
+one is re-sourced from its pack onto the new rig. A clip whose pack is no
+longer installed cannot be re-sourced; the panel says which ones were
+dropped, and baking again restores them once the pack is back. See
 [Bundle structure](@/docs/guides/bundle-structure.md#the-bind-step-experimental).

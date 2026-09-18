@@ -231,7 +231,9 @@ pub fn resolve_packs() -> Vec<ClipPack> {
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_dir())
+        // `.<id>.partial` / `.<id>.old` are an install in flight (or one that
+        // crashed mid-swap), not packs.
+        .filter(|p| p.is_dir() && !file_name_lower(p).starts_with('.'))
         .collect();
     dirs.sort();
     dirs.iter()
@@ -280,6 +282,9 @@ pub(crate) fn install_pack_from_inner(
     id: Option<&str>,
     release_version: Option<u32>,
 ) -> Result<ClipPack, ClipPackError> {
+    if let Some(id) = id {
+        check_pack_id(id)?;
+    }
     let src = src
         .canonicalize()
         .map_err(|e| ClipPackError::Install(e.to_string()))?;
@@ -302,33 +307,175 @@ pub(crate) fn install_pack_from_inner(
     let mut pack = ClipPack::from_model(&model, id)?;
     pack.release_version = release_version;
 
-    let dir = pack_dir(&pack.id);
-    fs::create_dir_all(&dir).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    // Atomic: build the whole pack in a staging directory beside the target,
+    // then swap directories. A copy straight over `pack.glb` followed by a
+    // manifest write left a half-installed pack if either step failed, and
+    // a pack switching from `.gltf` + `.bin` to `.glb` kept the stale
+    // sidecars beside the new file. Replacing the directory wholesale
+    // cannot do either.
+    let root_dir = packs_root();
+    fs::create_dir_all(&root_dir).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    let dir = root_dir.join(&pack.id);
+    let staging = root_dir.join(format!(".{}.partial", pack.id));
+    let old = root_dir.join(format!(".{}.old", pack.id));
+    let _ = fs::remove_dir_all(&staging);
+    let _ = fs::remove_dir_all(&old);
+    fs::create_dir_all(&staging).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    let file = match stage_pack_files(&model, &pack, &staging) {
+        Ok(file) => file,
+        Err(e) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+    };
+
+    if dir.exists()
+        && let Err(e) = fs::rename(&dir, &old)
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(ClipPackError::Install(format!(
+            "cannot move aside the installed pack {}: {e}",
+            dir.display()
+        )));
+    }
+    if let Err(e) = fs::rename(&staging, &dir) {
+        // Put the previous install back; the author keeps what they had.
+        if old.exists() {
+            let _ = fs::rename(&old, &dir);
+        }
+        let _ = fs::remove_dir_all(&staging);
+        return Err(ClipPackError::Install(format!(
+            "cannot install pack into {}: {e}",
+            dir.display()
+        )));
+    }
+    let _ = fs::remove_dir_all(&old);
+
+    Ok(ClipPack {
+        gltf_path: dir.join(file),
+        ..pack
+    })
+}
+
+/// Copy the library (and, for a `.gltf`, every external buffer it names)
+/// into `staging`, then write the manifest. Returns the model's file name
+/// inside the pack directory.
+fn stage_pack_files(
+    model: &Path,
+    pack: &ClipPack,
+    staging: &Path,
+) -> Result<String, ClipPackError> {
     let ext = model
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("glb")
         .to_ascii_lowercase();
-    let dest = dir.join(format!("pack.{ext}"));
-    fs::copy(&model, &dest).map_err(|e| ClipPackError::Install(e.to_string()))?;
-    // A .gltf keeps its buffers in a sidecar .bin; a .glb is self-contained.
-    if ext == "gltf"
-        && let Some(stem) = model.file_stem()
-        && let Some(parent) = model.parent()
-    {
-        let bin = parent.join(format!("{}.bin", stem.to_string_lossy()));
-        if bin.is_file() {
-            fs::copy(&bin, dir.join("pack.bin"))
-                .map_err(|e| ClipPackError::Install(e.to_string()))?;
+    let file = format!("pack.{ext}");
+    fs::copy(model, staging.join(&file)).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    // A .gltf keeps its buffers in sidecar files named by `buffers[].uri`;
+    // a .glb is self-contained. The sidecar is whatever the document says,
+    // not `<stem>.bin`: exporters name it freely.
+    if ext == "gltf" {
+        for uri in external_buffer_uris(model)? {
+            let rel = Path::new(&uri);
+            let src = model.parent().unwrap_or(Path::new(".")).join(rel);
+            let dest = staging.join(rel);
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(|e| ClipPackError::Install(e.to_string()))?;
+            }
+            fs::copy(&src, &dest).map_err(|e| {
+                ClipPackError::Install(format!("buffer {} named by the glTF: {e}", src.display()))
+            })?;
         }
     }
-
     let installed = ClipPack {
-        gltf_path: dest,
-        ..pack
+        gltf_path: staging.join(&file),
+        ..pack.clone()
     };
-    Manifest::write(&installed, &dir)?;
-    Ok(installed)
+    Manifest::write(&installed, staging)?;
+    Ok(file)
+}
+
+/// Relative paths of the external buffers a `.gltf` names, percent-decoded
+/// and confined to the document's own directory.
+fn external_buffer_uris(gltf: &Path) -> Result<Vec<String>, ClipPackError> {
+    let raw = fs::read(gltf).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    let doc: serde_json::Value =
+        serde_json::from_slice(&raw).map_err(|e| ClipPackError::Install(e.to_string()))?;
+    let mut out = Vec::new();
+    for buffer in doc
+        .get("buffers")
+        .and_then(|b| b.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let Some(uri) = buffer.get("uri").and_then(|u| u.as_str()) else {
+            continue;
+        };
+        if uri.starts_with("data:") {
+            continue;
+        }
+        let decoded = percent_decode(uri);
+        let rel = Path::new(&decoded);
+        let escapes = rel.is_absolute()
+            || rel.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir
+                        | std::path::Component::RootDir
+                        | std::path::Component::Prefix(_)
+                )
+            });
+        if escapes {
+            return Err(ClipPackError::Install(format!(
+                "glTF buffer uri '{uri}' points outside the library's directory"
+            )));
+        }
+        out.push(decoded);
+    }
+    Ok(out)
+}
+
+/// `%20` → space, the way the glTF importer reads a relative uri. Invalid
+/// escapes are kept as-is.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Some(h) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(h);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// An explicit pack id is one path segment, or it could name a directory
+/// anywhere: `--id ../x` used to install into the parent of `packs_root`.
+fn check_pack_id(id: &str) -> Result<(), ClipPackError> {
+    let valid = !id.is_empty()
+        && id != "."
+        && id != ".."
+        && !id.starts_with('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if valid {
+        Ok(())
+    } else {
+        Err(ClipPackError::Install(format!(
+            "pack id '{id}' must be letters, digits, '-' or '_' (no path separators or '..')"
+        )))
+    }
 }
 
 /// One row in the merged clip catalog.
@@ -1122,6 +1269,141 @@ mod tests {
         let reloaded = ClipPack::from_dir(&pack_dir("pack")).unwrap();
         assert_eq!(reloaded.clips, pack.clips);
 
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::remove_var(CLIPS_DIR_ENV) };
+    }
+
+    /// The id names one directory under `packs_root`, never a path.
+    #[test]
+    fn an_explicit_id_cannot_escape_the_packs_root() {
+        let _guard = crate::test_support::env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("clips");
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::set_var(CLIPS_DIR_ENV, &root) };
+        let src = tempfile::tempdir().unwrap();
+        let lib = src.path().join("lib.glb");
+        fs::write(&lib, glb_with_animation()).unwrap();
+
+        for bad in ["../x", "a/b", "a\\b", "..", ".", ".hidden", "", "sp ace"] {
+            let err = install_pack_from(&lib, Some(bad)).unwrap_err();
+            assert!(
+                matches!(err, ClipPackError::Install(_)),
+                "{bad:?} should be refused, got {err:?}"
+            );
+        }
+        assert!(
+            !home.path().join("x").exists(),
+            "nothing may land beside the packs root"
+        );
+        assert!(install_pack_from(&lib, Some("my-pack_2")).is_ok());
+
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::remove_var(CLIPS_DIR_ENV) };
+    }
+
+    /// A `.gltf` brings the buffer the document names, whatever it is called,
+    /// and replacing that pack with a `.glb` leaves no stale sidecars.
+    #[test]
+    fn a_gltf_install_copies_the_named_buffer_and_a_glb_replaces_it_cleanly() {
+        let _guard = crate::test_support::env_lock();
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::set_var(CLIPS_DIR_ENV, home.path()) };
+
+        // Split a GLB into JSON + BIN, naming the sidecar something an
+        // exporter might: not `<stem>.bin`, and in a subfolder with a space.
+        let glb = glb_with_animation();
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let bin_len =
+            u32::from_le_bytes(glb[20 + json_len..24 + json_len].try_into().unwrap()) as usize;
+        let bin = &glb[28 + json_len..28 + json_len + bin_len];
+        doc["buffers"][0]["uri"] = serde_json::json!("data%20files/library_data.bin");
+        let src = tempfile::tempdir().unwrap();
+        fs::create_dir_all(src.path().join("data files")).unwrap();
+        fs::write(src.path().join("data files/library_data.bin"), bin).unwrap();
+        let gltf = src.path().join("Lib.gltf");
+        fs::write(&gltf, serde_json::to_vec(&doc).unwrap()).unwrap();
+
+        let pack = install_pack_from(&gltf, Some("lib")).expect("install gltf");
+        let dir = pack_dir("lib");
+        assert!(dir.join("pack.gltf").is_file());
+        assert!(
+            dir.join("data files/library_data.bin").is_file(),
+            "the sidecar the document names is copied"
+        );
+        assert!(!dir.join("pack.bin").exists(), "no guessed <stem>.bin");
+        // The installed pack must actually load its buffers.
+        crate::rig::skeleton::import_no_images(&pack.gltf_path).expect("buffers resolve");
+        assert!(
+            !home.path().join(".lib.partial").exists(),
+            "staging cleaned"
+        );
+
+        // Replace with a GLB under the same id: the sidecar must not linger.
+        let glb_path = src.path().join("Lib.glb");
+        fs::write(&glb_path, &glb).unwrap();
+        let pack = install_pack_from(&glb_path, Some("lib")).expect("replace with glb");
+        assert!(pack.gltf_path.ends_with("pack.glb"));
+        assert!(!dir.join("pack.gltf").exists(), "stale pack.gltf removed");
+        assert!(!dir.join("data files").exists(), "stale sidecar removed");
+        assert!(!home.path().join(".lib.old").exists(), "old copy cleaned");
+        assert_eq!(ClipPack::from_dir(&dir).unwrap().clips, pack.clips);
+
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::remove_var(CLIPS_DIR_ENV) };
+    }
+
+    /// A buffer uri that climbs out of the library directory is refused.
+    #[test]
+    fn a_gltf_whose_buffer_escapes_its_directory_is_refused() {
+        let _guard = crate::test_support::env_lock();
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::set_var(CLIPS_DIR_ENV, home.path()) };
+        let glb = glb_with_animation();
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        doc["buffers"][0]["uri"] = serde_json::json!("../secret.bin");
+        let src = tempfile::tempdir().unwrap();
+        let gltf = src.path().join("lib.gltf");
+        fs::write(&gltf, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let err = install_pack_from(&gltf, Some("esc")).unwrap_err();
+        assert!(err.to_string().contains("outside"), "{err}");
+        assert!(!pack_dir("esc").exists(), "nothing half-installed");
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::remove_var(CLIPS_DIR_ENV) };
+    }
+
+    /// A failed install leaves the previous pack exactly as it was.
+    #[test]
+    fn a_failed_install_keeps_the_installed_pack() {
+        let _guard = crate::test_support::env_lock();
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by `env_lock`.
+        unsafe { std::env::set_var(CLIPS_DIR_ENV, home.path()) };
+        let src = tempfile::tempdir().unwrap();
+        let good = src.path().join("good.glb");
+        fs::write(&good, glb_with_animation()).unwrap();
+        let before = install_pack_from(&good, Some("p")).expect("install");
+        let bytes_before = fs::read(&before.gltf_path).unwrap();
+
+        // A .gltf naming a buffer that does not exist fails in staging.
+        let glb = glb_with_animation();
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        doc["buffers"][0]["uri"] = serde_json::json!("missing.bin");
+        let bad = src.path().join("bad.gltf");
+        fs::write(&bad, serde_json::to_vec(&doc).unwrap()).unwrap();
+        assert!(install_pack_from(&bad, Some("p")).is_err());
+
+        let dir = pack_dir("p");
+        assert_eq!(fs::read(dir.join("pack.glb")).unwrap(), bytes_before);
+        assert!(dir.join(PACK_MANIFEST).is_file());
+        assert!(!dir.join("pack.gltf").exists());
+        assert!(!home.path().join(".p.partial").exists());
+        assert!(!home.path().join(".p.old").exists());
         // SAFETY: serialized by `env_lock`.
         unsafe { std::env::remove_var(CLIPS_DIR_ENV) };
     }

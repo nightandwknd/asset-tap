@@ -43,7 +43,6 @@ fn date_relative_path(path: &Path) -> String {
 pub fn render(app: &mut App, ui: &mut egui::Ui) {
     app.walkthrough
         .register_rect(WalkthroughStep::PreviewPanel, ui.max_rect());
-    let preview_rect = ui.max_rect();
     ui.add_space(4.0);
     // Tab bar
     ui.horizontal(|ui| {
@@ -143,8 +142,6 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         PreviewTab::Model3D => render_model_preview(app, ui, available),
         PreviewTab::Textures => render_textures_preview(app, ui, available),
     }
-
-    app.drop_preview_not_import(ui.ctx(), preview_rect);
 }
 
 fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2) {
@@ -364,7 +361,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
 
             if has_error {
                 // Fallback to info display if 3D rendering fails
-                render_model_info_fallback(app, ui, path, output);
+                render_model_info_fallback(app, ui, path);
                 return;
             }
 
@@ -627,13 +624,10 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     painter.text(
                         text_pos,
                         egui::Align2::LEFT_BOTTOM,
-                        if cfg!(target_os = "linux") {
-                            "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll to zoom"
-                        } else if cfg!(target_os = "macos") {
-                            "Drag to rotate • Shift+Drag to pan • Ctrl+Scroll or Pinch to zoom"
-                        } else {
-                            "Drag to rotate • Shift+Drag to pan • Scroll or Pinch to zoom"
-                        },
+                        // A mouse wheel zooms bare on every platform; the
+                        // modifier is only for a trackpad, whose two-finger
+                        // scroll orbits.
+                        "Drag to rotate • Shift+Drag to pan • Scroll, Pinch, or Ctrl+Scroll to zoom",
                         egui::FontId::proportional(12.0),
                         egui::Color32::from_white_alpha(128),
                     );
@@ -647,7 +641,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
             ui.add_space(12.0);
 
             // Action buttons with path
-            render_model_action_buttons(app, ui, path, output);
+            render_model_action_buttons(app, ui, path);
         } else if output.output_dir.is_some() {
             let tab_rect = ui.max_rect();
             let (clicked, _) = render_centered_message(
@@ -674,12 +668,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
 }
 
 /// Fallback display when 3D rendering isn't available.
-fn render_model_info_fallback(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    path: &std::path::Path,
-    output: &asset_tap_core::types::PipelineOutput,
-) {
+fn render_model_info_fallback(app: &mut App, ui: &mut egui::Ui, path: &std::path::Path) {
     // Header (same as successful view)
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -789,7 +778,7 @@ fn render_model_info_fallback(
     ui.add_space(12.0);
 
     // Action buttons with path (same as successful view)
-    render_model_action_buttons(app, ui, path, output);
+    render_model_action_buttons(app, ui, path);
 }
 
 /// Optional Animation panel. Hidden until the user opens Animate.
@@ -1047,7 +1036,13 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
 
             // Bake is declarative, so unticking removes. Say that here rather
             // than letting the button change meaning under the author.
-            let checked = app.bake_set.len();
+            //
+            // Only clips an installed pack can supply count. A ticked name
+            // with no pack behind it is shown as unavailable in the list and
+            // is a removal here; otherwise a model baked elsewhere would
+            // enable Bake and then write nothing, which is Clear.
+            let (writable, unavailable) = app.bake_plan();
+            let checked = writable.len();
             let (adding, removing) = app.bake_delta();
             ui.add_space(4.0);
             if adding > 0 || removing > 0 {
@@ -1076,10 +1071,25 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                 );
             }
 
+            if !unavailable.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} ticked but not installed: {}",
+                        unavailable.len(),
+                        unavailable.join(", ")
+                    ))
+                    .small()
+                    .color(egui::Color32::from_rgb(255, 180, 100)),
+                )
+                .on_hover_text(
+                    "Pack not installed. Bake removes these; install the pack to keep them.",
+                );
+            }
+
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(
-                    !busy && model_path.is_some() && fitted && checked > 0,
+                    !busy && model_path.is_some() && fitted && bake_enabled(&writable),
                     |ui| {
                         let label = if checked == 1 {
                             "Bake 1 clip".to_string()
@@ -1092,13 +1102,20 @@ fn render_workbench_bar(app: &mut App, ui: &mut egui::Ui) {
                         if button.clicked()
                             && let Some(path) = model_path.clone()
                         {
-                            let clips = app.bake_clips();
-                            app.start_bake(path, clips);
+                            app.start_bake(path, writable.clone());
                         }
                     },
                 );
                 if checked == 0 && fitted {
-                    ui.label(egui::RichText::new("Tick a clip to bake").small().weak());
+                    ui.label(
+                        egui::RichText::new(if unavailable.is_empty() {
+                            "Tick a clip to bake"
+                        } else {
+                            "Install the pack, or tick an installed clip"
+                        })
+                        .small()
+                        .weak(),
+                    );
                 }
             });
 
@@ -1301,6 +1318,34 @@ fn render_clip_list(app: &mut App, ui: &mut egui::Ui, fitted: bool, busy: bool) 
                 });
         });
 
+    // Ticked names no installed pack supplies: greyed, still untickable, so
+    // the author can see what a Bake would drop and let it go on purpose.
+    let (_, unavailable) = app.bake_plan();
+    if !unavailable.is_empty() {
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("In model, pack not installed")
+                .small()
+                .weak(),
+        );
+        for id in &unavailable {
+            ui.horizontal(|ui| {
+                let mut on = true;
+                if ui
+                    .checkbox(&mut on, "")
+                    .on_hover_text("Untick to drop this clip on the next Bake")
+                    .changed()
+                {
+                    toggled = Some(id.clone());
+                }
+                ui.add_enabled_ui(false, |ui| {
+                    ui.label(egui::RichText::new(id).weak())
+                        .on_disabled_hover_text("Pack not installed");
+                });
+            });
+        }
+    }
+
     if let Some(id) = toggled
         && !app.bake_set.remove(&id)
     {
@@ -1418,14 +1463,7 @@ fn render_model_info_bar(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// Render the model action buttons (Open GLB, Export GLB) with path display.
-fn render_model_action_buttons(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    path: &std::path::Path,
-    output: &asset_tap_core::types::PipelineOutput,
-) {
-    // Clone paths before entering closure to avoid borrow conflicts
-    let glb_path = output.model_path.clone();
+fn render_model_action_buttons(app: &mut App, ui: &mut egui::Ui, path: &std::path::Path) {
     let path_display = date_relative_path(path);
 
     // This row is rendered from two places: the loaded-model view, twelve
@@ -1453,13 +1491,6 @@ fn render_model_action_buttons(
                     .clicked()
                 {
                     crate::app::open_with_system(path, Some(&mut app.toasts));
-                }
-
-                if let Some(ref glb) = glb_path
-                    && glb != path
-                    && ui.button(format!("{} Open GLB", icons::FILE)).clicked()
-                {
-                    crate::app::open_with_system(glb, Some(&mut app.toasts));
                 }
 
                 if ui
@@ -1782,4 +1813,23 @@ fn export_textures_zip(
     zip.finish()
         .map_err(|e| format!("Failed to finalize zip: {}", e))?;
     Ok(count)
+}
+
+/// Bake is a write of exactly this set. With nothing an installed pack can
+/// supply it would write an empty set, which is Clear, so it stays disabled.
+pub(crate) fn bake_enabled(writable: &[String]) -> bool {
+    !writable.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bake_enabled;
+
+    #[test]
+    fn bake_is_disabled_when_nothing_ticked_is_installed() {
+        // The set has names, but none an installed pack can re-source; a
+        // Bake here would strip every animation. That is Clear's job.
+        assert!(!bake_enabled(&[]));
+        assert!(bake_enabled(&["Walk_Loop".to_string()]));
+    }
 }

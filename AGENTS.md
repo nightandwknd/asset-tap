@@ -41,7 +41,8 @@ Rules an agent should follow:
   interactive prompting. Omitting both is a usage error (exit 2, nothing on
   stdout).
 - **Read `result.status`** and the exit code — not progress events. Error
-  results carry `kind` (`unauthorized`, `rate_limited`, `network`, …),
+  results carry `kind` (`missing_api_key`, `unauthorized`, `rate_limited`,
+  `network_error`, `timeout`, `io_error`, `validation_error`, …),
   `retryable`, and a human `action`. Exit codes: `0` ok · `2` usage · `3`
   auth/key · `4` provider · `5` canceled · `6` network/timeout · `7` local
   environment (filesystem, missing clip pack) · `1` other. Retry only when
@@ -63,7 +64,8 @@ Rules an agent should follow:
   do, rather than one export per clip.
   Re-running `bind` on an already-rigged mesh keeps its skeleton and weights
   (so adding a clip cannot undo hand-arranged joints); pass `--refit` to
-  discard the pose deliberately. `clip list --json` reports every clip in
+  discard the pose deliberately. `--list --json` carries every installed
+  clip id under `clips`; `clip list --json` reports every clip in
   every installed pack and, with `--model PATH`, which of them are already
   baked in. Packs are local: `clip install --from PATH [--id ID]` takes a
   Quaternius zip, directory, or glTF. The two libraries are

@@ -634,3 +634,195 @@ async fn test_every_provider_runs_in_mock_mode() {
 
     cleanup_mock_env();
 }
+
+// =============================================================================
+// Provenance and shape
+// =============================================================================
+
+/// The key order of every object in a JSON document, in document order.
+/// `serde_json::Value` sorts keys, so this reads the stream directly.
+#[derive(Debug, PartialEq)]
+enum Shape {
+    Obj(Vec<(String, Shape)>),
+    Arr(Vec<Shape>),
+    Leaf,
+}
+
+impl<'de> serde::Deserialize<'de> for Shape {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Shape;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("any json")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut m: A) -> Result<Shape, A::Error> {
+                let mut out = Vec::new();
+                while let Some((k, v)) = m.next_entry::<String, Shape>()? {
+                    out.push((k, v));
+                }
+                Ok(Shape::Obj(out))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut s: A) -> Result<Shape, A::Error> {
+                let mut out = Vec::new();
+                while let Some(v) = s.next_element::<Shape>()? {
+                    out.push(v);
+                }
+                Ok(Shape::Arr(out))
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_unit<E>(self) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+            fn visit_none<E>(self) -> Result<Shape, E> {
+                Ok(Shape::Leaf)
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+/// Compare key sets and order object-by-object. `params` maps are opaque:
+/// their keys are provider knobs, not schema.
+fn assert_same_shape(doc: &Shape, real: &Shape, path: &str) {
+    match (doc, real) {
+        (Shape::Obj(a), Shape::Obj(b)) => {
+            let ka: Vec<&str> = a.iter().map(|(k, _)| k.as_str()).collect();
+            let kb: Vec<&str> = b.iter().map(|(k, _)| k.as_str()).collect();
+            assert_eq!(ka, kb, "key set/order differs at {path}");
+            for ((k, va), (_, vb)) in a.iter().zip(b) {
+                if k == "params" {
+                    continue;
+                }
+                assert_same_shape(va, vb, &format!("{path}.{k}"));
+            }
+        }
+        (Shape::Arr(a), Shape::Arr(b)) => {
+            assert_eq!(a.len(), b.len(), "array length differs at {path}");
+            for (i, (va, vb)) in a.iter().zip(b).enumerate() {
+                assert_same_shape(va, vb, &format!("{path}[{i}]"));
+            }
+        }
+        (Shape::Leaf, Shape::Leaf) => {}
+        (a, b) => panic!("kind differs at {path}: {a:?} vs {b:?}"),
+    }
+}
+
+async fn run_mock_two_stage(temp_dir: &TempDir) -> PathBuf {
+    let config = PipelineConfig::new()
+        .with_prompt("a cowboy ninja")
+        .with_image_model("fal-ai/nano-banana")
+        .with_3d_model("fal-ai/trellis-2")
+        .with_output_dir(temp_dir.path().to_path_buf());
+    let registry = ProviderRegistry::new();
+    let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
+    while rx.recv().await.is_some() {}
+    let output = handle.await.unwrap().unwrap();
+    output.output_dir.unwrap().join(bundle_files::METADATA)
+}
+
+#[tokio::test]
+async fn docs_bundle_example_has_the_shape_of_a_real_run() {
+    let (_env, temp_dir) = setup_mock_env();
+    // The embedded placeholder GLB has no textures, so the inventory is the
+    // same on every machine (the on-disk demo bundle would add one). The
+    // variable is `fixtures::MOCK_EMBEDDED_ENV`, private to the mock module.
+    unsafe { std::env::set_var("ASSET_TAP_MOCK_EMBEDDED", "1") };
+    let bundle_json = run_mock_two_stage(&temp_dir).await;
+    let real = std::fs::read_to_string(&bundle_json).unwrap();
+    unsafe { std::env::remove_var("ASSET_TAP_MOCK_EMBEDDED") };
+    cleanup_mock_env();
+
+    let doc = include_str!("../../docs/guides/BUNDLE_STRUCTURE.md");
+    let example = doc
+        .split("```json")
+        .nth(1)
+        .and_then(|rest| rest.split("```").next())
+        .expect("doc has a json example");
+
+    let doc_shape: Shape = serde_json::from_str(example).unwrap();
+    let real_shape: Shape = serde_json::from_str(&real).unwrap();
+    assert_same_shape(&doc_shape, &real_shape, "$");
+}
+
+#[tokio::test]
+async fn generated_bundle_records_durations() {
+    let (_env, temp_dir) = setup_mock_env();
+    let bundle_json = run_mock_two_stage(&temp_dir).await;
+    cleanup_mock_env();
+
+    let metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&bundle_json).unwrap()).unwrap();
+    assert!(
+        metadata["duration_ms"].is_u64(),
+        "top-level duration: {}",
+        metadata["duration_ms"]
+    );
+    for step in metadata["pipeline"]["steps"].as_array().unwrap() {
+        assert!(
+            step["duration_ms"].is_u64(),
+            "step {} has no duration",
+            step["id"]
+        );
+    }
+}
+
+#[tokio::test]
+async fn supplied_image_is_recorded_as_an_import_step() {
+    let (_env, temp_dir) = setup_mock_env();
+
+    let input_dir = temp_dir.path().join("private").join("layout");
+    std::fs::create_dir_all(&input_dir).unwrap();
+    let test_image_path = input_dir.join("input.png");
+    std::fs::write(&test_image_path, [0x89, 0x50, 0x4E, 0x47]).unwrap();
+
+    let config = PipelineConfig::new()
+        .with_existing_image(test_image_path.to_string_lossy())
+        .with_3d_model("fal-ai/trellis-2")
+        .with_output_dir(temp_dir.path().join("out"));
+    let registry = ProviderRegistry::new();
+    let (mut rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry).await.unwrap();
+    while rx.recv().await.is_some() {}
+    let output = handle.await.unwrap().unwrap();
+    cleanup_mock_env();
+
+    let bundle_json = output.output_dir.unwrap().join(bundle_files::METADATA);
+    let text = std::fs::read_to_string(&bundle_json).unwrap();
+    assert!(
+        !text.contains("private/layout"),
+        "the input's directory must not leak into bundle.json"
+    );
+    let metadata: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+    let artifacts = metadata["artifacts"].as_array().unwrap();
+    let image = artifacts.iter().find(|a| a["id"] == "image").unwrap();
+    assert_eq!(image["produced_by"], "import");
+
+    let steps = metadata["pipeline"]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 2, "{steps:?}");
+    assert_eq!(steps[0]["kind"], "op");
+    assert_eq!(steps[0]["op"], "import");
+    assert_eq!(steps[0]["params"]["source"], "input.png");
+    assert_eq!(steps[0]["outputs"], serde_json::json!(["image"]));
+    assert!(steps[0]["duration_ms"].is_u64());
+    assert_eq!(steps[1]["modality"], "image_to_3d");
+    assert_eq!(steps[1]["inputs"], serde_json::json!(["image"]));
+    assert!(
+        !steps.iter().any(|s| s["modality"] == "text_to_image"),
+        "no image model ran"
+    );
+}

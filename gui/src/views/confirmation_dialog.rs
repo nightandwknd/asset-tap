@@ -232,3 +232,95 @@ impl ConfirmationDialog {
         (result, dont_show)
     }
 }
+
+/// A one-question modal: message, optional detail line, Confirm / Cancel.
+///
+/// The four confirms in `App::ui` (demo download, clip-pack download, delete
+/// bundle, clear animation) were hand-rolled copies of the same window. This
+/// is that window once. It deliberately binds no Enter-to-confirm: every
+/// caller is expensive or destructive, and a stray Enter must not fire it.
+/// Escape and clicking the backdrop dismiss.
+pub struct ConfirmSpec<'a> {
+    /// Backdrop id; unique per dialog.
+    pub id: &'a str,
+    pub title: &'a str,
+    pub message: String,
+    /// Weak or warning-colored line under the message.
+    pub detail: Option<String>,
+    /// `true` paints the detail and the confirm button in warning colors.
+    pub destructive: bool,
+    pub confirm_label: String,
+}
+
+/// What the user did with a [`ConfirmSpec`] this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmOutcome {
+    Confirmed,
+    Dismissed,
+    Pending,
+}
+
+pub fn render_confirm(ctx: &egui::Context, spec: &ConfirmSpec<'_>) -> ConfirmOutcome {
+    let backdrop_clicked = super::modal_backdrop(ctx, spec.id, 180, super::BackdropClick::Close);
+    let mut confirmed = false;
+    let mut dismissed = backdrop_clicked;
+    let warn = egui::Color32::from_rgb(255, 150, 100);
+    let danger = egui::Color32::from_rgb(255, 100, 100);
+
+    egui::Window::new(spec.title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_width(400.0);
+            ui.add_space(8.0);
+            let message = egui::RichText::new(&spec.message).size(14.0);
+            ui.label(if spec.destructive {
+                message.strong()
+            } else {
+                message
+            });
+            if let Some(detail) = &spec.detail {
+                ui.add_space(4.0);
+                let detail = egui::RichText::new(detail).size(12.0);
+                ui.label(if spec.destructive {
+                    detail.color(warn)
+                } else {
+                    detail.weak()
+                });
+            }
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let label = egui::RichText::new(&spec.confirm_label).size(14.0);
+                    let label = if spec.destructive {
+                        label.color(danger)
+                    } else {
+                        label
+                    };
+                    if ui.button(label).clicked() {
+                        confirmed = true;
+                    }
+                    if ui
+                        .button(egui::RichText::new("Cancel").size(14.0))
+                        .clicked()
+                    {
+                        dismissed = true;
+                    }
+                });
+            });
+            ui.add_space(8.0);
+        });
+
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        dismissed = true;
+    }
+    // Intentionally no Enter-to-confirm: see the type docs.
+    if confirmed {
+        ConfirmOutcome::Confirmed
+    } else if dismissed {
+        ConfirmOutcome::Dismissed
+    } else {
+        ConfirmOutcome::Pending
+    }
+}

@@ -296,7 +296,8 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 });
             });
             let rect = filled.response.rect;
-            if crate::app::hovered_paths_over(ui.ctx(), rect)
+            if app
+                .zone_hovered(ui.ctx(), rect)
                 .iter()
                 .any(|p| crate::app::App::is_image_file(p))
             {
@@ -333,13 +334,10 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
 
             // Highlight when an image is dragged over this slot.
             let is_being_dragged = pointer_over
-                && ui.ctx().input(|i| {
-                    i.raw.hovered_files.iter().any(|f| {
-                        f.path
-                            .as_deref()
-                            .is_some_and(crate::app::App::is_image_file)
-                    })
-                });
+                && app
+                    .zone_hovered(ui.ctx(), rect)
+                    .iter()
+                    .any(|p| crate::app::App::is_image_file(p));
             let bg_color = if is_being_dragged {
                 ui.visuals().selection.bg_fill.gamma_multiply(0.3)
             } else if response.hovered() {
