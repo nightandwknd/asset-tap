@@ -1324,6 +1324,14 @@ together to pair them.</li>
 the same. File → Import always creates a new bundle.</li>
 <li><strong>Animation panel</strong> — clip packs only. A UAL zip dropped on the
 preview is not wrapped as <code>model.glb</code>.</li>
+<li>Dropped somewhere that isn't a zone — the menu bar, the progress
+pane — and nothing is imported; a toast says where it belongs.</li>
+<li>On <strong>Linux</strong>, zones are unavailable: the window system reports no
+cursor position while files are being dragged, so a drop is routed by
+what it is instead of where it landed — a still becomes the pipeline
+input, a pack installs, and anything else becomes a new bundle. Use
+the <strong>File</strong> menu and the <strong>Add … to this bundle</strong> pickers to reach
+the other targets.</li>
 </ul>
 </li>
 <li><strong>File → Import Bundle...</strong> -- pick a <code>.zip</code>, a <code>.glb</code>, an image, or
