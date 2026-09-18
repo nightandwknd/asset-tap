@@ -43,8 +43,17 @@ pub const UAL2_PAGE: &str = "https://quaternius.com/packs/universalanimationlibr
 /// alias table against whichever library happens to be installed.
 pub const DEFAULT_BIND_CLIP: &str = "walk";
 
+/// Extensions that carry glTF animation data.
+pub const GLTF_EXTS: &[&str] = &["glb", "gltf"];
+
+/// True when `path` has an extension in [`GLTF_EXTS`].
+pub fn is_gltf_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| GLTF_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 /// Cached pack description written beside the GLB.
-const PACK_MANIFEST: &str = "pack.json";
+pub const PACK_MANIFEST: &str = "pack.json";
 /// Normalised pack GLB name inside an installed pack directory.
 const PACK_MODEL: &str = "pack.glb";
 
@@ -389,12 +398,7 @@ fn gltf_candidates(dir: &Path, depth: usize) -> Vec<PathBuf> {
             }
             continue;
         }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if ext != "glb" && ext != "gltf" {
+        if !is_gltf_path(&path) {
             continue;
         }
         let stem = path
@@ -413,6 +417,231 @@ fn is_zip(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+}
+
+/// True when a dropped path should install as a clip pack, not import as a bundle.
+///
+/// The GUI drop router uses this so a Quaternius zip/folder/GLB is not wrapped
+/// into the library as `model.glb`. A taphub bundle (`bundle.json` / `image.png`)
+/// always wins, even when the mesh already has baked clips.
+pub fn looks_like_clip_pack(path: &Path) -> bool {
+    if path.file_name().is_some_and(|n| n == PACK_MANIFEST) {
+        return true;
+    }
+    // Only a directory, an archive, or a glTF can hold clips. Without this a
+    // still called `armor_standard.png` matched on its name alone and the
+    // importer refused it with "drop packs on the Animation panel" — a dead
+    // end, since nothing but the File menu could then import it.
+    if !can_hold_clips(path) {
+        return false;
+    }
+    if strong_name_hints_pack(path) {
+        return true;
+    }
+    if path.is_dir() {
+        return dir_looks_like_pack(path);
+    }
+    if !weak_name_hints_pack(path) {
+        return is_zip(path) && path.is_file() && zip_looks_like_pack(path);
+    }
+    // `pack` / `*_standard` / `*_source` are weak: `hero_Source.glb` is a
+    // character and `Pack_Standard.zip` could be anything. Corroborate with
+    // content whenever there is content to read — a rigged character ships at
+    // most an idle, a library ships dozens — and fall back to the name only
+    // for a path that isn't on disk (a zip entry, a name-only query).
+    if is_zip(path) {
+        return if path.is_file() {
+            zip_looks_like_pack(path)
+        } else {
+            true
+        };
+    }
+    match gltf_holds_a_library(path) {
+        Some(verdict) => verdict,
+        // Unreadable: trust the name only for a path that isn't on disk.
+        None => !path.is_file(),
+    }
+}
+
+/// Whether `gltf` carries enough clips to be a library, or `None` if it
+/// can't be read.
+fn gltf_holds_a_library(gltf: &Path) -> Option<bool> {
+    animation_names(gltf)
+        .ok()
+        .map(|names| names.len() >= MIN_PACK_CLIPS)
+}
+
+/// Clips a weakly-named glTF must carry before it counts as a library.
+///
+/// Quaternius's libraries ship dozens; a character export ships an idle and
+/// maybe a walk. Two was thin enough that anyone baking a couple of clips onto
+/// `hero_Source.glb` got it classified as a pack.
+const MIN_PACK_CLIPS: usize = 8;
+
+/// glTF entries a weakly-named archive must hold before it counts as a
+/// library. The archive stand-in for [`MIN_PACK_CLIPS`] — entry names are free
+/// to read, while counting clips would mean decompressing, which the hover
+/// path cannot afford. Keep the two in step.
+const MIN_PACK_GLTF_ENTRIES: usize = 8;
+
+/// How many meshes [`dir_holds_a_library`] will parse before giving up.
+/// A library puts its clips in one file or a handful; this only has to be
+/// deep enough to find one of them.
+const MAX_CLASSIFY_CANDIDATES: usize = 24;
+
+/// Whether `path` is a shape that could contain animation clips at all.
+fn can_hold_clips(path: &Path) -> bool {
+    path.is_dir() || is_zip(path) || is_gltf_path(path)
+}
+
+fn file_name_lower(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// Strong tokens are read from the filename *and* its immediate parent, so
+/// `ual2/pack.glb` and `Universal-Animation-Library/Walking.glb` are packs.
+/// Deliberately not the whole path: a project folder that happens to contain
+/// "universal animation" must not reclassify everything beneath it.
+fn strong_name_hints_pack(path: &Path) -> bool {
+    if strong_path_hints_pack(&file_name_lower(path)) {
+        return true;
+    }
+    path.parent()
+        .is_some_and(|parent| strong_path_hints_pack(&file_name_lower(parent)))
+}
+
+fn weak_name_hints_pack(path: &Path) -> bool {
+    weak_path_hints_pack(&file_name_lower(path))
+}
+
+/// Names only a Quaternius library carries, safe to trust on their own.
+fn strong_path_hints_pack(name: &str) -> bool {
+    let name = name.replace('\\', "/");
+    name.contains("universal animation")
+        || name.contains("universal-animation")
+        || name.contains("universalanimation")
+        || name.contains("clip-packs")
+        || name.contains("clip_packs")
+        || name.contains("unreal-godot")
+        || ual_token(&name)
+}
+
+/// Tokens a user's own asset can plausibly carry, so they need corroborating
+/// content before a path is treated as a pack.
+fn weak_path_hints_pack(name: &str) -> bool {
+    let name = name.replace('\\', "/");
+    let stem = name.rsplit('/').next().unwrap_or(&name);
+    let stem = stem.rsplit_once('.').map(|(s, _)| s).unwrap_or(stem);
+    stem == "pack" || stem.ends_with("_standard") || stem.ends_with("_source")
+}
+
+/// `ual1` / `ual2` as a path or filename token, not a substring of `actual1`.
+fn ual_token(name: &str) -> bool {
+    for key in ["ual1", "ual2"] {
+        let Some(i) = name.find(key) else {
+            continue;
+        };
+        let before = i == 0 || !name.as_bytes()[i - 1].is_ascii_alphanumeric();
+        let after_i = i + key.len();
+        let after = after_i == name.len() || !name.as_bytes()[after_i].is_ascii_alphanumeric();
+        if before && after {
+            return true;
+        }
+    }
+    false
+}
+
+fn dir_looks_like_pack(dir: &Path) -> bool {
+    if dir.join(PACK_MANIFEST).is_file() || dir.join(PACK_MODEL).is_file() {
+        return true;
+    }
+    if crate::bundle::looks_like_bundle(dir) {
+        return false;
+    }
+    let Ok(entries) = dir.read_dir() else {
+        return false;
+    };
+    let mut weak = false;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if strong_path_hints_pack(&name) {
+            return true;
+        }
+        if weak_path_hints_pack(&name) {
+            weak = true;
+        }
+    }
+    // `exports/knight_Source.glb` is a character export, not a library. A weak
+    // token needs the clip count behind it, exactly as a lone mesh does — the
+    // same hole one level up.
+    weak && dir_holds_a_library(dir)
+}
+
+/// Whether any mesh under `dir` carries a library's worth of clips.
+///
+/// Bounded, unlike [`pick_pack_model`]: this runs on the UI thread while a
+/// folder is hovered, and parsing every glTF in a big export dump would stall
+/// the frame. Install still uses the exhaustive pick, where correctness beats
+/// latency.
+fn dir_holds_a_library(dir: &Path) -> bool {
+    gltf_candidates(dir, 0)
+        .into_iter()
+        .take(MAX_CLASSIFY_CANDIDATES)
+        .any(|model| gltf_holds_a_library(&model).unwrap_or(false))
+}
+
+fn zip_looks_like_pack(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    let mut saw_bundle = false;
+    let mut saw_pack = false;
+    // The archive's own name counts: a real `Pack_Standard.zip` carries the
+    // token on the zip, while its entries are plain `Walking.glb`.
+    let mut weak = weak_name_hints_pack(path);
+    let mut gltfs = 0usize;
+    let n = archive.len().min(400);
+    for i in 0..n {
+        let Ok(entry) = archive.by_index(i) else {
+            continue;
+        };
+        let name = entry.name().replace('\\', "/").to_ascii_lowercase();
+        if name.split('/').next() == Some("__macosx")
+            || name
+                .rsplit('/')
+                .next()
+                .is_some_and(|n| n == ".ds_store" || n.starts_with("._"))
+        {
+            continue;
+        }
+        let file_name = name.rsplit('/').next().unwrap_or(&name);
+        if file_name == crate::constants::files::bundle::METADATA
+            || file_name == crate::constants::files::bundle::IMAGE
+        {
+            saw_bundle = true;
+        }
+        if strong_path_hints_pack(&name) {
+            saw_pack = true;
+        } else if name.split('/').any(weak_path_hints_pack) {
+            // Any segment, since the token is as often on the folder inside
+            // the archive as on the file.
+            weak = true;
+        }
+        if is_gltf_path(Path::new(&name)) {
+            gltfs += 1;
+        }
+    }
+    if saw_bundle {
+        return false;
+    }
+    // A weak token alone would match an archive of somebody's character
+    // exports. A library carries many meshes; an export carries one or two.
+    saw_pack || (weak && gltfs >= MIN_PACK_GLTF_ENTRIES)
 }
 
 /// Unpack an archive to a scratch directory that lives until the copy is done.
@@ -553,6 +782,215 @@ mod tests {
     }
 
     #[test]
+    fn looks_like_clip_pack_from_quaternius_names() {
+        assert!(looks_like_clip_pack(Path::new(
+            "Universal Animation Library 2[Source].zip"
+        )));
+        assert!(looks_like_clip_pack(Path::new(
+            "Universal-Animation-Library.zip"
+        )));
+        assert!(looks_like_clip_pack(Path::new("UAL1_Standard.glb")));
+        assert!(looks_like_clip_pack(Path::new("ual2/pack.glb")));
+        assert!(looks_like_clip_pack(Path::new("clip-packs.zip")));
+        assert!(looks_like_clip_pack(Path::new("Pack_Standard.zip")));
+        // Token, not a substring of "actual1".
+        assert!(!looks_like_clip_pack(Path::new("actual1.zip")));
+        assert!(!looks_like_clip_pack(Path::new("helmet.zip")));
+        assert!(!looks_like_clip_pack(Path::new("model.glb")));
+        assert!(!looks_like_clip_pack(Path::new("hero.glb")));
+        assert!(!looks_like_clip_pack(Path::new("run/bundle.json")));
+    }
+
+    #[test]
+    fn a_weakly_named_users_own_file_is_not_a_pack() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // A still can never hold clips, whatever it is called.
+        let png = dir.path().join("armor_standard.png");
+        fs::write(&png, b"png").unwrap();
+        assert!(!looks_like_clip_pack(&png));
+
+        // A character mesh that happens to end in `_Source`.
+        let hero = dir.path().join("hero_Source.glb");
+        fs::write(&hero, glb_without_animations()).unwrap();
+        assert!(!looks_like_clip_pack(&hero));
+
+        // The same weak token on a file that really is a library.
+        let library = dir.path().join("hero_Source.glb");
+        fs::write(&library, glb_with_animation()).unwrap();
+        assert!(
+            !looks_like_clip_pack(&library),
+            "one clip is a rigged character, not a library"
+        );
+
+        // Our own installed pack still classifies, on the strong parent token.
+        let installed = dir.path().join("ual2");
+        fs::create_dir_all(&installed).unwrap();
+        let pack = installed.join("pack.glb");
+        fs::write(&pack, glb_without_animations()).unwrap();
+        assert!(looks_like_clip_pack(&pack));
+    }
+
+    /// A GLB declaring `n` named animations. Only the names are read by
+    /// [`animation_names`], so the channels can stay empty.
+    fn glb_with_clips(n: usize) -> Vec<u8> {
+        let anims: Vec<String> = (0..n)
+            .map(|i| format!(r#"{{"name":"Clip_{i}","channels":[],"samplers":[]}}"#))
+            .collect();
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"animations":[{}]}}"#,
+            anims.join(",")
+        );
+        crate::test_support::glb(json.as_bytes(), None)
+    }
+
+    #[test]
+    fn a_weak_name_needs_a_librarys_worth_of_clips() {
+        let dir = tempfile::tempdir().unwrap();
+        let few = dir.path().join("hero_Source.glb");
+        fs::write(&few, glb_with_clips(MIN_PACK_CLIPS - 1)).unwrap();
+        assert!(
+            !looks_like_clip_pack(&few),
+            "a couple of baked clips on a character is not a library"
+        );
+
+        let many = dir.path().join("other_Source.glb");
+        fs::write(&many, glb_with_clips(MIN_PACK_CLIPS)).unwrap();
+        assert!(looks_like_clip_pack(&many), "at the threshold it is one");
+    }
+
+    #[test]
+    fn an_installed_pack_directory_classifies_without_a_manifest() {
+        // The shipped layout before install writes pack.json: packs/<id>/pack.glb.
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("somepack");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(pack.join("pack.glb"), glb_without_animations()).unwrap();
+        assert!(
+            looks_like_clip_pack(&pack),
+            "pack.glb names the directory a pack regardless of clip count"
+        );
+    }
+
+    #[test]
+    fn a_weakly_named_archive_needs_enough_meshes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+        for i in 0..MIN_PACK_GLTF_ENTRIES - 1 {
+            entries.push((format!("Pack_Standard/{i}.glb"), glb_with_animation()));
+        }
+        let borrowed: Vec<(&str, Vec<u8>)> = entries
+            .iter()
+            .map(|(n, b)| (n.as_str(), b.clone()))
+            .collect();
+        let under = dir.path().join("under.zip");
+        write_zip(&under, &borrowed);
+        assert!(
+            !looks_like_clip_pack(&under),
+            "one short of the threshold is still an export dump"
+        );
+    }
+
+    #[test]
+    fn a_folder_of_character_exports_is_not_a_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let exports = dir.path().join("exports");
+        fs::create_dir_all(&exports).unwrap();
+        // Weak `_Source` token on a mesh with one clip: a character export.
+        fs::write(exports.join("knight_Source.glb"), glb_with_animation()).unwrap();
+        assert!(
+            !looks_like_clip_pack(&exports),
+            "a weak name in a folder needs the clip count behind it too"
+        );
+
+        // A strong token in the folder still classifies without counting.
+        let library = dir.path().join("Universal-Animation-Library");
+        fs::create_dir_all(&library).unwrap();
+        fs::write(library.join("Walking.glb"), glb_with_animation()).unwrap();
+        assert!(looks_like_clip_pack(&library));
+    }
+
+    #[test]
+    fn a_zip_of_character_exports_is_not_a_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("exports.zip");
+        write_zip(
+            &zip_path,
+            &[
+                ("knight_Source.glb", glb_with_animation()),
+                ("knight_Source.png", b"png".to_vec()),
+            ],
+        );
+        assert!(
+            !looks_like_clip_pack(&zip_path),
+            "one mesh behind a weak token is an export, not a library"
+        );
+
+        // Many meshes behind the same weak token is a library.
+        let library = dir.path().join("archive.zip");
+        let mut entries: Vec<(&str, Vec<u8>)> = vec![("Pack_Standard/readme.txt", b"x".to_vec())];
+        let names = [
+            "Pack_Standard/a.glb",
+            "Pack_Standard/b.glb",
+            "Pack_Standard/c.glb",
+            "Pack_Standard/d.glb",
+            "Pack_Standard/e.glb",
+            "Pack_Standard/f.glb",
+            "Pack_Standard/g.glb",
+            "Pack_Standard/h.glb",
+        ];
+        for name in names {
+            entries.push((name, glb_with_animation()));
+        }
+        write_zip(&library, &entries);
+        assert!(looks_like_clip_pack(&library));
+    }
+
+    #[test]
+    fn looks_like_clip_pack_dir_and_zip_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        // A taphub bundle folder is never a pack, even beside a UAL-ish glb name.
+        let bundle = dir.path().join("run");
+        fs::create_dir_all(&bundle).unwrap();
+        fs::write(bundle.join("image.png"), b"png").unwrap();
+        fs::write(bundle.join("UAL1.glb"), glb_with_animation()).unwrap();
+        assert!(!looks_like_clip_pack(&bundle));
+
+        let pack_dir = dir.path().join("extracted");
+        fs::create_dir_all(pack_dir.join("Unreal-Godot")).unwrap();
+        fs::write(pack_dir.join("Unreal-Godot/UAL2.glb"), glb_with_animation()).unwrap();
+        assert!(looks_like_clip_pack(&pack_dir));
+
+        let zip_path = dir.path().join("mystery.zip");
+        write_zip(
+            &zip_path,
+            &[("Pack/Unreal-Godot/Pack_Standard.glb", glb_with_animation())],
+        );
+        assert!(looks_like_clip_pack(&zip_path));
+
+        let bundle_zip = dir.path().join("bundle.zip");
+        write_zip(
+            &bundle_zip,
+            &[
+                ("bundle.json", b"{}".to_vec()),
+                ("image.png", b"png".to_vec()),
+                ("model.glb", glb_with_animation()),
+            ],
+        );
+        assert!(!looks_like_clip_pack(&bundle_zip));
+    }
+
+    #[test]
+    fn unnamed_animated_glb_is_not_a_pack() {
+        // Drop routing is name/layout, not "has clips". File → Install still
+        // accepts any library; a knight mesh with baked walk must import.
+        let dir = tempfile::tempdir().unwrap();
+        let glb = dir.path().join("knight.glb");
+        fs::write(&glb, glb_with_animation()).unwrap();
+        assert!(!looks_like_clip_pack(&glb));
+    }
+
+    #[test]
     fn ids_drop_the_distribution_tier() {
         assert_eq!(derive_id(Path::new("/x/UAL1_Standard.glb")), "ual1");
         assert_eq!(derive_id(Path::new("/x/UAL2_Standard.glb")), "ual2");
@@ -680,7 +1118,7 @@ mod tests {
         assert!(!pack.clips.is_empty(), "the library, not the mannequin");
 
         // The manifest is what makes `list_clips` cheap; it must be written.
-        assert!(pack_dir("pack").join("pack.json").is_file());
+        assert!(pack_dir("pack").join(PACK_MANIFEST).is_file());
         let reloaded = ClipPack::from_dir(&pack_dir("pack")).unwrap();
         assert_eq!(reloaded.clips, pack.clips);
 

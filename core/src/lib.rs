@@ -72,6 +72,7 @@ pub mod constants;
 pub mod error_log;
 pub mod glb_webp;
 pub mod history;
+mod images;
 pub mod pipeline;
 pub mod progress_fmt;
 pub mod providers;
@@ -185,8 +186,9 @@ pub mod test_support {
 
 // Re-export commonly used types
 pub use bundle::{
-    Bundle, BundleContents, BundleError, BundleMetadata, DemoDownloadResult, download_demo_bundle,
-    extract_model_info, import_bundle_dir, import_bundle_zip, stamp_bind_step,
+    Bundle, BundleContents, BundleError, BundleMetadata, DemoDownloadResult, attach_to_bundle,
+    download_demo_bundle, extract_model_info, import_bundle, import_bundle_dir, import_bundle_zip,
+    import_loose_files, stamp_bind_step,
 };
 pub use config::{list_image_to_3d_models, list_text_to_image_models};
 pub use error_log::ErrorLog;
@@ -195,10 +197,11 @@ pub use pipeline::{PipelineConfig, run_pipeline};
 pub use progress_fmt::{DisplayLevel, ProgressDisplay, format_progress};
 pub use rig::{
     BindError, BindMarker, BindOptions, BindReport, BoneGroup, ClipCatalogEntry,
-    ClipPacksDownloadResult, HumanBone, Side, SkinnedClip, apply_clip, baked_clip_names, bind_mesh,
-    default_bind_markers, download_clip_packs, find_clip, fit_mesh, fit_mesh_from_heads,
-    foreign_rig_joints, heads_off_mesh, install_pack_from, is_fitted, list_clips, pack_dir,
-    packs_root, preview_skinned_clip, resolve_pack, resolve_packs, seed_bind_markers,
+    ClipPacksDownloadResult, HumanBone, PACK_MANIFEST, Side, SkinnedClip, apply_clip,
+    baked_clip_names, bind_mesh, default_bind_markers, download_clip_packs, find_clip, fit_mesh,
+    fit_mesh_from_heads, foreign_rig_joints, heads_off_mesh, install_pack_from, is_fitted,
+    list_clips, looks_like_clip_pack, pack_dir, packs_root, preview_skinned_clip, resolve_pack,
+    resolve_packs, seed_bind_markers,
 };
 pub use settings::Settings;
 pub use state::AppState;

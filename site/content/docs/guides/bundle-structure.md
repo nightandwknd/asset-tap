@@ -131,6 +131,16 @@ Rigging a mesh appends one `kind: op` step with `op: "bind"`. It takes
 Re-binding updates this step rather than appending another. A bundle carries
 at most one `bind` step.
 
+### The `import` step
+
+Wrapping a loose `.glb` or image (or a zip/folder that used non-standard
+names) writes one `kind: op` step with `op: "import"`. Artifacts still use
+the standard paths. `params.source` is the original filename when a file
+was renamed (`hero.glb` → `model.glb`). There is no provider step — these
+files were not generated. A still and a mesh dropped together, or the
+missing half attached to an open bundle, still land on `image.png` /
+`model.glb`.
+
 ## Privacy
 
 `existing_image` is sanitized before serialization: if the user provided a local file path, only the filename is recorded (e.g. `/Users/alice/secret-project/input.png` -> `input.png`). URLs (`http://`, `https://`) and data URIs pass through unchanged. This keeps shared bundles free of the originating filesystem layout.

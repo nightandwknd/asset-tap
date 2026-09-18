@@ -78,7 +78,7 @@ The 3D tab is an inspector (Grid, Axes, Reset View). A **Reset View** button in 
 the clip list. This path is [experimental](@/docs/guides/animation.md).
 Fingers are not weighted, and the panel may change.
 
-**Download animation packs** (Help, or Animate → **Add pack...**) fetches
+**Download Universal Animation Libraries** (Help, or Animate → **Add pack...**) fetches
 the Standard libraries from the latest release (hash-verified).
 Already-installed packs are left alone, so a Source upgrade is not overwritten.
 
@@ -100,18 +100,39 @@ Bundles are loaded from your configured output directory. See [Bundle Structure]
 
 ## Importing Bundles
 
-Bring bundles into your library from anywhere -- a CLI run that used a custom
-output directory, a bundle someone shared, or an exported archive:
+Bring assets into your library from anywhere -- a CLI run that used a custom
+output directory, a bundle someone shared, an exported archive, or a lone
+`.glb` / image:
 
-- **Drag & drop** -- drop a bundle folder, a `.zip` archive, or a bundle's
-  `bundle.json` anywhere on the window.
-- **File → Import Bundle...** -- pick a `.zip`, or navigate into a bundle
-  folder and double-click its `bundle.json`.
+- **Drag & drop (zones, not the whole window):**
+  - **Sidebar** “Drop image here” — pipeline input (skip text-to-image).
+  - **Bundle Info** — always a **new** library bundle
+    (`.glb`, image, zip, folder, `bundle.json`). Drop a still and a mesh
+    together to pair them.
+  - **Empty Image or 3D tab** on an open bundle — attach the missing
+    `image.png` / `model.glb`. The **Add … to this bundle** picker does
+    the same. File → Import always creates a new bundle.
+  - **Animation panel** — clip packs only. A UAL zip dropped on the
+    preview is not wrapped as `model.glb`.
+  - Dropped somewhere that isn't a zone — the menu bar, the progress
+    pane — and nothing is imported; a toast says where it belongs.
+  - On **Linux**, zones are unavailable: the window system reports no
+    cursor position while files are being dragged, so a drop is routed by
+    what it is instead of where it landed — a still becomes the pipeline
+    input, a pack installs, and anything else becomes a new bundle. Use
+    the **File** menu and the **Add … to this bundle** pickers to reach
+    the other targets.
+- **File → Import Bundle...** -- pick a `.zip`, a `.glb`, an image, or
+  navigate into a bundle folder and double-click its `bundle.json`.
 - **File → Import Bundle Folder...** -- single-click the folder, then Open
   (double-clicking navigates into it -- that's the OS file picker, not us).
+- **File → Install Animation Pack...** -- a UAL `.zip` / `.glb`, or
+  **Install Animation Pack Folder...** for an extracted download. Same
+  as Animate → Add pack, or dropping the file on the Animation panel.
 
-Imports are copied into your library; the source is left untouched. Zips made
-with macOS's built-in Compress work fine.
+A loose `.glb` or image is copied into a new timestamped bundle with the
+standard filenames (`model.glb`, `image.png`) and a `bundle.json`. Imports
+leave the source untouched. Zips made with macOS's built-in Compress work fine.
 
 ## Settings
 

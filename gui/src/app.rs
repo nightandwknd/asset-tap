@@ -107,6 +107,127 @@ pub(crate) fn is_no_op_run(skip_3d: bool, has_existing_image: bool) -> bool {
     skip_3d && has_existing_image
 }
 
+fn bundle_import_combined_exts() -> Vec<&'static str> {
+    let mut exts = Vec::with_capacity(3 + asset_tap_core::constants::files::IMAGE_EXTS.len());
+    exts.extend(["zip", "json", "glb"]);
+    exts.extend(asset_tap_core::constants::files::IMAGE_EXTS.iter().copied());
+    exts
+}
+
+/// File picker shared by File → Import Bundle and the bundle-info import button.
+pub(crate) fn pick_bundle_import_file() -> Option<std::path::PathBuf> {
+    let combined = bundle_import_combined_exts();
+    rfd::FileDialog::new()
+        .add_filter("Bundle, model, or image", &combined)
+        .add_filter("3D model (GLB)", &["glb"])
+        .add_filter("Images", asset_tap_core::constants::files::IMAGE_EXTS)
+        .add_filter("ZIP archive", &["zip"])
+        .pick_file()
+}
+
+/// File picker shared by File → Install Animation Pack and Animate → Add pack.
+pub(crate) fn pick_pack_install_file() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("Animation pack")
+        .add_filter("Animation pack", &["zip", "glb", "gltf"])
+        .pick_file()
+}
+
+/// Folder picker shared by File → Install Animation Pack Folder and Add pack.
+pub(crate) fn pick_pack_install_folder() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("Animation pack folder")
+        .pick_folder()
+}
+
+pub(crate) fn pick_image_file() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("Images", asset_tap_core::constants::files::IMAGE_EXTS)
+        .pick_file()
+}
+
+pub(crate) fn pick_glb_file() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("3D model (GLB)", &["glb"])
+        .pick_file()
+}
+
+/// True when the pointer is over `rect`, during an OS file drag included —
+/// but only because [`crate::dnd::inject_drag_pointer`] supplies the position
+/// winit withholds for the duration of a drag. Without that hook this is
+/// `false` for every zone on every platform, which is what makes drop zones
+/// look mysteriously dead.
+pub(crate) fn pointer_over_rect(ctx: &egui::Context, rect: egui::Rect) -> bool {
+    ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p))
+}
+
+/// Hovered OS-drag paths whose pointer is over `rect`.
+pub(crate) fn hovered_paths_over(ctx: &egui::Context, rect: egui::Rect) -> Vec<std::path::PathBuf> {
+    if !pointer_over_rect(ctx, rect) {
+        return Vec::new();
+    }
+    ctx.input(|i| {
+        i.raw
+            .hovered_files
+            .iter()
+            .filter_map(|f| f.path.clone())
+            .collect()
+    })
+}
+
+/// If the pointer is over `rect`, take this frame's dropped paths so later
+/// zones cannot also claim them. Must run during [`eframe::App::ui`].
+pub(crate) fn take_dropped_over(ctx: &egui::Context, rect: egui::Rect) -> Vec<std::path::PathBuf> {
+    if !pointer_over_rect(ctx, rect) {
+        return Vec::new();
+    }
+    ctx.input_mut(|i| {
+        std::mem::take(&mut i.raw.dropped_files)
+            .into_iter()
+            .filter_map(|f| f.path)
+            .collect()
+    })
+}
+
+/// Like [`take_dropped_over`] but only claims the drop when `accept` matches
+/// one of the paths. A zone that can't use what was dropped must not swallow
+/// it: [`App::drop_unclaimed`] is what turns an unroutable drop into a toast,
+/// and it only sees what no zone took.
+pub(crate) fn take_dropped_over_if(
+    ctx: &egui::Context,
+    rect: egui::Rect,
+    accept: impl Fn(&std::path::Path) -> bool,
+) -> Vec<std::path::PathBuf> {
+    if !pointer_over_rect(ctx, rect) {
+        return Vec::new();
+    }
+    let usable = ctx.input(|i| {
+        i.raw
+            .dropped_files
+            .iter()
+            .any(|f| f.path.as_deref().is_some_and(&accept))
+    });
+    if !usable {
+        return Vec::new();
+    }
+    take_dropped_over(ctx, rect)
+}
+
+pub(crate) fn paint_drop_overlay(ctx: &egui::Context, rect: egui::Rect, label: &str) {
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("drop_zone_overlay"),
+    ));
+    painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(160));
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(22.0),
+        egui::Color32::WHITE,
+    );
+}
+
 /// Embedded logo image for in-app branding (512x512 with "ASSET TAP" text).
 const LOGO_BYTES: &[u8] = include_bytes!("../../assets/logo.png");
 
@@ -138,6 +259,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::runtime::Runtime;
 
+type PackInstallResult = Result<(String, String, usize), String>;
+
+/// An import the user asked for, held until the previous one finishes.
+enum QueuedImport {
+    /// A bundle folder/zip, or a lone `.glb`/image wrapped into one.
+    Bundle(std::path::PathBuf),
+    /// A still and a mesh dropped together, paired into one bundle.
+    Loose(Vec<std::path::PathBuf>),
+}
+
 enum WorkbenchDone {
     Fit {
         /// Placeable joints moved > 1 cm from the auto-fit, and the largest move.
@@ -152,11 +283,6 @@ enum WorkbenchDone {
     },
     Preview {
         clip: Box<asset_tap_core::SkinnedClip>,
-    },
-    PackInstalled {
-        name: String,
-        id: String,
-        clips: usize,
     },
 }
 
@@ -442,6 +568,12 @@ pub struct App {
     /// Pending bundle import result (from async zip extraction).
     pending_import: Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
 
+    /// Pending attach of an image/GLB into the open bundle.
+    pending_attach: Option<tokio::sync::oneshot::Receiver<Result<std::path::PathBuf, String>>>,
+
+    /// Pending clip-pack install (separate from bind/bake so a drop still works).
+    pending_pack_install: Option<tokio::sync::oneshot::Receiver<PackInstallResult>>,
+
     /// Whether to show the demo download confirmation dialog.
     show_demo_download_confirm: bool,
 
@@ -450,6 +582,25 @@ pub struct App {
 
     /// Bundle path pending deletion (waiting for confirmation).
     pending_delete_bundle: Option<std::path::PathBuf>,
+
+    /// Cursor position during an OS file drag, in egui points. winit reports
+    /// no coordinates for a file drag, so [`crate::dnd`] queries the OS and
+    /// this carries the last hovered position onto the drop frame.
+    drag_pointer: Option<egui::Pos2>,
+
+    /// `is_pack_drop` verdicts for the length of one drag, keyed by path.
+    /// Cleared when the drag ends; see [`App::is_pack_drop_cached`].
+    pack_drop_cache: std::collections::HashMap<std::path::PathBuf, bool>,
+
+    /// Imports waiting for the one in flight. Each needs its own completion
+    /// channel, and `pending_import` holds exactly one, so dropping several
+    /// files at once has to queue rather than overwrite.
+    queued_imports: std::collections::VecDeque<QueuedImport>,
+
+    /// Pack installs waiting their turn. Serialized against each other *and*
+    /// against a bind/bake, because they write into `packs_root()` while the
+    /// workbench may be reading a pack out of it.
+    queued_pack_installs: std::collections::VecDeque<std::path::PathBuf>,
 
     // =========================================================================
     // Toast Notifications
@@ -811,9 +962,15 @@ impl App {
             pending_demo_download: None,
             pending_clip_packs_download: None,
             pending_import: None,
+            pending_attach: None,
+            pending_pack_install: None,
             show_demo_download_confirm: false,
             show_clip_packs_download_confirm: false,
             pending_delete_bundle: None,
+            drag_pointer: None,
+            pack_drop_cache: std::collections::HashMap::new(),
+            queued_imports: std::collections::VecDeque::new(),
+            queued_pack_installs: std::collections::VecDeque::new(),
 
             // Toast Notifications
             toasts: startup_toasts,
@@ -904,89 +1061,289 @@ impl App {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_clip_packs_download = Some(rx);
         self.toasts
-            .push(Toast::info("Checking for animation packs..."));
+            .push(Toast::info("Checking for Universal Animation Libraries..."));
         self.runtime.spawn(async move {
             let result = asset_tap_core::download_clip_packs(false, |_progress| {}).await;
             let _ = tx.send(result.map_err(|e| e.to_string()));
         });
     }
 
-    /// Image formats the pipeline's providers accept as input references.
-    /// Single source of truth for the input-image dropzone AND the Browse
-    /// picker — two lists here already drifted once (8 vs 4 extensions).
-    pub(crate) const IMAGE_EXTS: &'static [&'static str] =
-        &["png", "jpg", "jpeg", "webp", "gif", "avif"];
-
     /// True when the path has an image extension the pipeline accepts.
     pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
-        path.extension()
-            .is_some_and(|e| Self::IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+        asset_tap_core::constants::files::is_image_path(path)
     }
 
-    /// True for paths that should route to bundle import when dropped on the
-    /// window: bundle folders, zip archives, and bundle.json files. Image
-    /// files are NOT bundle drops — the input-image dropzone owns those.
+    pub(crate) fn is_glb_file(path: &std::path::Path) -> bool {
+        path.extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("glb"))
+    }
+
+    /// True for paths that can become a library bundle when dropped on
+    /// Bundle Info: folders, zips, GLBs, images, and bundle.json.
     pub(crate) fn is_bundle_drop(path: &std::path::Path) -> bool {
         path.is_dir()
+            || Self::is_image_file(path)
             || path
                 .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                .is_some_and(|e| e.eq_ignore_ascii_case("zip") || e.eq_ignore_ascii_case("glb"))
             || path
                 .file_name()
                 .is_some_and(|n| n == asset_tap_core::constants::files::bundle::METADATA)
     }
 
-    /// Window-level drag & drop: dropping a bundle folder, zip, or
-    /// bundle.json anywhere imports it into the library, with a full-window
-    /// overlay while such a file hovers. Runs before the panels so the
-    /// input-image dropzone (which filters for image files) never races it.
-    fn handle_bundle_drops(&mut self, ctx: &egui::Context) {
-        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .filter_map(|f| f.path.clone())
-                .filter(|p| Self::is_bundle_drop(p))
-                .collect()
-        });
-        // Multiple bundles dropped at once all import; only the last one's
-        // completion toast surfaces (pending_import tracks one receiver),
-        // but the bundle list refresh picks them all up.
-        for path in dropped {
-            self.import_bundle(path);
-        }
+    /// True for a Quaternius zip/folder/GLB (or pack.json) that should install
+    /// as an animation pack instead of wrapping into the library.
+    pub(crate) fn is_pack_drop(path: &std::path::Path) -> bool {
+        asset_tap_core::looks_like_clip_pack(path)
+    }
 
-        let hovering_bundle = ctx.input(|i| {
-            i.raw
-                .hovered_files
-                .iter()
-                .any(|f| f.path.as_deref().is_some_and(Self::is_bundle_drop))
-        });
-        if hovering_bundle {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Foreground,
-                egui::Id::new("bundle_drop_overlay"),
-            ));
-            let rect = ctx.content_rect();
-            painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(160));
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Drop to import bundle",
-                egui::FontId::proportional(28.0),
-                egui::Color32::WHITE,
-            );
+    /// Sidebar "Drop image here" — pipeline input, not a library bundle.
+    /// Claims only stills, so a zip or `.glb` dropped here falls through to
+    /// [`Self::drop_unclaimed`] and gets told where it belongs.
+    pub(crate) fn drop_generation_image(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let dropped = take_dropped_over_if(ctx, rect, Self::is_image_file);
+        if let Some(path) = dropped.into_iter().find(|p| Self::is_image_file(p)) {
+            self.queue_image_for_generation(path.to_string_lossy().into_owned());
         }
     }
 
-    /// Import a bundle from a zip archive, a plain bundle directory (e.g. a
-    /// CLI run's output folder), or a bundle.json inside one — pickers can't
-    /// make "double-click a folder" mean SELECT on macOS (it navigates), but
-    /// double-clicking the folder's bundle.json is unambiguous.
+    /// [`Self::is_pack_drop`] memoized for the length of one drag. Classifying
+    /// a zip opens the archive and parses its whole central directory — tens of
+    /// thousands of entries for a UAL Source zip — and the hover path asks
+    /// twice per file per frame while the drag holds the UI repainting.
+    fn is_pack_drop_cached(&mut self, path: &std::path::Path) -> bool {
+        if let Some(&known) = self.pack_drop_cache.get(path) {
+            return known;
+        }
+        let verdict = Self::is_pack_drop(path);
+        self.pack_drop_cache.insert(path.to_path_buf(), verdict);
+        verdict
+    }
+
+    /// Bundle Info pane — always a new library bundle.
+    pub(crate) fn drop_import_on_bundle_info(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let hovered = hovered_paths_over(ctx, rect);
+        if !hovered.is_empty() {
+            let saw_pack = hovered.iter().any(|p| self.is_pack_drop_cached(p));
+            let saw_bundle = hovered
+                .iter()
+                .any(|p| Self::is_bundle_drop(p) && !self.is_pack_drop_cached(p));
+            let label = if saw_pack && !saw_bundle {
+                clip_packs::DROP_PACKS_ON_ANIMATE
+            } else {
+                clip_packs::DROP_IMPORT
+            };
+            paint_drop_overlay(ctx, rect, label);
+        }
+        let dropped = take_dropped_over(ctx, rect);
+        if !dropped.is_empty() {
+            self.import_as_new_bundle(dropped);
+        }
+    }
+
+    /// Empty Image tab — attach `image.png` only.
+    pub(crate) fn drop_attach_image(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let hovered = hovered_paths_over(ctx, rect);
+        if !hovered.is_empty() {
+            let label = if hovered.iter().any(|p| Self::is_image_file(p)) {
+                clip_packs::DROP_ATTACH_IMAGE
+            } else if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
+                clip_packs::DROP_PACKS_ON_ANIMATE
+            } else {
+                clip_packs::DROP_BUNDLES_ON_INFO
+            };
+            paint_drop_overlay(ctx, rect, label);
+        }
+        let dropped = take_dropped_over(ctx, rect);
+        if dropped.is_empty() {
+            return;
+        }
+        if let Some(path) = dropped.iter().find(|p| Self::is_image_file(p)).cloned() {
+            self.attach_to_current_bundle(path);
+        } else if dropped.iter().any(|p| Self::is_pack_drop(p)) {
+            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
+        } else {
+            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+        }
+    }
+
+    /// Empty 3D tab — attach `model.glb` only.
+    pub(crate) fn drop_attach_model(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let hovered = hovered_paths_over(ctx, rect);
+        if !hovered.is_empty() {
+            let label = if hovered
+                .iter()
+                .any(|p| Self::is_glb_file(p) && !self.is_pack_drop_cached(p))
+            {
+                clip_packs::DROP_ATTACH_MODEL
+            } else if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
+                clip_packs::DROP_PACKS_ON_ANIMATE
+            } else {
+                clip_packs::DROP_BUNDLES_ON_INFO
+            };
+            paint_drop_overlay(ctx, rect, label);
+        }
+        let dropped = take_dropped_over(ctx, rect);
+        if dropped.is_empty() {
+            return;
+        }
+        if let Some(path) = dropped
+            .iter()
+            .find(|p| Self::is_glb_file(p) && !Self::is_pack_drop(p))
+            .cloned()
+        {
+            self.attach_to_current_bundle(path);
+        } else if dropped.iter().any(|p| Self::is_pack_drop(p)) {
+            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
+        } else {
+            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+        }
+    }
+
+    /// Animation panel — clip packs only.
+    pub(crate) fn drop_install_pack(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let hovered = hovered_paths_over(ctx, rect);
+        if !hovered.is_empty() {
+            let label = if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
+                clip_packs::DROP_INSTALL_PACK
+            } else {
+                // Not "drop packs on the Animation panel" — they are already
+                // on it. Name where a mesh or still actually goes.
+                clip_packs::DROP_BUNDLES_ON_INFO
+            };
+            paint_drop_overlay(ctx, rect, label);
+        }
+        let dropped = take_dropped_over(ctx, rect);
+        if dropped.is_empty() {
+            return;
+        }
+        let mut saw_non_pack = false;
+        for path in dropped {
+            if Self::is_pack_drop(&path) {
+                self.install_clip_pack(path);
+            } else {
+                saw_non_pack = true;
+            }
+        }
+        if saw_non_pack {
+            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+        }
+    }
+
+    /// Runs at the end of [`eframe::App::ui`], after every zone has had its
+    /// chance. A drop must never vanish, and there are two ways it can reach
+    /// here:
+    ///
+    /// - **No pointer at all.** No zone could match, because none of them can
+    ///   know where the drop landed: the platform can't report the cursor
+    ///   during a drag (X11 has no drag coordinates, Wayland no file drops),
+    ///   or [`crate::dnd`]'s query failed this frame.
+    ///   Route by file type, which is what shipped before zones existed.
+    /// - **Dropped outside every zone** — the menu bar, the progress panel, a
+    ///   modal. Say where it belongs rather than guessing, since guessing
+    ///   "new bundle" for a window-wide drop is the behavior that made the
+    ///   zones necessary.
+    pub(crate) fn drop_unclaimed(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<std::path::PathBuf> = ctx.input_mut(|i| {
+            std::mem::take(&mut i.raw.dropped_files)
+                .into_iter()
+                .filter_map(|f| f.path)
+                .collect()
+        });
+        if dropped.is_empty() {
+            return;
+        }
+
+        if ctx.pointer_latest_pos().is_some() {
+            // Zones were live and none of them wanted it.
+            if dropped.iter().all(|p| self.is_pack_drop_cached(p)) {
+                self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
+            } else {
+                self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+            }
+            return;
+        }
+
+        let packs: Vec<_> = dropped
+            .iter()
+            .filter(|p| self.is_pack_drop_cached(p))
+            .cloned()
+            .collect();
+        let route = route_without_zones(dropped, &packs);
+        for path in route.packs {
+            self.install_clip_pack(path);
+        }
+        if let Some(path) = route.generation_image {
+            self.queue_image_for_generation(path.to_string_lossy().into_owned());
+        }
+        if !route.new_bundle.is_empty() {
+            self.import_as_new_bundle(route.new_bundle);
+        }
+    }
+
+    /// Preview pane is not an import target. Leftover drops toast instead of
+    /// wrapping a new bundle.
+    pub(crate) fn drop_preview_not_import(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let dropped = take_dropped_over(ctx, rect);
+        if dropped.is_empty() {
+            return;
+        }
+        if dropped.iter().any(|p| Self::is_pack_drop(p))
+            && !dropped.iter().any(|p| {
+                (Self::is_bundle_drop(p) || Self::is_image_file(p) || Self::is_glb_file(p))
+                    && !Self::is_pack_drop(p)
+            })
+        {
+            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
+        } else {
+            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+        }
+    }
+
+    /// Bundle Info import: always a new bundle. Packs are not wrapped.
+    fn import_as_new_bundle(&mut self, dropped: Vec<std::path::PathBuf>) {
+        let mut packs = Vec::new();
+        let mut loose_glbs = Vec::new();
+        let mut loose_images = Vec::new();
+        let mut other = Vec::new();
+        for path in dropped {
+            if Self::is_pack_drop(&path) {
+                packs.push(path);
+            } else if Self::is_glb_file(&path) {
+                loose_glbs.push(path);
+            } else if Self::is_image_file(&path) {
+                loose_images.push(path);
+            } else if Self::is_bundle_drop(&path) {
+                other.push(path);
+            }
+        }
+        if !packs.is_empty() {
+            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
+        }
+        for path in other {
+            self.import_bundle(path);
+        }
+        if !loose_glbs.is_empty() && !loose_images.is_empty() {
+            let mut files = loose_glbs;
+            files.extend(loose_images);
+            self.import_loose_files(files);
+        } else {
+            for path in loose_glbs {
+                self.import_bundle(path);
+            }
+            for path in loose_images {
+                self.import_bundle(path);
+            }
+        }
+    }
+
+    /// Import a bundle zip/folder, a bundle.json inside one, or a loose GLB
+    /// / image. Pickers can't make "double-click a folder" mean SELECT on
+    /// macOS (it navigates), but double-clicking the folder's bundle.json
+    /// is unambiguous. A lone GLB or image is wrapped into a library bundle.
     fn import_bundle(&mut self, source: std::path::PathBuf) {
         // Normalize bundle.json → its containing directory. Any OTHER .json
-        // is a wrong pick — say so instead of letting the zip importer
-        // report a misleading "invalid zip archive".
+        // is a wrong pick — say so instead of a misleading archive error.
         let is_metadata = source
             .file_name()
             .is_some_and(|n| n == asset_tap_core::constants::files::bundle::METADATA);
@@ -996,7 +1353,7 @@ impl App {
                 .is_some_and(|e| e.eq_ignore_ascii_case("json"))
         {
             self.add_toast(Toast::error(
-                "That JSON isn't a bundle.json. Pick the bundle.json inside a bundle folder, or a .zip archive",
+                "That JSON isn't a bundle.json. Pick the bundle.json inside a bundle folder, a .zip, a .glb, or an image",
             ));
             return;
         }
@@ -1008,20 +1365,63 @@ impl App {
         } else {
             source
         };
+        self.queued_imports.push_back(QueuedImport::Bundle(source));
+        self.pump_imports();
+    }
+
+    fn import_loose_files(&mut self, sources: Vec<std::path::PathBuf>) {
+        if sources.is_empty() {
+            return;
+        }
+        if sources.len() == 1 {
+            self.import_bundle(sources.into_iter().next().unwrap());
+            return;
+        }
+        self.queued_imports.push_back(QueuedImport::Loose(sources));
+        self.pump_imports();
+    }
+
+    /// Start the next queued import if none is in flight. Called after every
+    /// enqueue and again when one completes, so a multi-file drop runs them
+    /// one at a time instead of losing all but the last channel.
+    fn pump_imports(&mut self) {
+        if self.pending_import.is_some() {
+            return;
+        }
+        let Some(job) = self.queued_imports.pop_front() else {
+            return;
+        };
         let output_dir = self.settings.output_dir.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_import = Some(rx);
-        self.add_toast(Toast::info("Importing bundle..."));
+        self.add_toast(Toast::info(clip_packs::IMPORTING));
         self.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                if source.is_dir() {
-                    asset_tap_core::import_bundle_dir(&source, &output_dir)
-                } else {
-                    asset_tap_core::import_bundle_zip(&source, &output_dir)
+            let result = tokio::task::spawn_blocking(move || match job {
+                QueuedImport::Bundle(source) => asset_tap_core::import_bundle(&source, &output_dir),
+                QueuedImport::Loose(sources) => {
+                    asset_tap_core::import_loose_files(&sources, &output_dir)
                 }
             })
             .await
             .unwrap_or_else(|e| Err(format!("Import task failed: {}", e)));
+            let _ = tx.send(result);
+        });
+    }
+
+    pub(crate) fn attach_to_current_bundle(&mut self, source: std::path::PathBuf) {
+        let Some(bundle_dir) = self.output.as_ref().and_then(|o| o.output_dir.clone()) else {
+            self.add_toast(Toast::error("Open a bundle first"));
+            return;
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_attach = Some(rx);
+        self.add_toast(Toast::info(clip_packs::ATTACHING));
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                asset_tap_core::attach_to_bundle(&bundle_dir, &source)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("Attach task failed: {e}")));
             let _ = tx.send(result);
         });
     }
@@ -1496,7 +1896,7 @@ impl App {
         // Spawn the async file dialog on the runtime
         self.runtime.spawn(async move {
             let result = rfd::AsyncFileDialog::new()
-                .add_filter("Images", Self::IMAGE_EXTS)
+                .add_filter("Images", asset_tap_core::constants::files::IMAGE_EXTS)
                 .pick_file()
                 .await
                 .map(|handle| handle.path().to_path_buf());
@@ -1510,13 +1910,7 @@ impl App {
 
     /// Set an existing image from a path (used for drag-and-drop).
     pub fn set_existing_image(&mut self, path: String) -> bool {
-        // Validate the file extension
-        let valid_extensions = ["png", "jpg", "jpeg", "webp"];
-        if let Some(ext) = std::path::Path::new(&path)
-            .extension()
-            .and_then(|e| e.to_str())
-            && valid_extensions.contains(&ext.to_lowercase().as_str())
-        {
+        if Self::is_image_file(std::path::Path::new(&path)) {
             self.existing_image = Some(path);
             return true;
         }
@@ -2372,25 +2766,45 @@ impl App {
         }
     }
 
-    pub fn install_clip_pack(&mut self, dir: std::path::PathBuf) {
-        if self.pending_workbench.is_some() {
+    pub fn install_clip_pack(&mut self, source: std::path::PathBuf) {
+        // pack.json → its containing directory, same as bundle.json → folder.
+        let is_manifest = source
+            .file_name()
+            .is_some_and(|n| n == asset_tap_core::PACK_MANIFEST);
+        let source = if is_manifest {
+            match source.parent() {
+                Some(dir) => dir.to_path_buf(),
+                None => source,
+            }
+        } else {
+            source
+        };
+        self.queued_pack_installs.push_back(source);
+        self.pump_pack_installs();
+    }
+
+    /// Start the next queued install once nothing else is touching
+    /// `packs_root()`. Installs wait on each other and on the workbench: two
+    /// at once would lose a completion channel, and one racing a bind/bake
+    /// would rewrite a pack the workbench is reading.
+    fn pump_pack_installs(&mut self) {
+        if self.pending_pack_install.is_some() || self.pending_workbench.is_some() {
             return;
         }
+        let Some(source) = self.queued_pack_installs.pop_front() else {
+            return;
+        };
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_workbench = Some(rx);
+        self.pending_pack_install = Some(rx);
+        self.add_toast(Toast::info(clip_packs::INSTALLING_PACK));
         self.runtime.spawn(async move {
             let result = tokio::task::spawn_blocking(move || {
-                asset_tap_core::install_pack_from(&dir, None)
-                    .map(|p| WorkbenchDone::PackInstalled {
-                        name: p.name,
-                        id: p.id,
-                        clips: p.clips.len(),
-                    })
+                asset_tap_core::install_pack_from(&source, None)
+                    .map(|p| (p.name, p.id, p.clips.len()))
                     .map_err(|e| e.to_string())
             })
             .await
-            .map_err(|e| e.to_string())
-            .and_then(std::convert::identity);
+            .unwrap_or_else(|e| Err(format!("Install task failed: {e}")));
             let _ = tx.send(result);
         });
     }
@@ -2444,12 +2858,6 @@ impl App {
                 }
                 WorkbenchDone::Preview { clip } => {
                     self.model_viewer.lock().unwrap().set_clip(*clip);
-                }
-                WorkbenchDone::PackInstalled { name, id, clips } => {
-                    self.refresh_clip_catalog();
-                    self.toasts.push(Toast::success(format!(
-                        "Installed {name} ({id}) with {clips} clips"
-                    )));
                 }
             },
             Ok(Err(e)) => {
@@ -2507,9 +2915,59 @@ impl App {
     }
 }
 
+/// Where a drop goes when there are no zones to land in.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ZonelessRoute {
+    pub packs: Vec<PathBuf>,
+    /// A lone still queues for generation, as it did before zones existed —
+    /// on a zoneless platform the sidebar slot is otherwise unreachable.
+    pub generation_image: Option<PathBuf>,
+    pub new_bundle: Vec<PathBuf>,
+}
+
+/// Split a drop by file type, for the platforms that can't report where it
+/// landed. `packs` is the subset already classified as clip packs, passed in
+/// because classifying a zip is expensive enough to be memoized by the caller.
+pub(crate) fn route_without_zones(dropped: Vec<PathBuf>, packs: &[PathBuf]) -> ZonelessRoute {
+    let mut route = ZonelessRoute::default();
+    let (stills, assets): (Vec<_>, Vec<_>) = dropped
+        .into_iter()
+        .filter(|p| {
+            if packs.contains(p) {
+                route.packs.push(p.clone());
+                false
+            } else {
+                true
+            }
+        })
+        .partition(|p| App::is_image_file(p));
+
+    if assets.is_empty() {
+        // Several stills and no mesh: the first is the generation input, the
+        // rest have nowhere sensible to go without a zone.
+        route.generation_image = stills.into_iter().next();
+    } else {
+        route.new_bundle = assets;
+        route.new_bundle.extend(stills);
+    }
+    route
+}
+
 impl eframe::App for App {
+    /// winit gives a file drag no coordinates, so nothing in egui knows where
+    /// a drop landed. Ask the OS and inject it as a pointer move before the
+    /// frame runs; every drop zone then works off ordinary egui hover state.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if raw_input.hovered_files.is_empty() && raw_input.dropped_files.is_empty() {
+            self.pack_drop_cache.clear();
+        }
+        crate::dnd::inject_drag_pointer(ctx, raw_input, &mut self.drag_pointer);
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_workbench();
+        // A queued install may have been waiting on that workbench job.
+        self.pump_pack_installs();
         let dt = ctx.input(|i| i.stable_dt);
         {
             let mut viewer = self.model_viewer.lock().unwrap();
@@ -2518,9 +2976,6 @@ impl eframe::App for App {
                 ctx.request_repaint();
             }
         }
-
-        // Window-level bundle drag & drop, before any panel reads input.
-        self.handle_bundle_drops(ctx);
 
         // Captured under the state lock and processed after release; see the
         // error-toast branch below for context.
@@ -2646,6 +3101,54 @@ impl eframe::App for App {
                     tracing::warn!("Import channel closed unexpectedly");
                 }
             }
+            self.pump_imports();
+        }
+
+        if let Some(mut rx) = self.pending_attach.take() {
+            match rx.try_recv() {
+                Ok(Ok(bundle_dir)) => {
+                    let tab = self.preview_tab;
+                    self.add_toast(Toast::success("Added to bundle"));
+                    self.activate_bundle_from_dir(bundle_dir);
+                    self.preview_tab = tab;
+                }
+                Ok(Err(msg)) => {
+                    tracing::error!("Bundle attach failed: {}", msg);
+                    self.toasts
+                        .push(Toast::error(format!("Could not add to bundle: {msg}")));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_attach = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("Attach channel closed unexpectedly");
+                }
+            }
+        }
+
+        if let Some(mut rx) = self.pending_pack_install.take() {
+            match rx.try_recv() {
+                Ok(Ok((name, id, clips))) => {
+                    self.refresh_clip_catalog();
+                    self.add_toast(Toast::success(format!(
+                        "Installed {name} ({id}) with {clips} clips"
+                    )));
+                }
+                Ok(Err(msg)) => {
+                    tracing::error!("Clip pack install failed: {}", msg);
+                    self.toasts
+                        .push(Toast::error(format!("Pack install failed: {msg}")));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.pending_pack_install = Some(rx);
+                    ctx.request_repaint();
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    tracing::warn!("Pack install channel closed unexpectedly");
+                }
+            }
+            self.pump_pack_installs();
         }
 
         // Check for completed demo bundle download
@@ -2681,19 +3184,20 @@ impl eframe::App for App {
                 })) => {
                     self.refresh_clip_catalog();
                     self.toasts.push(Toast::success(format!(
-                        "Installed {} animation pack{}",
+                        "Installed Universal Animation Libraries ({})",
                         installed.join(", "),
-                        if installed.len() == 1 { "" } else { "s" }
                     )));
                 }
                 Ok(Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { .. })) => {
-                    self.toasts
-                        .push(Toast::info("Animation packs already installed"));
+                    self.toasts.push(Toast::info(
+                        "Universal Animation Libraries already installed",
+                    ));
                 }
                 Ok(Err(msg)) => {
                     tracing::error!("Clip-pack download failed: {}", msg);
-                    self.toasts
-                        .push(Toast::error("Failed to download animation packs"));
+                    self.toasts.push(Toast::error(
+                        "Failed to download Universal Animation Libraries",
+                    ));
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
                     self.pending_clip_packs_download = Some(rx);
@@ -3102,12 +3606,10 @@ impl eframe::App for App {
                         // A folder can't be double-clicked in a file picker
                         // (that navigates), so the filter also accepts the
                         // folder's bundle.json — double-clicking THAT imports
-                        // the folder. Dragging a folder onto the window works
-                        // too.
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Bundle (zip or bundle.json)", &["zip", "json"])
-                            .pick_file()
-                        {
+                        // the folder. A loose .glb or image is wrapped into
+                        // a library bundle. Drop onto Bundle Info does
+                        // the same.
+                        if let Some(path) = pick_bundle_import_file() {
                             self.import_bundle(path);
                         }
                         ui.close();
@@ -3117,6 +3619,18 @@ impl eframe::App for App {
                         // double-clicking navigates into it.
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             self.import_bundle(path);
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Install Animation Pack...").clicked() {
+                        if let Some(path) = pick_pack_install_file() {
+                            self.install_clip_pack(path);
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Install Animation Pack Folder...").clicked() {
+                        if let Some(path) = pick_pack_install_folder() {
+                            self.install_clip_pack(path);
                         }
                         ui.close();
                     }
@@ -3216,6 +3730,7 @@ impl eframe::App for App {
             .min_size(250.0)
             .max_size(400.0)
             .show_inside(ui, |ui| {
+                let drop_rect = ui.max_rect();
                 if let Some(action) = self.bundle_info_panel.render(ui) {
                     match action {
                         views::bundle_info::BundleInfoAction::CopyPrompt(prompt) => {
@@ -3254,6 +3769,7 @@ impl eframe::App for App {
                         }
                     }
                 }
+                self.drop_import_on_bundle_info(ui.ctx(), drop_rect);
             });
 
         // Bottom panel - progress
@@ -3382,6 +3898,9 @@ impl eframe::App for App {
         // Render walkthrough overlay (must be last to draw on top of everything)
         self.walkthrough.render(ctx);
 
+        // After every zone has had its chance to claim this frame's drop.
+        self.drop_unclaimed(ctx);
+
         // Request repaint while pipeline is running or toasts are visible.
         // Throttle to ~10 FPS — plenty for spinners/toasts — instead of
         // repainting at the display's max rate for the whole (minutes-long)
@@ -3442,21 +3961,102 @@ fn bake_delta_of(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, PreviewTab, ToastType, bake_delta_of, build_startup_toasts, is_no_op_run,
-        is_remote_url, pick_preview_tab_for_output,
+        App, PreviewTab, ToastType, ZonelessRoute, bake_delta_of, build_startup_toasts,
+        is_no_op_run, is_remote_url, pick_preview_tab_for_output, route_without_zones,
     };
+
+    #[test]
+    fn zoneless_route_sends_a_lone_still_to_the_generation_slot() {
+        // The pre-zones behavior, and the only way to reach that slot on a
+        // platform that cannot report a drop position.
+        let route = route_without_zones(vec![PathBuf::from("ref.png")], &[]);
+        assert_eq!(
+            route,
+            ZonelessRoute {
+                packs: vec![],
+                generation_image: Some(PathBuf::from("ref.png")),
+                new_bundle: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn zoneless_route_pairs_a_still_with_a_mesh_into_one_bundle() {
+        let route = route_without_zones(
+            vec![PathBuf::from("ref.png"), PathBuf::from("hero.glb")],
+            &[],
+        );
+        assert_eq!(
+            route.generation_image, None,
+            "the still belongs to the pair"
+        );
+        assert_eq!(
+            route.new_bundle,
+            vec![PathBuf::from("hero.glb"), PathBuf::from("ref.png")]
+        );
+    }
+
+    #[test]
+    fn zoneless_route_installs_packs_and_imports_the_rest() {
+        let pack = PathBuf::from("Universal-Animation-Library.zip");
+        let mesh = PathBuf::from("hero.glb");
+        let route = route_without_zones(
+            vec![pack.clone(), mesh.clone()],
+            std::slice::from_ref(&pack),
+        );
+        assert_eq!(route.packs, vec![pack]);
+        assert_eq!(route.new_bundle, vec![mesh]);
+        assert_eq!(route.generation_image, None);
+    }
+
+    #[test]
+    fn zoneless_route_never_drops_a_file_on_the_floor() {
+        let files = vec![
+            PathBuf::from("a.png"),
+            PathBuf::from("b.jpg"),
+            PathBuf::from("hero.glb"),
+            PathBuf::from("ual1.zip"),
+        ];
+        let route = route_without_zones(files.clone(), &[PathBuf::from("ual1.zip")]);
+        let routed = route.packs.len()
+            + usize::from(route.generation_image.is_some())
+            + route.new_bundle.len();
+        assert_eq!(
+            routed,
+            files.len(),
+            "every dropped path must land somewhere"
+        );
+    }
 
     #[test]
     fn bundle_drop_routing_predicate() {
         use std::path::Path;
         let tmp = tempfile::tempdir().unwrap();
-        // Directories, zips, and bundle.json route to bundle import.
+        // Directories, zips, GLBs, and bundle.json route to bundle import
+        // unless they look like a clip pack (checked first on drop).
         assert!(App::is_bundle_drop(tmp.path()));
         assert!(App::is_bundle_drop(Path::new("helmet.zip")));
+        assert!(App::is_bundle_drop(Path::new("hero.glb")));
         assert!(App::is_bundle_drop(Path::new("run/bundle.json")));
-        // Images and arbitrary json do NOT.
-        assert!(!App::is_bundle_drop(Path::new("helmet.png")));
+        assert!(App::is_bundle_drop(Path::new("helmet.png")));
+        // Arbitrary json does NOT.
         assert!(!App::is_bundle_drop(Path::new("settings.json")));
+    }
+
+    #[test]
+    fn pack_drop_routing_predicate() {
+        use std::path::Path;
+        // Quaternius names and pack.json route to clip-pack install.
+        assert!(App::is_pack_drop(Path::new(
+            "Universal Animation Library 2[Source].zip"
+        )));
+        assert!(App::is_pack_drop(Path::new("UAL1_Standard.glb")));
+        assert!(App::is_pack_drop(Path::new("clips/pack.json")));
+        // A mesh / taphub bundle does not.
+        assert!(!App::is_pack_drop(Path::new("hero.glb")));
+        assert!(!App::is_pack_drop(Path::new("helmet.zip")));
+        assert!(!App::is_pack_drop(Path::new("run/bundle.json")));
+        assert!(!App::is_pack_drop(Path::new("helmet.png")));
     }
 
     #[test]

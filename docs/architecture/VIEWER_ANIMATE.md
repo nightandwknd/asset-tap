@@ -77,6 +77,15 @@ Packs live one directory deep under `packs_root()`:
 - Install picks the library from a download tree by **choosing the glTF
   with the most animations**, which skips the mannequin meshes that ship
   alongside it. `_RM` root-motion variants are ignored.
+- Drop zones: Bundle Info imports a new bundle; empty Image/3D tabs attach
+  the missing still/mesh; the Animation panel installs clip packs.
+  `looks_like_clip_pack` still classifies a Quaternius zip so it is not wrapped
+  into the library as `model.glb` when dropped on the preview. It wants name
+  **and** content: a strong Quaternius token stands alone, a weak `pack` /
+  `*_standard` / `*_source` one needs the clip count behind it, so a user's own
+  `hero_Source.glb` imports instead of being refused as a library. A zone only
+  knows a drop landed on it because `gui/src/dnd.rs` supplies the cursor
+  position winit withholds during a file drag; see CLAUDE.md.
 - Catalogs merge across installed packs; the first pack to claim a name
   wins, which matters only for `A_TPose`.
 - Alias order is authoritative, not pack order: `run` must mean the same
@@ -88,7 +97,7 @@ Packs live one directory deep under `packs_root()`:
 - The Quaternius Standard libraries live in repo `packs/` (trimmed GLBs) and
   ship as a hashed GitHub Release artifact (`clip-packs.zip` +
   `clip-packs-manifest.json`). They are **not** in the binary.
-  `clip download` / Download animation packs installs missing ids only;
+  `clip download` / Download Universal Animation Libraries installs missing ids only;
   `--force` refreshes packs stamped by a previous download and never
   replaces a `clip install` / Source pack.
 - Paid Source tiers install the same way (`clip install --from`, or

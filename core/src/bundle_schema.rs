@@ -44,6 +44,7 @@ pub mod modalities {
 /// Deterministic op names we emit today. The rest of the catalog is later.
 pub mod ops {
     pub const BIND: &str = "bind";
+    pub const IMPORT: &str = "import";
 }
 
 pub const ARTIFACT_IMAGE: &str = "image";
@@ -52,6 +53,7 @@ pub const ARTIFACT_MODEL: &str = "model";
 pub const STEP_IMAGE: &str = "image";
 pub const STEP_MODEL: &str = "model";
 pub const STEP_BIND: &str = "bind";
+pub const STEP_IMPORT: &str = "import";
 
 /// One file (or a dropped intermediate) in the bundle inventory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +183,8 @@ pub fn mime_for_path(path: &str) -> Option<String> {
         Some("png") => Some("image/png".into()),
         Some("jpg" | "jpeg") => Some("image/jpeg".into()),
         Some("webp") => Some("image/webp".into()),
+        Some("gif") => Some("image/gif".into()),
+        Some("avif") => Some("image/avif".into()),
         Some("glb") => Some("model/gltf-binary".into()),
         Some("gltf") => Some("model/gltf+json".into()),
         Some("fbx") => Some("application/octet-stream".into()),
@@ -254,6 +258,165 @@ pub fn describe_generation(
     let primary = primary_of(has_image, has_model);
 
     (artifacts, primary, pipeline)
+}
+
+/// Describe files already on disk as a v2 import: artifacts plus one `import` op.
+///
+/// No provider steps — we did not generate these files. `source` is the
+/// original filename when we renamed a loose asset (`hero.glb` → `model.glb`).
+pub fn describe_import(
+    bundle_dir: &Path,
+    source: Option<&str>,
+    model_info: Option<&ModelInfo>,
+) -> (Vec<Artifact>, Option<String>, BundlePipeline) {
+    let image_rel = bundle_files::IMAGE;
+    let model_rel = bundle_files::MODEL_GLB;
+    let has_image = bundle_dir.join(image_rel).is_file();
+    let has_model = bundle_dir.join(model_rel).is_file();
+
+    let mut artifacts = Vec::new();
+    let produced_by = Some(STEP_IMPORT.to_string());
+
+    if has_image {
+        artifacts.push(file_artifact(
+            bundle_dir,
+            ARTIFACT_IMAGE,
+            roles::IMAGE,
+            image_rel,
+            produced_by.clone(),
+            None,
+        ));
+    }
+
+    if has_model {
+        let mut art = file_artifact(
+            bundle_dir,
+            ARTIFACT_MODEL,
+            roles::MODEL,
+            model_rel,
+            produced_by.clone(),
+            None,
+        );
+        if let Some(info) = model_info {
+            art.file_size = Some(info.file_size);
+            art.format = Some(info.format.clone());
+            art.vertex_count = Some(info.vertex_count);
+            art.triangle_count = Some(info.triangle_count);
+        }
+        artifacts.push(art);
+    }
+
+    if let Some(textures) = list_textures(bundle_dir) {
+        for rel in textures {
+            let stem = Path::new(&rel)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("texture");
+            let id = format!("tex_{stem}");
+            artifacts.push(file_artifact(
+                bundle_dir,
+                &id,
+                roles::TEXTURE,
+                &rel,
+                produced_by.clone(),
+                None,
+            ));
+        }
+    }
+
+    let mut outputs = Vec::new();
+    if has_image {
+        outputs.push(ARTIFACT_IMAGE.to_string());
+    }
+    if has_model {
+        outputs.push(ARTIFACT_MODEL.to_string());
+    }
+
+    let mut params = HashMap::new();
+    if let Some(source) = source.filter(|s| !s.is_empty()) {
+        params.insert("source".into(), Value::String(source.to_string()));
+    }
+
+    let pipeline = BundlePipeline {
+        recipe: None,
+        steps: vec![PipelineStep::Op {
+            id: STEP_IMPORT.to_string(),
+            op: ops::IMPORT.to_string(),
+            params,
+            inputs: Vec::new(),
+            outputs,
+            duration_ms: None,
+        }],
+    };
+
+    (artifacts, primary_of(has_image, has_model), pipeline)
+}
+
+/// Fold an attach into a bundle that already carries real provenance.
+///
+/// [`describe_import`] stamps **every** artifact it finds with the `import`
+/// step, which is right for a bundle that *is* an import and wrong for a
+/// generated one: assigning that list wholesale would relabel a generated
+/// image as imported and point it at a step the pipeline does not contain.
+/// So each existing artifact keeps its own `produced_by`, `attached_id` is
+/// replaced (it is what this attach wrote), and anything else new — textures
+/// just extracted from the attached mesh — is taken as described.
+///
+/// Returns the ids that now cite [`STEP_IMPORT`], so the caller can make sure
+/// that step exists.
+pub fn merge_attached_artifacts(
+    existing: &mut Vec<Artifact>,
+    described: Vec<Artifact>,
+    attached_id: &str,
+) -> Vec<String> {
+    let mut imported = Vec::new();
+    for artifact in described {
+        match existing.iter_mut().find(|a| a.id == artifact.id) {
+            Some(slot) if slot.id == attached_id => {
+                imported.push(artifact.id.clone());
+                *slot = artifact;
+            }
+            // Untouched by this attach — its own provenance stands.
+            Some(_) => {}
+            None => {
+                imported.push(artifact.id.clone());
+                existing.push(artifact);
+            }
+        }
+    }
+    imported
+}
+
+/// Append an `import` step listing `outputs`, or extend the one already there.
+///
+/// An artifact whose `produced_by` is [`STEP_IMPORT`] is dangling until the
+/// pipeline actually holds that step.
+pub fn ensure_import_step(pipeline: &mut BundlePipeline, outputs: &[String]) {
+    if outputs.is_empty() {
+        return;
+    }
+    if let Some(PipelineStep::Op {
+        outputs: existing, ..
+    }) = pipeline
+        .steps
+        .iter_mut()
+        .find(|s| matches!(s, PipelineStep::Op { id, .. } if id == STEP_IMPORT))
+    {
+        for id in outputs {
+            if !existing.contains(id) {
+                existing.push(id.clone());
+            }
+        }
+        return;
+    }
+    pipeline.steps.push(PipelineStep::Op {
+        id: STEP_IMPORT.to_string(),
+        op: ops::IMPORT.to_string(),
+        params: HashMap::new(),
+        inputs: Vec::new(),
+        outputs: outputs.to_vec(),
+        duration_ms: None,
+    });
 }
 
 /// Synthesize a v2 inventory from v1 `config` fields and conventional paths.
@@ -584,6 +747,31 @@ mod tests {
                 assert_eq!(modality, modalities::TEXT_TO_3D);
             }
             other => panic!("expected model step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn describe_import_is_one_op_not_a_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(bundle_files::MODEL_GLB), b"fake-glb").unwrap();
+
+        let (artifacts, primary, pipeline) = describe_import(dir.path(), Some("hero.glb"), None);
+        assert_eq!(primary.as_deref(), Some(ARTIFACT_MODEL));
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts[0].produced_by.as_deref(), Some(STEP_IMPORT));
+        assert_eq!(pipeline.steps.len(), 1);
+        match &pipeline.steps[0] {
+            PipelineStep::Op {
+                op,
+                params,
+                outputs,
+                ..
+            } => {
+                assert_eq!(op, ops::IMPORT);
+                assert_eq!(params["source"], "hero.glb");
+                assert_eq!(outputs, &["model"]);
+            }
+            other => panic!("expected import op, got {other:?}"),
         }
     }
 
