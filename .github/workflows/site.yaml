@@ -18,18 +18,20 @@ permissions:
   contents: write
   pull-requests: write
 
-# One gh-pages writer at a time: on merge, the preview-removal run and the
-# publish run both push the branch; unserialized, the loser lands on a
-# stale ref and its Pages build shows up as a failed deployment.
+# One gh-pages writer at a time. Preview updates and publish must not
+# interleave; GitHub Pages also cancels an in-progress build when a second
+# commit lands, which is why merge used to mark every 🚀 publish as failed.
 concurrency:
   group: site-gh-pages
   cancel-in-progress: false
 
 jobs:
-  # PR: build preview + auto-cleanup on close
+  # PR: build preview, or remove it when the PR is closed without merging.
+  # A merge skips this job — publish drops that preview in the same commit
+  # so Pages only builds once.
   preview:
     name: Preview
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && (github.event.action != 'closed' || github.event.pull_request.merged == false)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -51,11 +53,10 @@ jobs:
         with:
           source-dir: site/public
 
-  # Merge: build and push to gh-pages (GitHub Pages deploys automatically).
+  # Merge: one push to gh-pages (GitHub Pages deploys automatically).
   # NOT the zola-deploy-action: it force-pushes gh-pages, which wiped live
-  # PR previews on every publish and made the preview-removal pushes fail
-  # against the rewritten ref. This deploy keeps pr-preview/ intact and
-  # pushes without force.
+  # PR previews on every publish. Open previews are copied into this commit
+  # and closed ones dropped, so we do not need a second cleanup push.
   publish:
     name: Publish
     if: github.event_name == 'push'
@@ -73,11 +74,28 @@ jobs:
         run: ./scripts/check-tokens-mirror.sh
       - name: Build site
         run: cd site && zola build
-      - name: Deploy to gh-pages, preserving PR previews
+      - name: Keep open PR previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin gh-pages --depth=1
+          git checkout origin/gh-pages -- pr-preview 2>/dev/null || true
+          if [ -d pr-preview ]; then
+            mkdir -p site/public
+            mv pr-preview site/public/pr-preview
+            for dir in site/public/pr-preview/pr-*; do
+              [ -d "$dir" ] || continue
+              n="${dir##*/pr-}"
+              state=$(gh pr view "$n" --json state --jq .state 2>/dev/null || echo CLOSED)
+              if [ "$state" != "OPEN" ]; then
+                rm -rf "$dir"
+              fi
+            done
+          fi
+      - name: Deploy to gh-pages, preserving open PR previews
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: site/public
           branch: gh-pages
           clean: true
-          clean-exclude: pr-preview
           force: false
