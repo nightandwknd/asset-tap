@@ -1275,7 +1275,7 @@ The result names the written model and the full baked clip set. See the
 </ul>
 <p>The rest pose we ship is derived from the first library. Both packs can sit
 side by side; catalogs merge.</p>
-<p><strong>Out of the box:</strong> <strong>Download animation packs</strong> in Help or Animate →
+<p><strong>Out of the box:</strong> <strong>Download Universal Animation Libraries</strong> in Help or Animate →
 <strong>Add pack...</strong> (or <code>asset-tap clip download</code> / <code>--json clip download</code> / MCP
 <code>clip_download</code>) pulls the Standard libraries from the latest Asset Tap
 release. The archive is hash-verified and is <strong>not</strong> inside the app.
@@ -1284,9 +1284,12 @@ yourself is never overwritten. <code>clip download --force</code> refreshes only
 stamped by a previous download.</p>
 <p>Each Quaternius page also has a free <strong>Standard</strong> download (the site button
 or Itch) and the remaining paid <strong>Source</strong> clips. Those zips install the
-same way: <strong>Add pack...</strong> or <code>clip install --from</code>. The pack id drops the
-tier suffix, so installing Source over Standard replaces that library
-rather than duplicating its clips.</p>
+same way: drop the <code>.zip</code> / folder / <code>.glb</code> on the <strong>Animation panel</strong>,
+<strong>Add pack...</strong>, File → <strong>Install Animation Pack...</strong>, or
+<code>clip install --from</code>. The overlay says "Drop to install animation pack"
+on that panel so a UAL archive is not imported as a library bundle.
+Dropping a pack on the preview toasts to use the Animation panel. The pack id drops the tier suffix, so installing Source
+over Standard replaces that library rather than duplicating its clips.</p>
 <h2 id="mcp">MCP<a class="zola-anchor" href="#mcp" aria-label="Anchor link for: mcp">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>

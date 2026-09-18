@@ -1283,7 +1283,7 @@
 <p><strong>Animate</strong> opens an optional panel beside the viewer: Rig, then Bind, then
 the clip list. This path is <a href="https://assettap.dev/docs/guides/animation/">experimental</a>.
 Fingers are not weighted, and the panel may change.</p>
-<p><strong>Download animation packs</strong> (Help, or Animate → <strong>Add pack...</strong>) fetches
+<p><strong>Download Universal Animation Libraries</strong> (Help, or Animate → <strong>Add pack...</strong>) fetches
 the Standard libraries from the latest release (hash-verified).
 Already-installed packs are left alone, so a Source upgrade is not overwritten.</p>
 <p>On an unbound mesh the first step is <strong>Rig</strong>: pose the shipped skeleton on a
@@ -1309,18 +1309,42 @@ off the body is refused by name. After a bind, click a clip to play it
   </span>
 </a>
 </h2>
-<p>Bring bundles into your library from anywhere -- a CLI run that used a custom
-output directory, a bundle someone shared, or an exported archive:</p>
+<p>Bring assets into your library from anywhere -- a CLI run that used a custom
+output directory, a bundle someone shared, an exported archive, or a lone
+<code>.glb</code> / image:</p>
 <ul>
-<li><strong>Drag &amp; drop</strong> -- drop a bundle folder, a <code>.zip</code> archive, or a bundle's
-<code>bundle.json</code> anywhere on the window.</li>
-<li><strong>File → Import Bundle...</strong> -- pick a <code>.zip</code>, or navigate into a bundle
-folder and double-click its <code>bundle.json</code>.</li>
+<li><strong>Drag &amp; drop (zones, not the whole window):</strong>
+<ul>
+<li><strong>Sidebar</strong> “Drop image here” — pipeline input (skip text-to-image).</li>
+<li><strong>Bundle Info</strong> — always a <strong>new</strong> library bundle
+(<code>.glb</code>, image, zip, folder, <code>bundle.json</code>). Drop a still and a mesh
+together to pair them.</li>
+<li><strong>Empty Image or 3D tab</strong> on an open bundle — attach the missing
+<code>image.png</code> / <code>model.glb</code>. The <strong>Add … to this bundle</strong> picker does
+the same. File → Import always creates a new bundle.</li>
+<li><strong>Animation panel</strong> — clip packs only. A UAL zip dropped on the
+preview is not wrapped as <code>model.glb</code>.</li>
+<li>Dropped somewhere that isn't a zone — the menu bar, the progress
+pane — and nothing is imported; a toast says where it belongs.</li>
+<li>On <strong>Linux</strong>, zones are unavailable: the window system reports no
+cursor position while files are being dragged, so a drop is routed by
+what it is instead of where it landed — a still becomes the pipeline
+input, a pack installs, and anything else becomes a new bundle. Use
+the <strong>File</strong> menu and the <strong>Add … to this bundle</strong> pickers to reach
+the other targets.</li>
+</ul>
+</li>
+<li><strong>File → Import Bundle...</strong> -- pick a <code>.zip</code>, a <code>.glb</code>, an image, or
+navigate into a bundle folder and double-click its <code>bundle.json</code>.</li>
 <li><strong>File → Import Bundle Folder...</strong> -- single-click the folder, then Open
 (double-clicking navigates into it -- that's the OS file picker, not us).</li>
+<li><strong>File → Install Animation Pack...</strong> -- a UAL <code>.zip</code> / <code>.glb</code>, or
+<strong>Install Animation Pack Folder...</strong> for an extracted download. Same
+as Animate → Add pack, or dropping the file on the Animation panel.</li>
 </ul>
-<p>Imports are copied into your library; the source is left untouched. Zips made
-with macOS's built-in Compress work fine.</p>
+<p>A loose <code>.glb</code> or image is copied into a new timestamped bundle with the
+standard filenames (<code>model.glb</code>, <code>image.png</code>) and a <code>bundle.json</code>. Imports
+leave the source untouched. Zips made with macOS's built-in Compress work fine.</p>
 <h2 id="settings">Settings<a class="zola-anchor" href="#settings" aria-label="Anchor link for: settings">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>

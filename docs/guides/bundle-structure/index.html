@@ -1315,6 +1315,20 @@ this run added. An empty array is a skinned T-pose (<code>--fit-only</code>).</l
 </ul>
 <p>Re-binding updates this step rather than appending another. A bundle carries
 at most one <code>bind</code> step.</p>
+<h3 id="the-import-step">The <code>import</code> step<a class="zola-anchor" href="#the-import-step" aria-label="Anchor link for: the-import-step">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>Wrapping a loose <code>.glb</code> or image (or a zip/folder that used non-standard
+names) writes one <code>kind: op</code> step with <code>op: "import"</code>. Artifacts still use
+the standard paths. <code>params.source</code> is the original filename when a file
+was renamed (<code>hero.glb</code> → <code>model.glb</code>). There is no provider step — these
+files were not generated. A still and a mesh dropped together, or the
+missing half attached to an open bundle, still land on <code>image.png</code> /
+<code>model.glb</code>.</p>
 <h2 id="privacy">Privacy<a class="zola-anchor" href="#privacy" aria-label="Anchor link for: privacy">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1529,6 +1543,14 @@ at most one <code>bind</code> step.</p>
       
       <a href="https://assettap.dev/docs/guides/bundle-structure/#the-bind-step-experimental">
         The bind step (experimental)
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
+      <a href="https://assettap.dev/docs/guides/bundle-structure/#the-import-step">
+        The import step
       </a>
       
     </li>
