@@ -2,6 +2,20 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.3 — 2026-09-18
+
+### Features
+
+- **gui:** import loose GLB/image as bundles with zone drops ([#86](https://github.com/nightandwknd/asset-tap/pull/86))
+
+  A dropped .glb or still becomes a library bundle with standard names.
+  Drops land on panes: generation input, Bundle Info, empty Image/3D
+  tabs, Animation packs. File → Import always makes a new bundle.
+
+  macOS and Windows follow the cursor during a file drag. Linux cannot,
+  so a still becomes the generation input, a pack installs, and
+  everything else imports.
+
 ## v26.9.2 — 2026-09-16
 
 ### Bug Fixes
