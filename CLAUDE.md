@@ -556,7 +556,7 @@ Both CI and Release use the same macOS universal build strategy (matrix build pe
 
 **Dependabot** (`.github/dependabot.yaml`): Cargo updates weekly (Sunday noon CST), GitHub Actions weekly. Uses `lockfile-only` versioning to avoid `Cargo.toml` churn. The egui stack (egui, eframe, egui_extras, egui-phosphor, glow) is ignored — these are version-locked for compatibility and must be upgraded together manually (see §10 above). All minor+patch updates are grouped into a single PR; major bumps surface as individual PRs.
 
-**Changelog:** [git-cliff](https://git-cliff.org/) (config in `cliff.toml`) prepends each new version onto `CHANGELOG.md` from Conventional Commits. Existing entries are not regenerated from git. The squash body is the release note: write it for people who use the app ([CONTRIBUTING.md](CONTRIBUTING.md)).
+**Changelog:** [git-cliff](https://git-cliff.org/) (config in `cliff.toml`) prepends each new version onto `CHANGELOG.md` from Conventional Commits. Existing entries are not regenerated from git. The squash commit is the release note: GitHub is set to `COMMIT_MESSAGES`, not the PR body. Write commit messages for people who use the app ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## File Locations Reference
 

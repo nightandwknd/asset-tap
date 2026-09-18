@@ -31,10 +31,16 @@ prepends each new version onto `CHANGELOG.md` and writes the GitHub Release note
 from your commit messages. A commit that doesn't follow the format won't be grouped
 correctly in the changelog.
 
-The repo squash-merges. The PR title is the changelog subject; the PR body is the
-detail under it. Write that body for people who use the app: what they can do now,
-what stopped working, how to invoke it. Design comparisons, type names, percentages,
-and bug postmortems belong in the review, not the GitHub Release.
+The repo squash-merges only. GitHub is set to `COMMIT_OR_PR_TITLE` +
+`COMMIT_MESSAGES` — the PR description is not read. One commit: that commit
+is the whole changelog entry. Several commits: the PR title is the subject,
+and the commit messages concatenate underneath. git-cliff strips trailers
+and the `*` bullets GitHub wraps around them.
+
+Write commit messages for people who use the app: what they can do now,
+what stopped working, how to invoke it. Design comparisons, type names,
+percentages, and bug postmortems belong in the review, not the GitHub
+Release.
 
 `docs(changelog)` commits are omitted from the notes so a wording fix is not itself
 a product entry.
@@ -78,7 +84,8 @@ If you're adding functionality, please also:
 ## Pull Request Process
 
 1. Fork the repo and create a branch off `main`.
-2. Make your change with a Conventional Commit message (or a Conventional Commit PR title).
+2. Make your change with a Conventional Commit message (that message is the
+   changelog entry; the PR title only wins when there is more than one commit).
 3. Run `make verify` and confirm it's clean.
 4. Open a pull request against `main`.
 5. CI must pass — formatting, clippy, type check, tests, docs, audit, and cross-platform

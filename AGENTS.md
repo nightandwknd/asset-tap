@@ -121,9 +121,10 @@ documents as `--list --json`, `auth list --json`, `--json clip download`, and th
 
 - Start with [CLAUDE.md](CLAUDE.md) (architecture, commands, invariants) and
   [CONTRIBUTING.md](CONTRIBUTING.md) (Conventional Commits, PR checklist).
-  The repo squash-merges: the PR title is the changelog subject and the PR
-  body is the GitHub Release note. Write that body for people who use the
-  app (see CONTRIBUTING.md).
+  The repo squash-merges. GitHub uses commit messages as the GitHub Release
+  note, not the PR body. One commit is the whole entry; several concatenate
+  under the PR title. Write those messages for people who use the app
+  (see CONTRIBUTING.md).
 - `make verify` before a PR; `make ci` to match CI exactly (fmt-check,
   clippy `-D warnings`, workflow/shell lint, changelog prepend, doc, audit, tests, the mock CLI
   suite, site build).

@@ -465,7 +465,7 @@ impl App {
 
 ### Commit Messages
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) format. These are parsed by [git-cliff](https://git-cliff.org/) (config: `cliff.toml`) to prepend each new version onto `CHANGELOG.md` and to write the GitHub Release notes. The squash-body rule lives in [CONTRIBUTING.md](../CONTRIBUTING.md).
+Use [Conventional Commits](https://www.conventionalcommits.org/) format. These are parsed by [git-cliff](https://git-cliff.org/) (config: `cliff.toml`) to prepend each new version onto `CHANGELOG.md` and to write the GitHub Release notes. GitHub squash uses commit messages, not the PR body; the rule lives in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ```
 type(scope): short description
