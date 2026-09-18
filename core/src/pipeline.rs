@@ -46,6 +46,7 @@ use crate::config::{create_generation_dir, create_generation_dir_in};
 use crate::constants::files::bundle as bundle_files;
 use crate::error_log::{ConfigSnapshot, ErrorLog, ErrorType};
 use crate::history::GenerationConfig;
+use crate::images::png_reencode;
 use crate::providers::{DynamicProvider, Provider, ProviderCapability, ProviderRegistry};
 use crate::rig::{BindOptions, DEFAULT_BIND_CLIP, bind_mesh};
 use crate::types::{ApprovalResponse, Error, PipelineOutput, Progress, Result, Stage};
@@ -542,48 +543,6 @@ fn log_stage_error(
         });
     if let Err(save_err) = error_log.save() {
         tracing::warn!("Failed to save error log: {}", save_err);
-    }
-}
-
-/// Re-encode image bytes to PNG when they aren't already.
-///
-/// Two things here assume PNG: the bundle contract fixes the filename at
-/// `image.png`, and the data-URI fallback for providers without an upload
-/// endpoint hardcodes `data:image/png;base64,`. Providers serve other formats
-/// — Meshy's text-to-image returns JPEG — and decoders that go by file
-/// extension reject the mismatch.
-///
-/// Returns `None` when the bytes are already PNG (the common case, no work) or
-/// when they can't be converted. A failed re-encode is non-fatal: keeping a
-/// usable image in the wrong container beats discarding a paid generation.
-fn png_reencode(bytes: &[u8]) -> Option<Vec<u8>> {
-    let format = match image::guess_format(bytes) {
-        Ok(image::ImageFormat::Png) => return None,
-        Ok(format) => format,
-        Err(e) => {
-            tracing::warn!("Unrecognized image format, writing bytes as-is: {e}");
-            return None;
-        }
-    };
-
-    let decoded = match image::load_from_memory_with_format(bytes, format) {
-        Ok(img) => img,
-        Err(e) => {
-            tracing::warn!("Could not decode {format:?} image for PNG re-encode: {e}");
-            return None;
-        }
-    };
-
-    let mut out = std::io::Cursor::new(Vec::new());
-    match decoded.write_to(&mut out, image::ImageFormat::Png) {
-        Ok(()) => {
-            tracing::info!("Re-encoded {format:?} image to PNG");
-            Some(out.into_inner())
-        }
-        Err(e) => {
-            tracing::warn!("Could not encode image as PNG: {e}");
-            None
-        }
     }
 }
 
@@ -1247,37 +1206,5 @@ mod tests {
         // With existing image
         let config = PipelineConfig::new().with_existing_image("http://example.com/image.png");
         assert_eq!(config.effective_image_model(), None);
-    }
-
-    /// Encode a 2x2 test image in `format`.
-    fn encode_sample(format: image::ImageFormat) -> Vec<u8> {
-        let img = image::DynamicImage::new_rgb8(2, 2);
-        let mut out = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut out, format).unwrap();
-        out.into_inner()
-    }
-
-    #[test]
-    fn png_bytes_are_left_alone() {
-        assert!(png_reencode(&encode_sample(image::ImageFormat::Png)).is_none());
-    }
-
-    #[test]
-    fn jpeg_bytes_are_reencoded_to_png() {
-        // Meshy serves JPEG, but the bundle writes it as image.png and the
-        // data-URI fallback labels it image/png — so the bytes have to follow.
-        let jpeg = encode_sample(image::ImageFormat::Jpeg);
-        let png = png_reencode(&jpeg).expect("JPEG must be re-encoded");
-        assert_eq!(
-            image::guess_format(&png).unwrap(),
-            image::ImageFormat::Png,
-            "re-encoded bytes are not PNG"
-        );
-    }
-
-    #[test]
-    fn undecodable_bytes_are_kept_as_is() {
-        // Never discard a paid generation over a failed container fix.
-        assert!(png_reencode(b"not an image at all").is_none());
     }
 }

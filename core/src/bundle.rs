@@ -300,6 +300,27 @@ impl BundleMetadata {
         }
     }
 
+    /// Build v2 metadata for a wrapped import (loose GLB/image, or a bundle
+    /// that arrived without `bundle.json`).
+    ///
+    /// Writes `artifacts` plus one `import` op. `name` is the display name
+    /// (usually the source stem). `source` is the original filename when we
+    /// renamed a loose asset onto the standard path.
+    pub fn for_import(bundle_dir: &Path, name: Option<String>, source: Option<&str>) -> Self {
+        let model_info = extract_model_info(&bundle_dir.join(files::MODEL_GLB));
+        let (artifacts, primary, pipeline) =
+            bundle_schema::describe_import(bundle_dir, source, model_info.as_ref());
+        Self {
+            version: SCHEMA_VERSION,
+            name,
+            generator: Some(GENERATOR.to_string()),
+            artifacts,
+            primary,
+            pipeline: Some(pipeline),
+            ..Default::default()
+        }
+    }
+
     /// Prompt, models, params, and mesh stats — pipeline/artifacts first,
     /// v1 `config` / `model_info` only to fill holes.
     pub fn generation_view(&self) -> GenerationView {
@@ -1208,12 +1229,240 @@ pub fn export_bundle_zip(bundle_dir: &Path, dest: &Path) -> Result<usize, String
     Ok(count)
 }
 
+/// Import a bundle zip, a bundle directory, or a loose GLB / image.
+///
+/// Loose files (and archives/folders that use non-standard names) are
+/// wrapped into a timestamped bundle with `model.glb` / `image.png` and a
+/// v2 `bundle.json`. A `bundle.json` path is treated as its parent folder.
+pub fn import_bundle(source: &Path, output_dir: &Path) -> Result<PathBuf, String> {
+    if source
+        .file_name()
+        .is_some_and(|n| n == bundle_files::METADATA)
+    {
+        let parent = source
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| "bundle.json has no parent directory".to_string())?;
+        return import_bundle_dir(parent, output_dir);
+    }
+    if source.is_dir() {
+        return import_bundle_dir(source, output_dir);
+    }
+    if is_glb_path(source) || crate::constants::files::is_image_path(source) {
+        return import_loose_asset(source, output_dir);
+    }
+    if source
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gltf"))
+    {
+        return Err(
+            "Import a .glb (self-contained). A .gltf needs its sidecar buffers.".to_string(),
+        );
+    }
+    if source
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+    {
+        return import_bundle_zip(source, output_dir);
+    }
+    if source
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    {
+        return Err(
+            "That JSON isn't a bundle.json. Pick the bundle.json inside a bundle folder, a .zip, a .glb, or an image"
+                .to_string(),
+        );
+    }
+    Err("Import a bundle folder, .zip, .glb, or image (png/jpg/webp/gif/avif)".to_string())
+}
+
+/// Copy a single GLB or image into a new timestamped bundle.
+fn import_loose_asset(source: &Path, output_dir: &Path) -> Result<PathBuf, String> {
+    if !source.is_file() {
+        return Err(format!("Not a file: {}", source.display()));
+    }
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let tmp_dir = tempfile::tempdir_in(output_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| "Source path has no file name".to_string())?;
+    std::fs::copy(source, tmp_dir.path().join(file_name))
+        .map_err(|e| format!("Failed to copy {}: {}", source.display(), e))?;
+
+    finalize_imported_bundle(tmp_dir, output_dir, 1)
+}
+
+/// Copy several loose GLBs / images into one timestamped bundle.
+///
+/// Used when the user drops a still and a mesh together. Promotion still
+/// picks the largest file of each kind.
+pub fn import_loose_files(sources: &[PathBuf], output_dir: &Path) -> Result<PathBuf, String> {
+    if sources.is_empty() {
+        return Err("Nothing to import".to_string());
+    }
+    if sources.len() == 1 {
+        return import_bundle(&sources[0], output_dir);
+    }
+    for source in sources {
+        if !(is_glb_path(source) || crate::constants::files::is_image_path(source)) {
+            return Err(format!(
+                "Pair import only accepts .glb and images, not {}",
+                source.display()
+            ));
+        }
+    }
+
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let tmp_dir = tempfile::tempdir_in(output_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    for source in sources {
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| "Source path has no file name".to_string())?;
+        std::fs::copy(source, tmp_dir.path().join(file_name))
+            .map_err(|e| format!("Failed to copy {}: {}", source.display(), e))?;
+    }
+
+    finalize_imported_bundle(tmp_dir, output_dir, sources.len())
+}
+
+/// Write a loose GLB or image into an existing bundle as `model.glb` / `image.png`.
+///
+/// Source file is left untouched. Replaces the matching slot if it already
+/// exists, dropping the old model's textures with it. Textures are extracted
+/// from a newly attached GLB. An image that can't be decoded is refused rather
+/// than written as an unreadable `image.png`.
+pub fn attach_to_bundle(bundle_dir: &Path, source: &Path) -> Result<PathBuf, String> {
+    if !bundle_dir.is_dir() {
+        return Err(format!("Not a bundle directory: {}", bundle_dir.display()));
+    }
+    let attached = if is_glb_path(source) {
+        let dest = bundle_dir.join(files::MODEL_GLB);
+        let replacing = dest.is_file();
+        std::fs::copy(source, &dest)
+            .map_err(|e| format!("Failed to copy {}: {e}", source.display()))?;
+        if replacing {
+            // The old mesh's textures do not belong to the new one, and
+            // `extract_imported_textures` skips a directory that already has
+            // files — so without this the bundle keeps the previous set.
+            clear_textures(bundle_dir);
+        }
+        bundle_schema::ARTIFACT_MODEL
+    } else if crate::constants::files::is_image_path(source) {
+        let dest = bundle_dir.join(files::IMAGE);
+        let bytes = std::fs::read(source)
+            .map_err(|e| format!("Failed to read {}: {e}", source.display()))?;
+        let out = crate::images::to_png(bytes)
+            .ok_or_else(|| format!("Could not read {} as an image", source.display()))?;
+        std::fs::write(&dest, out)
+            .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
+        bundle_schema::ARTIFACT_IMAGE
+    } else {
+        return Err("Attach a .glb or an image (png/jpg/webp/gif/avif)".to_string());
+    };
+
+    // Before restamping: `describe_import` inventories whatever textures are
+    // on disk. Runs for an image attach too — the bundle may have arrived
+    // without its mesh's textures extracted.
+    extract_imported_textures(bundle_dir);
+    restamp_after_attach(bundle_dir, attached)?;
+    Ok(bundle_dir.to_path_buf())
+}
+
+/// Whether `dir` contains bundles rather than being one.
+fn holds_nested_bundles(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .any(|e| e.file_type().is_ok_and(|t| t.is_dir()) && looks_like_bundle(&e.path()))
+}
+
+fn clear_textures(bundle_dir: &Path) {
+    let textures = bundle_dir.join(files::TEXTURES_DIR);
+    if !textures.is_dir() {
+        return;
+    }
+    if let Err(e) = std::fs::remove_dir_all(&textures) {
+        warn!(
+            "Could not clear stale textures in {}: {e}",
+            textures.display()
+        );
+    }
+}
+
+/// Restamp `bundle.json` after [`attach_to_bundle`] wrote `attached`.
+///
+/// A bundle that is itself an import can be described from scratch. A
+/// *generated* bundle cannot: `describe_import` marks everything `import`, so
+/// its artifacts are merged instead, leaving the generated ones with the
+/// provenance they earned. Reachable whenever a run produced only one half —
+/// `--image-only`, or a failed 3D stage — and the user adds the other.
+fn restamp_after_attach(bundle_dir: &Path, attached: &str) -> Result<(), String> {
+    let model_info = extract_model_info(&bundle_dir.join(files::MODEL_GLB));
+    let (artifacts, primary, import_pipeline) =
+        bundle_schema::describe_import(bundle_dir, None, model_info.as_ref());
+
+    match BundleMetadata::load(bundle_dir).map_err(|e| e.to_string())? {
+        None => {
+            let metadata = BundleMetadata::for_import(bundle_dir, None, None);
+            metadata.save(bundle_dir).map_err(|e| e.to_string())
+        }
+        Some(mut metadata) => {
+            if pipeline_is_import_only(&metadata.pipeline) {
+                metadata.artifacts = artifacts;
+                metadata.primary = primary;
+                metadata.pipeline = Some(import_pipeline);
+            } else {
+                let imported = bundle_schema::merge_attached_artifacts(
+                    &mut metadata.artifacts,
+                    artifacts,
+                    attached,
+                );
+                if metadata.primary.is_none() {
+                    metadata.primary = primary;
+                }
+                // Those artifacts now cite the `import` step, so it has to be
+                // in the pipeline or they dangle.
+                bundle_schema::ensure_import_step(
+                    metadata.pipeline.get_or_insert_with(Default::default),
+                    &imported,
+                );
+            }
+            metadata.save(bundle_dir).map_err(|e| e.to_string())
+        }
+    }
+}
+
+fn pipeline_is_import_only(pipeline: &Option<bundle_schema::BundlePipeline>) -> bool {
+    let Some(p) = pipeline else {
+        return true;
+    };
+    p.steps.is_empty()
+        || p.steps.iter().all(|s| {
+            matches!(
+                s,
+                bundle_schema::PipelineStep::Op { op, .. } if op == bundle_schema::ops::IMPORT
+            )
+        })
+}
+
 /// Import a bundle from a zip archive into the output directory.
 ///
 /// Extracts the zip contents into a new timestamped directory. If the zip
 /// contains a top-level folder, files are flattened (same as demo download).
 /// The extracted bundle must contain at least an image or model to be valid.
-/// If no `bundle.json` is present, metadata is inferred from the directory.
+/// Loose `.glb` / image files are renamed onto the standard paths.
+/// If no `bundle.json` is present, v2 metadata is written from the files.
 ///
 /// Extraction is atomic: files go to a temp directory first and are only
 /// renamed to the final path on success.
@@ -1310,29 +1559,45 @@ fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) -> Result<(), S
     Ok(())
 }
 
-/// Shared tail of bundle import: validate the staged contents, infer metadata
-/// when bundle.json is absent, and atomically move the staging directory to
-/// its final timestamped home.
+/// Shared tail of bundle import: normalize loose filenames onto the bundle
+/// contract, extract textures from a GLB when missing, write v2 metadata
+/// when bundle.json is absent, and atomically move the staging directory
+/// to its final timestamped home.
 fn finalize_imported_bundle(
     tmp_dir: tempfile::TempDir,
     output_dir: &Path,
     file_count: usize,
 ) -> Result<PathBuf, String> {
-    // Validate: must contain at least an image or model.
+    let promoted = normalize_imported_layout(tmp_dir.path())?;
+    extract_imported_textures(tmp_dir.path());
+
+    // Validate: must contain at least an image or model after promotion.
     let mut contents = BundleContents::default();
     let mut issues = Vec::new();
     scan_bundle_contents(tmp_dir.path(), &mut contents, &mut issues);
 
     if !contents.has_content() {
+        // A parent of bundles walks to nothing, because the walk skips nested
+        // bundles on purpose. Say that, rather than implying it held no assets.
+        if holds_nested_bundles(tmp_dir.path()) {
+            return Err(
+                "That folder holds bundles — import one of them, not the folder around them"
+                    .to_string(),
+            );
+        }
         return Err(
-            "Bundle must contain at least an image (image.png) or model (model.glb)".to_string(),
+            "Need an image or a .glb to import (standard names or any filename)".to_string(),
         );
     }
 
-    // If no bundle.json, create inferred metadata so the bundle has a name.
+    // If no bundle.json, write v2 metadata so the library sees artifacts.
     let metadata_path = tmp_dir.path().join(bundle_files::METADATA);
     if !metadata_path.exists() {
-        let metadata = BundleMetadata::default();
+        let metadata = BundleMetadata::for_import(
+            tmp_dir.path(),
+            promoted.as_deref().and_then(display_name_from_stem),
+            promoted.as_deref(),
+        );
         if let Err(e) = metadata.save(tmp_dir.path()) {
             warn!("Failed to write inferred metadata: {}", e);
         }
@@ -1352,6 +1617,215 @@ fn finalize_imported_bundle(
     );
 
     Ok(final_dir)
+}
+
+fn is_glb_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("glb"))
+}
+
+/// Promote a loose `.glb` / image onto `model.glb` / `image.png`.
+///
+/// Returns the original filename when a non-standard file was promoted, so
+/// the import step can record it.
+fn normalize_imported_layout(dir: &Path) -> Result<Option<String>, String> {
+    let model_dest = dir.join(files::MODEL_GLB);
+    let image_dest = dir.join(files::IMAGE);
+
+    let (glbs, images) = collect_import_candidates(dir)?;
+    let mut promoted_from = None;
+    let mut promoted = Vec::new();
+
+    if !is_valid_file(&model_dest)
+        && let Some(src) = pick_largest(&glbs)
+    {
+        promoted_from = src.file_name().map(|n| n.to_string_lossy().into_owned());
+        promote_file(&src, &model_dest)?;
+        promoted.push(src);
+    }
+
+    if !is_valid_file(&image_dest)
+        && let Some(src) = pick_largest(&images)
+    {
+        if promoted_from.is_none() {
+            promoted_from = src.file_name().map(|n| n.to_string_lossy().into_owned());
+        }
+        promote_image(&src, &image_dest)?;
+        promoted.push(src);
+    }
+
+    if promoted_from.is_some() {
+        // "Filenames are ALWAYS standard" — the runners-up would otherwise
+        // ship inside the bundle under their original names. These are our
+        // own copies in a temp directory; the user's files are untouched.
+        discard_unpromoted(dir, &glbs, &images, &promoted, &model_dest, &image_dest);
+    }
+
+    Ok(promoted_from)
+}
+
+fn discard_unpromoted(
+    dir: &Path,
+    glbs: &[PathBuf],
+    images: &[PathBuf],
+    promoted: &[PathBuf],
+    model_dest: &Path,
+    image_dest: &Path,
+) {
+    for path in glbs.iter().chain(images) {
+        if path == model_dest || path == image_dest || promoted.contains(path) {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_file(path) {
+            warn!("Could not drop extra import file {}: {e}", path.display());
+        }
+    }
+    prune_empty_dirs(dir, dir);
+}
+
+/// Remove directories left empty by promotion, `root` itself excepted.
+fn prune_empty_dirs(dir: &Path, root: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            prune_empty_dirs(&path, root);
+        }
+    }
+    if dir != root
+        && std::fs::read_dir(dir).is_ok_and(|mut e| e.next().is_none())
+        && let Err(e) = std::fs::remove_dir(dir)
+    {
+        warn!(
+            "Could not remove empty import directory {}: {e}",
+            dir.display()
+        );
+    }
+}
+
+fn extract_imported_textures(dir: &Path) {
+    let model = dir.join(files::MODEL_GLB);
+    if !is_valid_file(&model) {
+        return;
+    }
+    let textures = dir.join(files::TEXTURES_DIR);
+    if textures.is_dir() && count_textures(&textures) > 0 {
+        return;
+    }
+    match crate::textures::extract_textures(&model, dir) {
+        Ok(Some(_)) => info!("Extracted textures from imported model"),
+        Ok(None) => {}
+        Err(e) => warn!("Could not extract textures from imported model: {e}"),
+    }
+}
+
+/// How deep to look for a mesh or still inside a dropped folder or archive.
+/// Deep enough for the one-folder-per-export layouts tools produce, shallow
+/// enough that a whole asset library doesn't get swept into one bundle.
+const MAX_IMPORT_DEPTH: usize = 4;
+
+fn collect_import_candidates(dir: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
+    let mut glbs = Vec::new();
+    let mut images = Vec::new();
+    collect_import_candidates_walk(dir, &mut glbs, &mut images, 0)?;
+    Ok((glbs, images))
+}
+
+fn collect_import_candidates_walk(
+    dir: &Path,
+    glbs: &mut Vec<PathBuf>,
+    images: &mut Vec<PathBuf>,
+    depth: usize,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if is_macos_archive_junk(&name_str) {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to stat {}: {}", path.display(), e))?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            // Don't treat extracted GLB textures as a preview image.
+            if name == files::TEXTURES_DIR {
+                continue;
+            }
+            // A nested bundle is its own asset, not raw material for this one.
+            // Without this, dropping a folder of bundles collapsed the whole
+            // library into a single bundle keyed on the largest mesh in it.
+            if looks_like_bundle(&path) {
+                continue;
+            }
+            if depth + 1 > MAX_IMPORT_DEPTH {
+                continue;
+            }
+            collect_import_candidates_walk(&path, glbs, images, depth + 1)?;
+            continue;
+        }
+        if !is_valid_file(&path) {
+            continue;
+        }
+        if is_glb_path(&path) {
+            glbs.push(path);
+        } else if crate::constants::files::is_image_path(&path) {
+            images.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn pick_largest(paths: &[PathBuf]) -> Option<PathBuf> {
+    paths
+        .iter()
+        .max_by_key(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+        .cloned()
+}
+
+fn promote_file(src: &Path, dest: &Path) -> Result<(), String> {
+    if src == dest {
+        return Ok(());
+    }
+    std::fs::copy(src, dest)
+        .map_err(|e| format!("Failed to copy {} → {}: {e}", src.display(), dest.display()))?;
+    if src != dest {
+        let _ = std::fs::remove_file(src);
+    }
+    Ok(())
+}
+
+fn promote_image(src: &Path, dest: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(src).map_err(|e| format!("Failed to read {}: {e}", src.display()))?;
+    let out = crate::images::to_png(bytes)
+        .ok_or_else(|| format!("Could not read {} as an image", src.display()))?;
+    std::fs::write(dest, out).map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
+    if src != dest {
+        let _ = std::fs::remove_file(src);
+    }
+    Ok(())
+}
+
+fn display_name_from_stem(filename: &str) -> Option<String> {
+    let stem = Path::new(filename).file_stem()?.to_str()?;
+    match stem.to_ascii_lowercase().as_str() {
+        "image" | "model" | "bundle" => None,
+        _ => {
+            let cleaned = sanitize_string(stem, validation::MAX_NAME_LENGTH);
+            if cleaned.is_empty() {
+                None
+            } else {
+                Some(cleaned)
+            }
+        }
+    }
 }
 
 /// macOS Archive Utility (Finder's "Compress") pollutes zips with AppleDouble
@@ -2391,7 +2865,372 @@ mod tests {
         std::fs::create_dir_all(&no_assets).unwrap();
         std::fs::write(no_assets.join("readme.txt"), b"hi").unwrap();
         let err = import_bundle_dir(&no_assets, &output_dir).unwrap_err();
-        assert!(err.contains("image (image.png) or model (model.glb)"));
+        assert!(err.contains("image") && err.contains(".glb"));
+    }
+
+    fn encode_sample_image(format: image::ImageFormat) -> Vec<u8> {
+        let img = image::DynamicImage::new_rgb8(2, 2);
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, format).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn import_loose_glb_wraps_into_a_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("hero.glb");
+        std::fs::write(&src, b"fake-glb").unwrap();
+        let output_dir = tmp.path().join("library");
+
+        let bundle_dir = import_bundle(&src, &output_dir).expect("loose glb imports");
+        assert!(bundle_dir.join(files::MODEL_GLB).exists());
+        assert!(!bundle_dir.join("hero.glb").exists());
+        assert!(src.exists(), "source file is left untouched");
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.version, 2);
+        assert_eq!(meta.name.as_deref(), Some("hero"));
+        assert_eq!(meta.primary.as_deref(), Some("model"));
+        let step = &meta.pipeline.as_ref().unwrap().steps[0];
+        match step {
+            bundle_schema::PipelineStep::Op { op, params, .. } => {
+                assert_eq!(op, bundle_schema::ops::IMPORT);
+                assert_eq!(params["source"], "hero.glb");
+            }
+            other => panic!("expected import op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn import_dir_with_nonstandard_glb_name_promotes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("export");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("hero.glb"), b"fake-glb").unwrap();
+
+        let bundle_dir = import_bundle(&src, &tmp.path().join("library")).expect("dir glb imports");
+        assert!(bundle_dir.join(files::MODEL_GLB).exists());
+        assert!(!bundle_dir.join("hero.glb").exists());
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.name.as_deref(), Some("hero"));
+        let step = &meta.pipeline.as_ref().unwrap().steps[0];
+        match step {
+            bundle_schema::PipelineStep::Op { op, params, .. } => {
+                assert_eq!(op, bundle_schema::ops::IMPORT);
+                assert_eq!(params["source"], "hero.glb");
+            }
+            other => panic!("expected import op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn import_glb_and_jpeg_together_make_one_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let glb = tmp.path().join("hero.glb");
+        let jpg = tmp.path().join("hero.jpg");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        std::fs::write(&jpg, encode_sample_image(image::ImageFormat::Jpeg)).unwrap();
+
+        let bundle_dir =
+            import_loose_files(&[glb.clone(), jpg.clone()], &tmp.path().join("library"))
+                .expect("pair import");
+        assert!(bundle_dir.join(files::MODEL_GLB).exists());
+        assert!(bundle_dir.join(files::IMAGE).exists());
+        assert!(!bundle_dir.join("hero.glb").exists());
+        let bytes = std::fs::read(bundle_dir.join(files::IMAGE)).unwrap();
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.primary.as_deref(), Some("model"));
+        assert_eq!(meta.name.as_deref(), Some("hero"));
+    }
+
+    #[test]
+    fn attach_image_to_imported_glb_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        let bundle_dir =
+            import_bundle(&glb, &tmp.path().join("library")).expect("loose glb imports");
+        assert!(!bundle_dir.join(files::IMAGE).exists());
+
+        let jpg = tmp.path().join("ref.jpg");
+        std::fs::write(&jpg, encode_sample_image(image::ImageFormat::Jpeg)).unwrap();
+        attach_to_bundle(&bundle_dir, &jpg).expect("attach image");
+        assert!(jpg.exists(), "source image is left untouched");
+
+        let image_path = bundle_dir.join(files::IMAGE);
+        assert!(image_path.exists());
+        let bytes = std::fs::read(&image_path).unwrap();
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.primary.as_deref(), Some("model"));
+        assert!(
+            meta.artifacts.iter().any(|a| a.id == "image"),
+            "image artifact recorded"
+        );
+        let step = &meta.pipeline.as_ref().unwrap().steps[0];
+        match step {
+            bundle_schema::PipelineStep::Op { outputs, .. } => {
+                assert!(outputs.iter().any(|o| o == "image"));
+                assert!(outputs.iter().any(|o| o == "model"));
+            }
+            other => panic!("expected import op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn attach_to_a_generated_bundle_keeps_the_generated_provenance() {
+        // An --image-only run (or one whose 3D stage failed) leaves a real
+        // pipeline and no model. Adding the mesh must not relabel the image
+        // as imported, nor leave it citing a step that isn't there.
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle_dir = tmp.path().join("2026-01-01_120000");
+        std::fs::create_dir_all(&bundle_dir).unwrap();
+        std::fs::write(
+            bundle_dir.join(files::IMAGE),
+            encode_sample_image(image::ImageFormat::Png),
+        )
+        .unwrap();
+
+        let mut metadata = BundleMetadata::for_import(&bundle_dir, None, None);
+        metadata.artifacts = vec![bundle_schema::Artifact {
+            id: "image".into(),
+            role: "image".into(),
+            path: Some(files::IMAGE.into()),
+            mime: None,
+            sha256: None,
+            produced_by: Some("image".into()),
+            width: None,
+            height: None,
+            texture_kind: None,
+            file_size: None,
+            format: None,
+            vertex_count: None,
+            triangle_count: None,
+        }];
+        metadata.primary = Some("image".into());
+        metadata.pipeline = Some(bundle_schema::BundlePipeline {
+            recipe: None,
+            steps: vec![bundle_schema::PipelineStep::Model {
+                id: "image".into(),
+                provider: Some("fal".into()),
+                model: "fal-ai/flux-2".into(),
+                modality: "text_to_image".into(),
+                prompt: Some("a knight".into()),
+                user_prompt: None,
+                template: None,
+                params: Default::default(),
+                inputs: Vec::new(),
+                outputs: vec!["image".into()],
+                duration_ms: None,
+            }],
+        });
+        metadata.save(&bundle_dir).unwrap();
+
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        attach_to_bundle(&bundle_dir, &glb).expect("attach glb");
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        let image = meta
+            .artifacts
+            .iter()
+            .find(|a| a.id == "image")
+            .expect("image artifact survives");
+        assert_eq!(
+            image.produced_by.as_deref(),
+            Some("image"),
+            "generated image must keep its own step"
+        );
+        let model = meta
+            .artifacts
+            .iter()
+            .find(|a| a.id == "model")
+            .expect("model artifact added");
+        assert_eq!(model.produced_by.as_deref(), Some("import"));
+
+        let steps = &meta.pipeline.as_ref().unwrap().steps;
+        assert!(
+            steps.iter().any(
+                |s| matches!(s, bundle_schema::PipelineStep::Model { id, .. } if id == "image")
+            ),
+            "the generation step is still there"
+        );
+        let import = steps
+            .iter()
+            .find(|s| matches!(s, bundle_schema::PipelineStep::Op { id, .. } if id == "import"))
+            .expect("an import step exists for the attached artifact");
+        match import {
+            bundle_schema::PipelineStep::Op { outputs, .. } => {
+                assert_eq!(outputs, &vec!["model".to_string()]);
+            }
+            other => panic!("expected import op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn attaching_a_replacement_model_drops_the_old_textures() {
+        let tmp = tempfile::tempdir().unwrap();
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        let bundle_dir =
+            import_bundle(&glb, &tmp.path().join("library")).expect("loose glb imports");
+
+        let textures = bundle_dir.join(files::TEXTURES_DIR);
+        std::fs::create_dir_all(&textures).unwrap();
+        std::fs::write(textures.join("old_basecolor.png"), b"stale").unwrap();
+
+        let replacement = tmp.path().join("hero_v2.glb");
+        std::fs::write(&replacement, b"fake-glb-two").unwrap();
+        attach_to_bundle(&bundle_dir, &replacement).expect("attach replacement");
+
+        assert!(
+            !textures.join("old_basecolor.png").exists(),
+            "the previous model's textures must not survive it"
+        );
+    }
+
+    #[test]
+    fn importing_an_undecodable_image_is_refused() {
+        // Symmetry with attach: the user handed us this file and can hand us
+        // another, so a broken still must not land as image.png.
+        let tmp = tempfile::tempdir().unwrap();
+        let broken = tmp.path().join("broken.png");
+        std::fs::write(&broken, b"not an image at all").unwrap();
+
+        let err = import_bundle(&broken, &tmp.path().join("library"))
+            .expect_err("a broken still must not import");
+        assert!(err.contains("Could not read"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn attaching_an_undecodable_image_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        let bundle_dir =
+            import_bundle(&glb, &tmp.path().join("library")).expect("loose glb imports");
+
+        let broken = tmp.path().join("broken.png");
+        std::fs::write(&broken, b"not an image at all").unwrap();
+        let err = attach_to_bundle(&bundle_dir, &broken).expect_err("must refuse");
+        assert!(err.contains("Could not read"), "unexpected error: {err}");
+        assert!(
+            !bundle_dir.join(files::IMAGE).exists(),
+            "no unreadable image.png is left behind"
+        );
+    }
+
+    #[test]
+    fn a_folder_of_bundles_is_not_collapsed_into_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let library = tmp.path().join("my-library");
+        for (name, glb) in [("run-a", &b"glb-a"[..]), ("run-b", &b"glb-bbbb"[..])] {
+            let dir = library.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(files::MODEL_GLB), glb).unwrap();
+            std::fs::write(
+                dir.join(files::IMAGE),
+                encode_sample_image(image::ImageFormat::Png),
+            )
+            .unwrap();
+            std::fs::write(dir.join(files::METADATA), b"{\"version\":2}").unwrap();
+        }
+
+        let err = import_bundle(&library, &tmp.path().join("out"))
+            .expect_err("a parent of bundles is not itself a bundle");
+        assert!(
+            err.contains("holds bundles"),
+            "the error should say what the folder is, not that it was empty: {err}"
+        );
+    }
+
+    #[test]
+    fn attach_glb_to_imported_image_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let png = tmp.path().join("photo.png");
+        std::fs::write(&png, encode_sample_image(image::ImageFormat::Png)).unwrap();
+        let bundle_dir =
+            import_bundle(&png, &tmp.path().join("library")).expect("loose png imports");
+        assert!(!bundle_dir.join(files::MODEL_GLB).exists());
+
+        let glb = tmp.path().join("hero.glb");
+        std::fs::write(&glb, b"fake-glb").unwrap();
+        attach_to_bundle(&bundle_dir, &glb).expect("attach glb");
+        assert!(glb.exists(), "source glb is left untouched");
+        assert!(bundle_dir.join(files::MODEL_GLB).exists());
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.primary.as_deref(), Some("model"));
+    }
+
+    #[test]
+    fn import_loose_jpeg_reencodes_to_image_png() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("photo.jpg");
+        std::fs::write(&src, encode_sample_image(image::ImageFormat::Jpeg)).unwrap();
+        let output_dir = tmp.path().join("library");
+
+        let bundle_dir = import_bundle(&src, &output_dir).expect("loose jpeg imports");
+        let image_path = bundle_dir.join(files::IMAGE);
+        assert!(image_path.exists());
+        let bytes = std::fs::read(&image_path).unwrap();
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.name.as_deref(), Some("photo"));
+        assert_eq!(meta.primary.as_deref(), Some("image"));
+    }
+
+    #[test]
+    fn import_zip_with_nonstandard_glb_name_promotes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("pack.zip");
+        let zip_data = create_test_zip(&[("assets/hero.glb", b"fake-glb")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let bundle_dir =
+            import_bundle_zip(&zip_path, &tmp.path().join("library")).expect("zip glb imports");
+        assert!(bundle_dir.join(files::MODEL_GLB).exists());
+        assert!(!bundle_dir.join("assets/hero.glb").exists());
+
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.name.as_deref(), Some("hero"));
+    }
+
+    #[test]
+    fn import_gltf_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("hero.gltf");
+        std::fs::write(&src, b"{}").unwrap();
+        let err = import_bundle(&src, tmp.path()).unwrap_err();
+        assert!(err.contains(".glb"), "{err}");
+    }
+
+    #[test]
+    fn inferred_metadata_for_standard_bundle_is_v2_import() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let zip_data = create_test_zip(&[("image.png", b"fake-png"), ("model.glb", b"fake-glb")]);
+        std::fs::write(&zip_path, &zip_data).unwrap();
+
+        let bundle_dir = import_bundle_zip(&zip_path, &tmp.path().join("out")).unwrap();
+        let meta = BundleMetadata::load(&bundle_dir).unwrap().unwrap();
+        assert_eq!(meta.version, 2);
+        assert_eq!(meta.artifacts.len(), 2);
+        assert!(meta.name.is_none());
     }
 
     #[test]

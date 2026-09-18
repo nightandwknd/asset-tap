@@ -118,7 +118,7 @@ pub enum BundleInfoAction {
     SwitchBundle(PathBuf),
     /// User wants to export the bundle — contains (bundle_dir, destination_path).
     ExportBundle(PathBuf, PathBuf),
-    /// User wants to import a bundle from a zip file.
+    /// User wants to import a bundle, loose GLB, or image.
     ImportBundle(PathBuf),
     /// User wants to delete the current bundle.
     DeleteBundle(PathBuf),
@@ -279,26 +279,25 @@ impl BundleInfoPanel {
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // Bundle selector dropdown
-            if !self.available_bundles.is_empty() {
-                let current_path = self.current_bundle.as_ref().map(|b| b.path.clone());
-                let current_label = current_path
-                    .as_ref()
-                    .and_then(|p| {
-                        self.available_bundles
-                            .iter()
-                            .find(|(path, _, _)| path == p)
-                            .map(|(_, name, fav)| {
-                                if *fav {
-                                    format!("{} {}", icons::STAR, name)
-                                } else {
-                                    name.clone()
-                                }
-                            })
-                    })
-                    .unwrap_or_else(|| "Select bundle...".to_string());
+            ui.horizontal(|ui| {
+                if !self.available_bundles.is_empty() {
+                    let current_path = self.current_bundle.as_ref().map(|b| b.path.clone());
+                    let current_label = current_path
+                        .as_ref()
+                        .and_then(|p| {
+                            self.available_bundles
+                                .iter()
+                                .find(|(path, _, _)| path == p)
+                                .map(|(_, name, fav)| {
+                                    if *fav {
+                                        format!("{} {}", icons::STAR, name)
+                                    } else {
+                                        name.clone()
+                                    }
+                                })
+                        })
+                        .unwrap_or_else(|| "Select bundle...".to_string());
 
-                ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(icons::FOLDER.to_string()).size(13.0));
                     // Include bundle count in ID so egui discards cached popup size on refresh
                     let combo_id = format!("bundle_selector_{}", self.available_bundles.len());
@@ -323,31 +322,27 @@ impl BundleInfoPanel {
                             }
                         }
                     });
+                }
 
-                    if ui
-                        .button(icons::ARROWS_ROTATE.to_string())
-                        .on_hover_text("Refresh bundle list from disk")
-                        .clicked()
-                    {
-                        action = Some(BundleInfoAction::RefreshList);
-                    }
+                if ui
+                    .button(icons::ARROWS_ROTATE.to_string())
+                    .on_hover_text("Refresh bundle list from disk")
+                    .clicked()
+                {
+                    action = Some(BundleInfoAction::RefreshList);
+                }
 
-                    if ui
-                        .button(icons::TRAY_ARROW_DOWN.to_string())
-                        .on_hover_text(
-                            "Import a bundle: pick a .zip archive or a bundle folder's bundle.json (or drag either onto the window)",
-                        )
-                        .clicked()
-                        && let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Bundle (zip or bundle.json)", &["zip", "json"])
-                            .pick_file()
-                    {
-                        action = Some(BundleInfoAction::ImportBundle(path));
-                    }
-                });
+                if ui
+                    .button(icons::TRAY_ARROW_DOWN.to_string())
+                    .on_hover_text("Import a bundle, .glb, or image (or drop one on this pane)")
+                    .clicked()
+                    && let Some(path) = crate::app::pick_bundle_import_file()
+                {
+                    action = Some(BundleInfoAction::ImportBundle(path));
+                }
+            });
 
-                ui.add_space(8.0);
-            }
+            ui.add_space(8.0);
 
             // Clone data we need before borrowing in closures
             let bundle_data = self.current_bundle.as_ref().map(|b| {
@@ -362,15 +357,8 @@ impl BundleInfoPanel {
                 )
             });
 
-            if let Some((
-                custom_name,
-                dir_name,
-                view,
-                created_at,
-                generator,
-                tags,
-                favorite,
-            )) = bundle_data
+            if let Some((custom_name, dir_name, view, created_at, generator, tags, favorite)) =
+                bundle_data
             {
                 ui.add_space(2.0);
                 ui.separator();
@@ -492,8 +480,7 @@ impl BundleInfoPanel {
                 // =================================================================
                 // Prompt Section
                 // =================================================================
-                if let Some(ref prompt) = view.prompt
-                {
+                if let Some(ref prompt) = view.prompt {
                     ui.label(egui::RichText::new("Prompt").strong());
                     ui.add_space(4.0);
 
@@ -601,8 +588,7 @@ impl BundleInfoPanel {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Vertices:").size(13.0).weak());
                         ui.label(
-                            egui::RichText::new(format_number(vertex_count as u32))
-                                .size(13.0),
+                            egui::RichText::new(format_number(vertex_count as u32)).size(13.0),
                         );
                     });
                     ui.add_space(2.0);
@@ -829,9 +815,11 @@ impl BundleInfoPanel {
                     );
                     ui.add_space(10.0);
                     ui.label(
-                        egui::RichText::new("Generate assets to get started")
-                            .size(12.0)
-                            .weak(),
+                        egui::RichText::new(
+                            "Generate an asset, or drop a .glb / image / bundle zip here",
+                        )
+                        .size(12.0)
+                        .weak(),
                     );
                 });
             } else if self.current_bundle.is_none() {

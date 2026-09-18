@@ -49,3 +49,7 @@ test_results/
 # Zola site build output
 site/public/
 site/.bin/
+
+# Quaternius Universal Animation Library downloads. The Source archives are
+# ~100 MB each and are trimmed into packs/ual{1,2}/ by hand — never committed.
+Universal Animation Library*

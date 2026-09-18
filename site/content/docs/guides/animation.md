@@ -102,7 +102,7 @@ Clips come from [Quaternius](https://quaternius.com)' CC0 libraries:
 The rest pose we ship is derived from the first library. Both packs can sit
 side by side; catalogs merge.
 
-**Out of the box:** **Download animation packs** in Help or Animate →
+**Out of the box:** **Download Universal Animation Libraries** in Help or Animate →
 **Add pack...** (or `asset-tap clip download` / `--json clip download` / MCP
 `clip_download`) pulls the Standard libraries from the latest Asset Tap
 release. The archive is hash-verified and is **not** inside the app.
@@ -112,9 +112,12 @@ stamped by a previous download.
 
 Each Quaternius page also has a free **Standard** download (the site button
 or Itch) and the remaining paid **Source** clips. Those zips install the
-same way: **Add pack...** or `clip install --from`. The pack id drops the
-tier suffix, so installing Source over Standard replaces that library
-rather than duplicating its clips.
+same way: drop the `.zip` / folder / `.glb` on the **Animation panel**,
+**Add pack...**, File → **Install Animation Pack...**, or
+`clip install --from`. The overlay says "Drop to install animation pack"
+on that panel so a UAL archive is not imported as a library bundle.
+Dropping a pack on the preview toasts to use the Animation panel. The pack id drops the tier suffix, so installing Source
+over Standard replaces that library rather than duplicating its clips.
 
 ## MCP
 

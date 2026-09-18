@@ -29,9 +29,9 @@ pub use fetch::{
 };
 pub use landmarks::{Landmarks, mesh_landmarks};
 pub use pack::{
-    CLIP_PACK_ID, ClipCatalogEntry, ClipPack, ClipPackError, DEFAULT_BIND_CLIP, UAL1_PAGE,
-    UAL2_PAGE, find_clip, install_pack_from, list_clips, pack_dir, packs_root, resolve_pack,
-    resolve_packs,
+    CLIP_PACK_ID, ClipCatalogEntry, ClipPack, ClipPackError, DEFAULT_BIND_CLIP, PACK_MANIFEST,
+    UAL1_PAGE, UAL2_PAGE, find_clip, install_pack_from, list_clips, looks_like_clip_pack, pack_dir,
+    packs_root, resolve_pack, resolve_packs,
 };
 pub use play::{BindMarker, SkinnedClip};
 

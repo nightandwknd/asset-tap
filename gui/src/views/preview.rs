@@ -43,6 +43,7 @@ fn date_relative_path(path: &Path) -> String {
 pub fn render(app: &mut App, ui: &mut egui::Ui) {
     app.walkthrough
         .register_rect(WalkthroughStep::PreviewPanel, ui.max_rect());
+    let preview_rect = ui.max_rect();
     ui.add_space(4.0);
     // Tab bar
     ui.horizontal(|ui| {
@@ -142,6 +143,8 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         PreviewTab::Model3D => render_model_preview(app, ui, available),
         PreviewTab::Textures => render_textures_preview(app, ui, available),
     }
+
+    app.drop_preview_not_import(ui.ctx(), preview_rect);
 }
 
 fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2) {
@@ -277,14 +280,22 @@ fn render_image_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                 ui.hyperlink(url);
             });
         } else if output.output_dir.is_some() {
-            // Bundle exists but no image
-            render_centered_message(
+            let tab_rect = ui.max_rect();
+            let (clicked, _) = render_centered_message(
                 ui,
                 available,
                 "No associated image for this bundle",
-                &["The image file may be missing or wasn't generated"],
+                &[
+                    "Drop a still on this tab, or add one here",
+                    "It becomes image.png next to this model",
+                ],
                 icons::IMAGE,
+                Some("Add image to this bundle..."),
             );
+            app.drop_attach_image(ui.ctx(), tab_rect);
+            if clicked && let Some(path) = crate::app::pick_image_file() {
+                app.attach_to_current_bundle(path);
+            }
         } else {
             render_empty_state(ui, "No image generated yet");
         }
@@ -427,6 +438,7 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
                     .min_size(MIN_ANIMATE_PANEL_WIDTH)
                     .max_size(MAX_ANIMATE_PANEL_WIDTH)
                     .show_inside(ui, |ui| {
+                        app.drop_install_pack(ui.ctx(), ui.max_rect());
                         egui::ScrollArea::vertical()
                             .id_salt("animate_panel")
                             .auto_shrink([false, false])
@@ -637,14 +649,22 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
             // Action buttons with path
             render_model_action_buttons(app, ui, path, output);
         } else if output.output_dir.is_some() {
-            // Bundle exists but no model
-            render_centered_message(
+            let tab_rect = ui.max_rect();
+            let (clicked, _) = render_centered_message(
                 ui,
                 available,
                 "No associated 3D model for this bundle",
-                &["The model file may be missing or wasn't generated"],
+                &[
+                    "Drop a .glb on this tab, or add one here",
+                    "It becomes model.glb next to this image",
+                ],
                 icons::CUBE,
+                Some("Add model to this bundle..."),
             );
+            app.drop_attach_model(ui.ctx(), tab_rect);
+            if clicked && let Some(path) = crate::app::pick_glb_file() {
+                app.attach_to_current_bundle(path);
+            }
         } else {
             render_empty_state(ui, "No 3D model generated yet");
         }
@@ -1322,11 +1342,7 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
                 .on_hover_text(clip_packs::ARCHIVE_HOVER)
                 .clicked()
             {
-                if let Some(file) = rfd::FileDialog::new()
-                    .set_title("Animation pack")
-                    .add_filter("Animation pack", &["zip", "glb", "gltf"])
-                    .pick_file()
-                {
+                if let Some(file) = crate::app::pick_pack_install_file() {
                     app.install_clip_pack(file);
                 }
                 ui.close();
@@ -1336,10 +1352,7 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
                 .on_hover_text("A download you already extracted.")
                 .clicked()
             {
-                if let Some(dir) = rfd::FileDialog::new()
-                    .set_title("Animation pack folder")
-                    .pick_folder()
-                {
+                if let Some(dir) = crate::app::pick_pack_install_folder() {
                     app.install_clip_pack(dir);
                 }
                 ui.close();
@@ -1365,7 +1378,10 @@ fn render_install_pack_button(app: &mut App, ui: &mut egui::Ui) {
 
 fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
     if ui
-        .button("Universal Animation Library\u{2026}")
+        .button(format!(
+            "{} Universal Animation Library\u{2026}",
+            icons::EXTERNAL_LINK
+        ))
         .on_hover_text(clip_packs::SOURCE_HOVER)
         .clicked()
     {
@@ -1373,7 +1389,10 @@ fn render_quaternius_pack_menu_links(app: &mut App, ui: &mut egui::Ui) {
         ui.close();
     }
     if ui
-        .button("Universal Animation Library 2\u{2026}")
+        .button(format!(
+            "{} Universal Animation Library 2\u{2026}",
+            icons::EXTERNAL_LINK
+        ))
         .on_hover_text(clip_packs::SOURCE_HOVER)
         .clicked()
     {
@@ -1585,6 +1604,7 @@ fn render_textures_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Ve
                         "This model has none, or they are referenced as external files",
                     ],
                     icons::WARNING,
+                    None,
                 );
             } else {
                 render_empty_state(ui, "No textures found in this model");
@@ -1603,14 +1623,18 @@ fn render_centered_message(
     title: &str,
     lines: &[&str],
     icon: &str,
-) {
+    action: Option<&str>,
+) -> (bool, egui::Rect) {
     let placeholder_size = egui::vec2(
         (available.x - 20.0).max(200.0),
         (available.y - 80.0).max(200.0),
     );
+    let mut clicked = false;
+    let mut allocated = egui::Rect::NOTHING;
 
     ui.vertical_centered(|ui| {
         let (rect, _) = ui.allocate_exact_size(placeholder_size, egui::Sense::hover());
+        allocated = rect;
 
         // Draw background
         ui.painter()
@@ -1618,8 +1642,9 @@ fn render_centered_message(
 
         // Center content within the rect
         let center = rect.center();
+        let height = if action.is_some() { 260.0 } else { 200.0 };
         let message_rect =
-            egui::Rect::from_center_size(center, egui::vec2(available.x.min(600.0), 200.0));
+            egui::Rect::from_center_size(center, egui::vec2(available.x.min(600.0), height));
 
         let mut child_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -1661,9 +1686,17 @@ fn render_centered_message(
                             ui.add_space(4.0);
                         }
                     }
+
+                    if let Some(label) = action {
+                        ui.add_space(12.0);
+                        if ui.button(label).clicked() {
+                            clicked = true;
+                        }
+                    }
                 });
             });
     });
+    (clicked, allocated)
 }
 
 fn render_empty_state(ui: &mut egui::Ui, message: &str) {

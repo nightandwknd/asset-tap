@@ -7,6 +7,7 @@
 
 mod app;
 pub mod constants;
+mod dnd;
 pub mod icons;
 pub mod style;
 mod texture_cache;

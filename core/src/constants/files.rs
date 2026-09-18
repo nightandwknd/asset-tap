@@ -44,6 +44,15 @@ pub const CLIP_PACKS_URL: &str = latest_asset!("/clip-packs.zip");
 /// Must match `size_label` in `packs/manifest.json` (enforced by test).
 pub const CLIP_PACKS_SIZE_LABEL: &str = "15 MB";
 
+/// Extensions accepted as a still image: pipeline input and loose bundle import.
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "avif"];
+
+/// True when `path` has an extension in [`IMAGE_EXTS`].
+pub fn is_image_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|e| IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 /// Configuration files
 pub mod config {
     /// Main settings file
@@ -99,4 +108,20 @@ pub mod dev_dirs {
 
     /// Development logs directory
     pub const LOGS: &str = ".dev/logs";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn image_path_matches_pipeline_and_import_formats() {
+        for ok in ["a.png", "b.JPG", "c.jpeg", "d.webp", "e.gif", "f.avif"] {
+            assert!(is_image_path(Path::new(ok)), "{ok}");
+        }
+        for no in ["m.glb", "z.zip", "bundle.json", "noext"] {
+            assert!(!is_image_path(Path::new(no)), "{no}");
+        }
+    }
 }

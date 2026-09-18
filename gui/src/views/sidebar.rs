@@ -260,7 +260,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
             let path = &path;
             let hover = normalize_whitespace_for_display(path);
             let path_buf = PathBuf::from(path);
-            ui.horizontal(|ui| {
+            // A filled slot is still the generation-image zone: dropping a
+            // still on it replaces the queued one, same as the empty dropzone.
+            let filled = ui.horizontal(|ui| {
                 // Small thumbnail so the user can eyeball the queued image
                 // without opening the file externally. Uses the same
                 // file:// URI loader as the preview pane's image tab.
@@ -293,6 +295,18 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     }
                 });
             });
+            let rect = filled.response.rect;
+            if crate::app::hovered_paths_over(ui.ctx(), rect)
+                .iter()
+                .any(|p| crate::app::App::is_image_file(p))
+            {
+                crate::app::paint_drop_overlay(
+                    ui.ctx(),
+                    rect,
+                    crate::constants::clip_packs::DROP_REPLACE_INPUT,
+                );
+            }
+            app.drop_generation_image(ui.ctx(), rect);
         } else {
             // Dropzone area
             let dropzone_height = 70.0;
@@ -305,37 +319,27 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
             app.walkthrough
                 .register_rect(WalkthroughStep::ImageDropZone, rect);
 
+            app.drop_generation_image(ui.ctx(), rect);
+
             // Handle click on dropzone to open file selector
             if response.clicked() {
                 app.select_existing_image();
             }
 
-            // Check for dropped files. Only claim IMAGE files — bundle
-            // folders, zips, and bundle.json route to the window-level
-            // bundle import (App::handle_bundle_drops), not the input image.
-            let mut dropped_image = None;
-            ui.ctx().input(|i| {
-                for file in &i.raw.dropped_files {
-                    if let Some(path) = &file.path
-                        && crate::app::App::is_image_file(path)
-                    {
-                        dropped_image = Some(path.to_string_lossy().to_string());
-                        break;
-                    }
-                }
-            });
+            let pointer_over = ui
+                .ctx()
+                .pointer_latest_pos()
+                .is_some_and(|p| rect.contains(p));
 
-            // Visual styling for dropzone. Light up only when an IMAGE is
-            // being dragged — bundle folders/zips/bundle.json get the
-            // window-level import overlay instead, and lighting both reads
-            // as "this drop goes to the image slot" when it doesn't.
-            let is_being_dragged = ui.ctx().input(|i| {
-                i.raw.hovered_files.iter().any(|f| {
-                    f.path
-                        .as_deref()
-                        .is_some_and(crate::app::App::is_image_file)
-                })
-            });
+            // Highlight when an image is dragged over this slot.
+            let is_being_dragged = pointer_over
+                && ui.ctx().input(|i| {
+                    i.raw.hovered_files.iter().any(|f| {
+                        f.path
+                            .as_deref()
+                            .is_some_and(crate::app::App::is_image_file)
+                    })
+                });
             let bg_color = if is_being_dragged {
                 ui.visuals().selection.bg_fill.gamma_multiply(0.3)
             } else if response.hovered() {
@@ -473,17 +477,6 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                     .small()
                     .secondary(),
             );
-
-            // Handle dropped file
-            if let Some(path) = dropped_image {
-                if app.set_existing_image(path.clone()) {
-                    app.toasts.push(Toast::success("Image loaded successfully"));
-                } else {
-                    app.toasts.push(Toast::info(
-                        "Invalid file type. Use PNG, JPG, JPEG, or WebP",
-                    ));
-                }
-            }
         }
 
         if should_clear_image {
