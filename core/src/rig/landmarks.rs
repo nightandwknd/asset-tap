@@ -143,7 +143,7 @@ pub fn mesh_landmarks(positions: &[Vec3]) -> Result<Landmarks, String> {
             return mid;
         }
         let mut ys: Vec<f32> = toes.iter().map(|p| p[fwd]).collect();
-        ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        ys.sort_by(f32::total_cmp);
         let cut = ys[ys.len() / 4];
         let front: Vec<Vec3> = toes.iter().copied().filter(|p| p[fwd] <= cut).collect();
         centroid(&front).unwrap_or(mid)
@@ -223,7 +223,7 @@ fn outer_hand(band: &[Vec3], side: usize, sign: f32, fwd: usize, fwd_lim: f32) -
     if pts.is_empty() {
         return None;
     }
-    pts.sort_by(|a, b| (a[side] * sign).partial_cmp(&(b[side] * sign)).unwrap());
+    pts.sort_by(|a, b| (a[side] * sign).total_cmp(&(b[side] * sign)));
     let cut = (pts.len() * 90 / 100).min(pts.len() - 1);
     let outer = &pts[cut..];
     Some(outer.iter().copied().sum::<Vec3>() / outer.len() as f32)

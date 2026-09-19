@@ -41,7 +41,7 @@ doesn't inherit your shell's.
 
 | Tool             | Arguments                                                                                                                                                          | Backed by                               | Returns                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `list_catalog`   | —                                                                                                                                                                  | `asset-tap --list --json`               | providers, models + parameter schemas, templates                                                 |
+| `list_catalog`   | —                                                                                                                                                                  | `asset-tap --list --json`               | providers, models + parameter schemas, templates, `clips` (installed clip ids)                   |
 | `auth_status`    | —                                                                                                                                                                  | `asset-tap auth list --json`            | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` — never key material |
 | `inspect_bundle` | `bundle_dir`                                                                                                                                                       | reads `bundle.json`                     | `{bundle_dir, files[], bundle}`                                                                  |
 | `clip_download`  | optional `force`                                                                                                                                                   | `asset-tap --json clip download`        | `{status, installed[], already_exists, packs_version}`                                           |
@@ -75,7 +75,8 @@ hosts that read either work.
   Older clients passing `fbx` or `no_fbx` are ignored: FBX was removed.
 - `bind` defaults to **false**. When true the mesh is rigged to the embedded
   canonical humanoid skeleton, which needs nothing installed, and each name in
-  `clips[]` is baked in as its own animation (one model, N animations). A clip
+  `clips[]` is baked in as its own animation (one model, N animations); no
+  `clips` means `walk`. Valid names are `list_catalog` → `clips`. A clip
   no installed pack provides is a local error —
   `clip_download` / `asset-tap clip list --json` / `clip install --from PATH`. Packs are
   Quaternius CC0:

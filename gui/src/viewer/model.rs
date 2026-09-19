@@ -130,7 +130,18 @@ struct CpuModelData {
     bounds_max: Vec3,
     model_info: ModelInfo,
     cpu_model: three_d_asset::Model,
+    /// The same file read once more for the workbench: skin, joints and any
+    /// baked animation (or bare geometry when there is no skin, which is
+    /// what Rig needs). Read here, on the loader thread, so neither the
+    /// GPU upload nor the Rig click re-parses a multi-megabyte GLB on the
+    /// UI thread. `None` when the file could not be read that way; the mesh
+    /// still renders, the workbench refuses.
+    clip: Option<asset_tap_core::SkinnedClip>,
 }
+
+/// Rig undo depth. Each entry is one world position per marker, so this is
+/// small, but unbounded growth over a long session is still a leak.
+const PLACE_UNDO_LIMIT: usize = 64;
 
 /// Final loaded model data (just bounds for camera fitting).
 struct LoadedModelData {
@@ -207,6 +218,8 @@ pub struct ModelViewer {
     place: Option<PlaceSession>,
     cached_markers: Option<HelperObject>,
     cached_sticks: Option<HelperObject>,
+    /// Scratch for the per-frame position upload, reused across frames.
+    pose_upload: Vec<Vec3>,
 }
 
 struct PlaceSession {
@@ -225,6 +238,9 @@ struct PlaceSession {
 
 struct PlaceDrag {
     index: usize,
+    /// Marker worlds at press time, until the first movement turns the
+    /// press into an edit and moves this onto the undo stack.
+    before: Option<Vec<[f32; 3]>>,
 }
 
 impl ModelViewer {
@@ -258,6 +274,7 @@ impl ModelViewer {
             place: None,
             cached_markers: None,
             cached_sticks: None,
+            pose_upload: Vec::new(),
         }
     }
 
@@ -336,7 +353,12 @@ impl ModelViewer {
         self.loading_rx = Some(rx);
 
         std::thread::spawn(move || {
-            let result = Self::load_cpu_model_data(&path_to_load);
+            let result = Self::load_cpu_model_data(&path_to_load).map(|mut data| {
+                data.clip = asset_tap_core::SkinnedClip::for_rig(&path_to_load)
+                    .inspect_err(|e| tracing::debug!("no workbench clip for model: {e}"))
+                    .ok();
+                data
+            });
             let _ = tx.send(result);
         });
     }
@@ -440,13 +462,10 @@ impl ModelViewer {
         self.model_info = Some(cpu_data.model_info);
         self.gpu_objects = gpu_objects;
         self.cpu_meshes = cpu_meshes;
-        if let Some(path) = &self.loaded_path
-            && let Ok(clip) = asset_tap_core::SkinnedClip::from_glb(path)
-        {
-            // Rest-only (Fit, no Bake) still has joints — Bones / Place need them.
-            self.clip = Some(clip);
-            self.pose_dirty = true;
-        }
+        // Rest-only (Fit, no Bake) still has joints — Bones / Place need them.
+        // Already read on the loader thread; nothing touches the file here.
+        self.clip = cpu_data.clip;
+        self.pose_dirty = self.clip.is_some();
         self.model_bounds = Some(LoadedModelData {
             bounds_min: cpu_data.bounds_min,
             bounds_max: cpu_data.bounds_max,
@@ -573,6 +592,7 @@ impl ModelViewer {
                 triangle_count,
             },
             cpu_model,
+            clip: None,
         })
     }
 
@@ -632,22 +652,6 @@ impl ModelViewer {
         }
         self.show_bones = show;
         self.cached_bones = None;
-        if self.show_bones {
-            self.ensure_clip();
-        }
-    }
-
-    pub fn ensure_clip(&mut self) {
-        if self.clip.is_some() {
-            return;
-        }
-        let Some(path) = self.loaded_path.clone() else {
-            return;
-        };
-        if let Ok(clip) = asset_tap_core::SkinnedClip::from_glb(&path) {
-            self.clip = Some(clip);
-            self.cached_bones = None;
-        }
     }
 
     pub fn is_placing(&self) -> bool {
@@ -707,12 +711,15 @@ impl ModelViewer {
         if self.place.is_some() {
             return Ok(());
         }
-        if self.clip.is_none()
-            && let Some(path) = self.loaded_path.clone()
-        {
-            // `for_rig`, not `from_glb`: an unrigged mesh has no skin, and
-            // that is the whole reason the user is opening Rig.
-            self.clip = Some(asset_tap_core::SkinnedClip::for_rig(&path)?);
+        // The loader thread reads the clip (`SkinnedClip::for_rig`, so an
+        // unrigged mesh — the whole reason Rig exists — still has geometry
+        // to place joints on). Nothing is read from disk on this click.
+        if self.clip.is_none() {
+            return Err(if self.is_loading {
+                "The model is still loading. Try again in a moment".to_string()
+            } else {
+                "This model could not be prepared for Rig".to_string()
+            });
         }
         // A fitted mesh already carries its skeleton, so markers are free.
         // An unfitted one needs an auto-fit: mesh bake, landmarks, and a
@@ -770,10 +777,8 @@ impl ModelViewer {
         if markers.is_empty() {
             return;
         }
-        place
-            .undo
-            .push(place.markers.iter().map(|m| m.world).collect());
-        place.redo.clear();
+        let before = place.markers.iter().map(|m| m.world).collect();
+        Self::push_undo(place, before);
         place.markers = markers;
         place.selected = None;
         place.hover = None;
@@ -931,10 +936,15 @@ impl ModelViewer {
                     c.ray_midline(o, d)
                         .or_else(|| Some(self.pointer_plane_point(origin, dir, i)))
                 })
+                && let Some(place) = self.place.as_mut()
+                && place.markers.get(i).is_some_and(|m| m.world != hit)
             {
-                if let Some(place) = self.place.as_mut()
-                    && let Some(m) = place.markers.get_mut(i)
-                {
+                // First real movement of this press: now it is an edit
+                // worth an undo step. A press-and-release never was.
+                if let Some(before) = place.dragging.as_mut().and_then(|d| d.before.take()) {
+                    Self::push_undo(place, before);
+                }
+                if let Some(m) = place.markers.get_mut(i) {
                     m.world = hit;
                 }
                 self.cached_markers = None;
@@ -994,13 +1004,26 @@ impl ModelViewer {
         let Some(place) = self.place.as_mut() else {
             return;
         };
-        place
-            .undo
-            .push(place.markers.iter().map(|m| m.world).collect());
-        place.redo.clear();
+        // Not an undo step yet: selecting a joint by clicking it must not
+        // grow the stack. `handle_place` commits `before` on first movement.
+        let before = place.markers.iter().map(|m| m.world).collect();
         place.selected = Some(index);
-        place.dragging = Some(PlaceDrag { index });
+        place.dragging = Some(PlaceDrag {
+            index,
+            before: Some(before),
+        });
         self.cached_markers = None;
+    }
+
+    /// Record `before` as an undo step, discard redo, and keep the stack at
+    /// [`PLACE_UNDO_LIMIT`] by dropping the oldest.
+    fn push_undo(place: &mut PlaceSession, before: Vec<[f32; 3]>) {
+        place.undo.push(before);
+        place.redo.clear();
+        if place.undo.len() > PLACE_UNDO_LIMIT {
+            let excess = place.undo.len() - PLACE_UNDO_LIMIT;
+            place.undo.drain(..excess);
+        }
     }
 
     fn end_place_drag(&mut self) {
@@ -1177,11 +1200,23 @@ impl ModelViewer {
             } else {
                 continue;
             };
-            cpu.positions = Positions::F32(posed.iter().map(|p| vec3(p[0], p[1], p[2])).collect());
-            if i < self.gpu_objects.len() {
-                let transform = self.gpu_objects[i].transformation();
-                self.gpu_objects[i].geometry = Mesh::new(context, cpu);
-                self.gpu_objects[i].set_transformation(transform);
+            // Upload into the existing vertex buffer. Rebuilding the `Mesh`
+            // reallocated every GPU buffer (normals, uvs, tangents, indices
+            // too) per primitive per frame; only positions change.
+            self.pose_upload.clear();
+            self.pose_upload
+                .extend(posed.iter().map(|p| vec3(p[0], p[1], p[2])));
+            let Some(gm) = self.gpu_objects.get_mut(i) else {
+                continue;
+            };
+            if let Err(e) = gm.geometry.set_positions(&self.pose_upload) {
+                // Count mismatch: fall back to a rebuild rather than a
+                // frozen mesh. Not expected; `n` was checked above.
+                tracing::warn!("pose upload failed, rebuilding mesh: {e}");
+                cpu.positions = Positions::F32(std::mem::take(&mut self.pose_upload));
+                let transform = gm.transformation();
+                gm.geometry = Mesh::new(context, cpu);
+                gm.set_transformation(transform);
             }
         }
     }

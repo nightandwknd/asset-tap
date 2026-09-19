@@ -1,5 +1,5 @@
 {
-  "interface": "1.0",
+  "interface": "1.1",
   "providers": [
     {
       "id": "fal.ai",

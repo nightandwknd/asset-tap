@@ -1,5 +1,5 @@
 {
-  "interface": "1.0",
+  "interface": "1.1",
   "providers": [
     {
       "id": "fal.ai",
@@ -79,5 +79,9 @@
         "a cowboy ninja with dual katanas"
       ]
     }
+  ],
+  "clips": [
+    "Walk_Loop",
+    "Sword_Attack"
   ]
 }

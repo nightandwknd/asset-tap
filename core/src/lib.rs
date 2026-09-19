@@ -199,9 +199,9 @@ pub use rig::{
     BindError, BindMarker, BindOptions, BindReport, BoneGroup, ClipCatalogEntry,
     ClipPacksDownloadResult, HumanBone, PACK_MANIFEST, Side, SkinnedClip, apply_clip,
     baked_clip_names, bind_mesh, default_bind_markers, download_clip_packs, find_clip, fit_mesh,
-    fit_mesh_from_heads, foreign_rig_joints, heads_off_mesh, install_pack_from, is_fitted,
-    list_clips, looks_like_clip_pack, pack_dir, packs_root, preview_skinned_clip, resolve_pack,
-    resolve_packs, seed_bind_markers,
+    fit_mesh_from_heads, fit_mesh_from_heads_keeping, foreign_rig_joints, heads_off_mesh,
+    install_pack_from, is_fitted, list_clips, looks_like_clip_pack, pack_dir, packs_root,
+    preview_skinned_clip, resolve_pack, resolve_packs, seed_bind_markers,
 };
 pub use settings::Settings;
 pub use state::AppState;

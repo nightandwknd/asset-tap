@@ -1,4 +1,4 @@
-{"event":"start","interface":"1.0","generator":"asset-tap/26.4.18"}
+{"event":"start","interface":"1.1","generator":"asset-tap/26.4.18"}
 {"event":"log","level":"info","message":"using template: humanoid"}
 {"event":"progress","stage":"image_generation","state":"started"}
 {"event":"progress","stage":"image_generation","state":"queued","position":3}

@@ -111,6 +111,17 @@ async fn test_download_file_404() {
 // Bundle Creation Tests
 // =============================================================================
 
+/// A v1-shaped manifest (`config`, no `artifacts`), as older builds wrote it.
+/// These tests cover the read path for such files; nothing writes them now.
+fn v1_with_config(config: GenerationConfig) -> BundleMetadata {
+    BundleMetadata {
+        version: 1,
+        config: Some(config),
+        generator: Some(asset_tap_core::bundle::generator_string().to_string()),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn test_bundle_metadata_save_and_load() {
     let temp_dir = TempDir::new().unwrap();
@@ -129,7 +140,7 @@ fn test_bundle_metadata_save_and_load() {
         model_3d_params: std::collections::HashMap::new(),
     };
 
-    let mut metadata = BundleMetadata::with_config(config);
+    let mut metadata = v1_with_config(config);
     metadata.add_tag("test".to_string());
 
     // Save metadata
@@ -153,7 +164,6 @@ fn test_bundle_metadata_save_and_load() {
     assert_eq!(loaded_config.model_3d, "trellis-2");
     assert!(loaded.tags.contains(&"test".to_string()));
 
-    // Generator should be set by with_config
     assert!(loaded.generator.is_some());
     assert!(loaded.generator.as_ref().unwrap().starts_with("asset-tap/"));
 }
@@ -177,7 +187,7 @@ fn test_bundle_metadata_user_prompt_round_trip() {
         model_3d_params: std::collections::HashMap::new(),
     };
 
-    let metadata = BundleMetadata::with_config(config);
+    let metadata = v1_with_config(config);
     metadata.save(&bundle_dir).unwrap();
 
     // Verify round-trip
@@ -212,7 +222,7 @@ fn test_bundle_metadata_user_prompt_omitted_when_none() {
         model_3d_params: std::collections::HashMap::new(),
     };
 
-    let metadata = BundleMetadata::with_config(config);
+    let metadata = v1_with_config(config);
     metadata.save(&bundle_dir).unwrap();
 
     // Verify JSON doesn't contain user_prompt key

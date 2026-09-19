@@ -42,6 +42,7 @@
 
 use crate::api::download_file;
 use crate::bundle::BundleMetadata;
+use crate::bundle_schema;
 use crate::config::{create_generation_dir, create_generation_dir_in};
 use crate::constants::files::bundle as bundle_files;
 use crate::error_log::{ConfigSnapshot, ErrorLog, ErrorType};
@@ -548,7 +549,9 @@ fn log_stage_error(
 
 /// Stage 1: Obtain an image — either from an existing file/URL or by generating one.
 ///
-/// Returns the raw image bytes and the resolved image model ID (if generation occurred).
+/// Returns the raw image bytes and the resolved image model ID — `None` when
+/// the image was supplied rather than generated, so the bundle records an
+/// `import` step and not a model call that never ran.
 /// Updates `output.image_path` and `output.image_url` as side effects.
 #[allow(clippy::too_many_arguments)]
 async fn generate_image_stage(
@@ -562,8 +565,6 @@ async fn generate_image_stage(
     cancel_notify: &Arc<tokio::sync::Notify>,
     image_params: Option<&HashMap<String, serde_json::Value>>,
 ) -> Result<(Vec<u8>, Option<String>)> {
-    let mut resolved_image_model = config.image_model.clone();
-
     if let Some(ref url) = config.image_url {
         // Use existing image
         let path = PathBuf::from(url);
@@ -576,7 +577,7 @@ async fn generate_image_stage(
             }
             tokio::fs::write(&dest_path, &bytes).await?;
             output.image_path = Some(dest_path);
-            return Ok((bytes, resolved_image_model));
+            return Ok((bytes, None));
         } else {
             // Remote URL — download it
             let image_path = gen_dir.join(bundle_files::IMAGE);
@@ -591,7 +592,7 @@ async fn generate_image_stage(
             output.image_path = Some(image_path);
             output.image_url = Some(url.clone());
             let _ = progress_tx.send(Progress::completed(Stage::Download));
-            return Ok((bytes, resolved_image_model));
+            return Ok((bytes, None));
         }
     }
 
@@ -609,7 +610,7 @@ async fn generate_image_stage(
             .get_default_model(ProviderCapability::TextToImage)?
             .id
     };
-    resolved_image_model = Some(model_id.clone());
+    let resolved_image_model = Some(model_id.clone());
 
     // Check for cancellation before image generation
     if cancel_flag.load(Ordering::Acquire) {
@@ -836,6 +837,7 @@ async fn run_pipeline_internal(
         }
     });
 
+    let run_started = std::time::Instant::now();
     let mut output = PipelineOutput::new();
     output.prompt = config.prompt.clone();
 
@@ -885,6 +887,7 @@ async fn run_pipeline_internal(
     } else {
         Some(&config.image_model_params)
     };
+    let image_started = std::time::Instant::now();
     let (image_data, resolved_image_model) = generate_image_stage(
         &config,
         &image_provider,
@@ -897,6 +900,7 @@ async fn run_pipeline_internal(
         image_params,
     )
     .await?;
+    let image_ms = elapsed_ms(image_started);
 
     // Check for cancellation before 3D generation
     if cancel_flag.load(Ordering::Acquire) {
@@ -906,6 +910,14 @@ async fn run_pipeline_internal(
     // Stage 2 (3D) and model stats are skipped when the caller asked
     // for an image-only run. The bundle still saves below with whatever stages
     // did run.
+    let mut durations = bundle_schema::StepDurations::default();
+    // The image stage is one step either way: generated, or imported.
+    if resolved_image_model.is_some() {
+        durations.image_ms = Some(image_ms);
+    } else if config.image_url.is_some() {
+        durations.import_ms = Some(image_ms);
+    }
+
     let (resolved_3d_model, model_info, bind_err) = if config.skip_3d {
         (None, None, None)
     } else {
@@ -915,6 +927,7 @@ async fn run_pipeline_internal(
         } else {
             Some(&config.model_3d_params)
         };
+        let model_started = std::time::Instant::now();
         let (model_path, resolved_3d_model) = generate_3d_stage(
             &config,
             &model_3d_provider,
@@ -925,6 +938,7 @@ async fn run_pipeline_internal(
             model_3d_params,
         )
         .await?;
+        durations.model_ms = Some(elapsed_ms(model_started));
         output.model_path = Some(model_path.clone());
 
         // Check for cancellation before rigging
@@ -937,14 +951,19 @@ async fn run_pipeline_internal(
         // the paid image and model are already on disk, so we keep going
         // through texture extract + bundle.json and return the error after.
         let bind_err = if config.bind {
-            bind_stage(
+            let bind_started = std::time::Instant::now();
+            let err = bind_stage(
                 &model_path,
                 &config.bind_clips(),
                 config.clip_pack.clone(),
                 &progress_tx,
             )
             .await
-            .err()
+            .err();
+            if err.is_none() {
+                durations.bind_ms = Some(elapsed_ms(bind_started));
+            }
+            err
         } else {
             None
         };
@@ -993,19 +1012,25 @@ async fn run_pipeline_internal(
     }
 
     let bound = config.bind && bind_err.is_none();
-    let metadata = BundleMetadata::for_generation(
-        &gen_dir,
-        gen_config,
+    let manifest = bundle_schema::GenerationManifest {
+        config: gen_config,
         model_info,
-        Some(image_provider.id()),
-        Some(model_3d_provider.id()),
-        bound,
-        if bound {
+        // Only a provider that ran gets named; the image provider is idle
+        // when the image was supplied.
+        image_provider_id: resolved_image_model
+            .as_ref()
+            .map(|_| image_provider.id().to_string()),
+        model_3d_provider_id: Some(model_3d_provider.id().to_string()),
+        bind: bound,
+        clips: if bound {
             config.bind_clips()
         } else {
             Vec::new()
         },
-    );
+        durations,
+    };
+    let mut metadata = BundleMetadata::for_generation(&gen_dir, &manifest);
+    metadata.duration_ms = Some(elapsed_ms(run_started));
 
     if let Err(e) = metadata.save(&gen_dir) {
         tracing::warn!("Failed to save bundle metadata: {}", e);
@@ -1016,6 +1041,10 @@ async fn run_pipeline_internal(
     }
 
     Ok(output)
+}
+
+fn elapsed_ms(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Build the effective parameter map for a model by layering user overrides

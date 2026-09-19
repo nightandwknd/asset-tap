@@ -7,6 +7,40 @@ use tracing::info;
 
 const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// Why a release artifact could not be fetched and verified.
+///
+/// Typed so a front door (the CLI's `--json clip download`, MCP
+/// `clip_download`) can classify by variant instead of matching message
+/// text: [`Transport`](Self::Transport) and [`Status`](Self::Status) are the
+/// network, everything else is the release or the local machine.
+#[derive(Debug, thiserror::Error)]
+pub enum ReleaseFetchError {
+    /// The request never completed: DNS, connect, TLS, timeout, or an
+    /// unreadable body.
+    #[error("HTTP error: {0}")]
+    Transport(#[from] reqwest::Error),
+    /// The server answered with a non-success status (`status` is the
+    /// numeric code, so callers need no HTTP types to match on it).
+    #[error("Failed to {what}: HTTP {status}")]
+    Status { what: &'static str, status: u16 },
+    /// The manifest carries no `sha256`; fail closed rather than install an
+    /// unverified archive.
+    #[error("Release manifest is missing a sha256 hash; refusing to install unverified download")]
+    MissingHash,
+    /// The downloaded bytes did not hash to what the manifest promised.
+    #[error("{0}")]
+    Integrity(String),
+}
+
+impl ReleaseFetchError {
+    /// True when the failure is between this machine and the release host
+    /// (retrying, or a network fix, can help). False for a bad manifest or a
+    /// hash mismatch, which no retry changes.
+    pub fn is_network(&self) -> bool {
+        matches!(self, Self::Transport(_) | Self::Status { .. })
+    }
+}
+
 /// Bytes of a release zip plus the manifest that authenticated them.
 #[derive(Debug)]
 pub(crate) struct HashedZip {
@@ -22,7 +56,7 @@ pub(crate) async fn download_hashed_zip(
     manifest_url: &str,
     archive_url: &str,
     on_progress: impl Fn(f32) + Send + 'static,
-) -> anyhow::Result<HashedZip> {
+) -> Result<HashedZip, ReleaseFetchError> {
     let manifest = fetch_release_manifest(manifest_url).await?;
     let expected_hash = manifest_sha256(&manifest)?;
     let bytes = download_verified_bytes(archive_url, expected_hash, on_progress).await?;
@@ -31,47 +65,43 @@ pub(crate) async fn download_hashed_zip(
 
 pub(crate) async fn fetch_release_manifest(
     manifest_url: &str,
-) -> anyhow::Result<serde_json::Value> {
+) -> Result<serde_json::Value, ReleaseFetchError> {
     let client = reqwest::Client::builder()
         .timeout(DEFAULT_TIMEOUT)
         .build()?;
     info!("Checking release manifest at {manifest_url}");
     let manifest_resp = client.get(manifest_url).send().await?;
     if !manifest_resp.status().is_success() {
-        anyhow::bail!(
-            "Failed to fetch release manifest: HTTP {}",
-            manifest_resp.status()
-        );
+        return Err(ReleaseFetchError::Status {
+            what: "fetch release manifest",
+            status: manifest_resp.status().as_u16(),
+        });
     }
     Ok(manifest_resp.json().await?)
 }
 
-pub(crate) fn manifest_sha256(manifest: &serde_json::Value) -> anyhow::Result<&str> {
+pub(crate) fn manifest_sha256(manifest: &serde_json::Value) -> Result<&str, ReleaseFetchError> {
     manifest
         .get("sha256")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Release manifest is missing a sha256 hash; refusing to install unverified download"
-            )
-        })
+        .ok_or(ReleaseFetchError::MissingHash)
 }
 
 pub(crate) async fn download_verified_bytes(
     archive_url: &str,
     expected_hash: &str,
     on_progress: impl Fn(f32) + Send + 'static,
-) -> anyhow::Result<Vec<u8>> {
+) -> Result<Vec<u8>, ReleaseFetchError> {
     let client = reqwest::Client::builder()
         .timeout(DEFAULT_TIMEOUT)
         .build()?;
     info!("Downloading {archive_url}");
     let response = client.get(archive_url).send().await?;
     if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to download release archive: HTTP {}",
-            response.status()
-        );
+        return Err(ReleaseFetchError::Status {
+            what: "download release archive",
+            status: response.status().as_u16(),
+        });
     }
 
     let total_size = response.content_length();
@@ -89,7 +119,8 @@ pub(crate) async fn download_verified_bytes(
         }
     }
     on_progress(1.0);
-    verify_sha256(&bytes, expected_hash)?;
+    verify_sha256(&bytes, expected_hash)
+        .map_err(|e| ReleaseFetchError::Integrity(e.to_string()))?;
     info!(
         "SHA-256 integrity verified ({} bytes, {})",
         bytes.len(),
@@ -154,9 +185,10 @@ mod tests {
         .await
         .unwrap_err();
         assert!(
-            err.to_string().contains("sha256"),
+            matches!(err, ReleaseFetchError::MissingHash),
             "missing hash must fail closed: {err}"
         );
+        assert!(!err.is_network());
     }
 
     #[tokio::test]
@@ -183,8 +215,9 @@ mod tests {
         .await
         .unwrap_err();
         assert!(
-            err.to_string().contains("Integrity"),
+            matches!(err, ReleaseFetchError::Integrity(_)),
             "bad hash must fail: {err}"
         );
+        assert!(!err.is_network());
     }
 }

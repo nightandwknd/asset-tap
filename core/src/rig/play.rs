@@ -67,10 +67,24 @@ enum ChannelPath {
     Scale,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Interp {
     Linear,
     Step,
+    /// Three samples per key: in-tangent, value, out-tangent. The writer
+    /// keeps a pack's CUBICSPLINE channels as they are, so the player has to
+    /// evaluate the Hermite curve rather than read the tangents as keys.
+    CubicSpline,
+}
+
+impl Interp {
+    /// Samples the output accessor holds per keyframe.
+    fn samples_per_key(self) -> usize {
+        match self {
+            Interp::CubicSpline => 3,
+            Interp::Linear | Interp::Step => 1,
+        }
+    }
 }
 
 impl SkinnedClip {
@@ -345,7 +359,7 @@ impl SkinnedClip {
         if hits.is_empty() {
             return None;
         }
-        hits.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        hits.sort_by(f32::total_cmp);
         // A ray crossing the edge two triangles share registers on both. Left
         // alone, that duplicate becomes the "exit" and the midline collapses
         // back onto the surface, which is the bug this whole function exists
@@ -361,7 +375,7 @@ impl SkinnedClip {
     #[doc(hidden)]
     pub fn ray_hits_debug(&self, o: [f32; 3], d: [f32; 3]) -> Vec<f32> {
         let mut h = self.ray_hits(Vec3::from_array(o), Vec3::from_array(d).normalize());
-        h.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        h.sort_by(f32::total_cmp);
         h
     }
 
@@ -776,8 +790,25 @@ fn read_animation<'a>(
         };
         let interpolation = match ch.sampler().interpolation() {
             gltf::animation::Interpolation::Step => Interp::Step,
-            _ => Interp::Linear,
+            gltf::animation::Interpolation::Linear => Interp::Linear,
+            gltf::animation::Interpolation::CubicSpline => Interp::CubicSpline,
         };
+        // A short output accessor would index past the end while sampling:
+        // a panic on the render thread. Refuse the file instead, the way
+        // `extract_animation` does on the write side.
+        let comps = match path {
+            ChannelPath::Rotation => 4,
+            ChannelPath::Translation | ChannelPath::Scale => 3,
+        };
+        let want = times.len() * comps * interpolation.samples_per_key();
+        if values.len() != want {
+            return Err(format!(
+                "animation '{name}' channel has {} times but {} output values ({:?} wants {want})",
+                times.len(),
+                values.len(),
+                interpolation
+            ));
+        }
         channels.push(PlayChannel {
             node: ch.target().node().index(),
             path,
@@ -857,39 +888,87 @@ fn key_span(times: &[f32], t: f32) -> (usize, usize, f32) {
     (lo, hi, (t - times[lo]) / span)
 }
 
-fn sample_vec3(ch: &PlayChannel, t: f32) -> Vec3 {
+/// Component-wise sample of a channel with `n` components per value.
+///
+/// One evaluator for every path: the interpolation rule does not depend on
+/// whether the components are a translation, a scale or a quaternion. The
+/// caller normalizes a quaternion afterwards.
+fn sample_components<const N: usize>(ch: &PlayChannel, t: f32) -> [f32; N] {
     let (lo, hi, u) = key_span(&ch.times, t);
-    let a = Vec3::from_slice(&ch.values[lo * 3..lo * 3 + 3]);
-    if matches!(ch.interpolation, Interp::Step) || lo == hi {
+    let per_key = N * ch.interpolation.samples_per_key();
+    // Slot of the value inside a key: the middle sample of a cubic triple,
+    // the only sample otherwise.
+    let value_off = (ch.interpolation.samples_per_key() / 2) * N;
+    let value_at = |k: usize| k * per_key + value_off;
+    let read = |off: usize| -> [f32; N] {
+        let mut out = [0.0; N];
+        out.copy_from_slice(&ch.values[off..off + N]);
+        out
+    };
+    let a = read(value_at(lo));
+    if ch.interpolation == Interp::Step || lo == hi {
         return a;
     }
-    let b = Vec3::from_slice(&ch.values[hi * 3..hi * 3 + 3]);
-    a.lerp(b, u)
+    let b = read(value_at(hi));
+    match ch.interpolation {
+        Interp::CubicSpline => {
+            // glTF's Hermite form. `td` scales the tangents, which the spec
+            // stores per second, onto this key interval.
+            let td = (ch.times[hi] - ch.times[lo]).max(1e-8);
+            let out_tan = read(lo * per_key + 2 * N);
+            let in_tan = read(hi * per_key);
+            let (u2, u3) = (u * u, u * u * u);
+            let (h00, h10, h01, h11) = (
+                2.0 * u3 - 3.0 * u2 + 1.0,
+                u3 - 2.0 * u2 + u,
+                -2.0 * u3 + 3.0 * u2,
+                u3 - u2,
+            );
+            let mut out = [0.0; N];
+            for i in 0..N {
+                out[i] = h00 * a[i] + h10 * td * out_tan[i] + h01 * b[i] + h11 * td * in_tan[i];
+            }
+            out
+        }
+        Interp::Linear | Interp::Step => {
+            let mut out = [0.0; N];
+            for i in 0..N {
+                out[i] = a[i] + (b[i] - a[i]) * u;
+            }
+            out
+        }
+    }
+}
+
+fn sample_vec3(ch: &PlayChannel, t: f32) -> Vec3 {
+    Vec3::from_array(sample_components::<3>(ch, t))
 }
 
 fn sample_quat(ch: &PlayChannel, t: f32) -> Quat {
     let (lo, hi, u) = key_span(&ch.times, t);
-    let a = Quat::from_xyzw(
-        ch.values[lo * 4],
-        ch.values[lo * 4 + 1],
-        ch.values[lo * 4 + 2],
-        ch.values[lo * 4 + 3],
-    )
-    .normalize();
-    if matches!(ch.interpolation, Interp::Step) || lo == hi {
-        return a;
+    if ch.interpolation == Interp::Linear && lo != hi {
+        // Quaternions interpolate on the sphere, not component-wise, and
+        // the shorter arc has to be chosen first.
+        let per_key = 4;
+        let q = |k: usize| {
+            Quat::from_xyzw(
+                ch.values[k * per_key],
+                ch.values[k * per_key + 1],
+                ch.values[k * per_key + 2],
+                ch.values[k * per_key + 3],
+            )
+            .normalize()
+        };
+        let a = q(lo);
+        let mut b = q(hi);
+        if a.dot(b) < 0.0 {
+            b = -b;
+        }
+        return a.slerp(b, u);
     }
-    let mut b = Quat::from_xyzw(
-        ch.values[hi * 4],
-        ch.values[hi * 4 + 1],
-        ch.values[hi * 4 + 2],
-        ch.values[hi * 4 + 3],
-    )
-    .normalize();
-    if a.dot(b) < 0.0 {
-        b = -b;
-    }
-    a.slerp(b, u)
+    // STEP holds; CUBICSPLINE is a component-wise Hermite that the spec says
+    // to normalize afterwards.
+    Quat::from_array(sample_components::<4>(ch, t)).normalize()
 }
 
 #[cfg(test)]
@@ -1037,7 +1116,8 @@ mod tests {
         crate::test_support::glb(&serde_json::to_vec(json_doc).unwrap(), Some(bin))
     }
 
-    /// One joint, two verts glued to it, translation 0 → +1 X over 1s.
+    /// One joint (`hips`, so Place treats it as a bind bone), two verts glued
+    /// to it, translation 0 → +1 X over 1s.
     fn tiny_clip_glb() -> Vec<u8> {
         let mut bin = Vec::new();
         // positions (2×vec3)
@@ -1084,7 +1164,7 @@ mod tests {
             "scene": 0,
             "scenes": [{ "nodes": [0, 1] }],
             "nodes": [
-                { "name": "joint", "translation": [0,0,0] },
+                { "name": "hips", "translation": [0,0,0] },
                 { "name": "Mesh", "mesh": 0, "skin": 0 }
             ],
             "meshes": [{
@@ -1213,6 +1293,89 @@ mod tests {
         assert!(clip.bone_segments_rest().is_empty());
     }
 
+    fn cubic_channel(values: Vec<f32>) -> PlayChannel {
+        PlayChannel {
+            node: 0,
+            path: ChannelPath::Translation,
+            times: vec![0.0, 2.0],
+            values,
+            interpolation: Interp::CubicSpline,
+        }
+    }
+
+    /// CUBICSPLINE is evaluated as the Hermite curve glTF specifies, not read
+    /// as a stream of keys. The writer keeps a pack's cubic channels verbatim
+    /// (three samples per key), and the player used to treat those as LINEAR,
+    /// so the second "key" it saw was the first key's out-tangent.
+    #[test]
+    fn cubic_spline_channels_follow_their_tangents() {
+        // Two keys, 2 s apart, x from 0 to 1. Zero tangents first: the curve
+        // is the smoothstep, so the midpoint is the midpoint.
+        let flat = cubic_channel(vec![
+            0.0, 0.0, 0.0, /* in */ 0.0, 0.0, 0.0, /* value */ 0.0, 0.0,
+            0.0, /* out */
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ]);
+        assert!((sample_vec3(&flat, 0.0).x).abs() < 1e-6);
+        assert!((sample_vec3(&flat, 1.0).x - 0.5).abs() < 1e-6, "midpoint");
+        assert!((sample_vec3(&flat, 2.0).x - 1.0).abs() < 1e-6);
+        // Smoothstep, not linear: a quarter of the way in, the curve lags.
+        let q = sample_vec3(&flat, 0.5).x;
+        assert!(q > 0.1 && q < 0.2, "quarter point {q} should be 0.15625");
+
+        // A steep out-tangent on the first key pulls the curve ahead early.
+        let steep = cubic_channel(vec![
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, /* out-tangent */ 2.0, 0.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ]);
+        let early = sample_vec3(&steep, 0.5).x;
+        assert!(early > q, "tangent must matter: {early} vs {q}");
+        // Endpoints are still the key values, whatever the tangents.
+        assert!((sample_vec3(&steep, 2.0).x - 1.0).abs() < 1e-6);
+    }
+
+    /// A rotation channel's cubic samples are normalized after the blend.
+    #[test]
+    fn cubic_rotation_samples_are_unit_quaternions() {
+        let quarter = std::f32::consts::FRAC_1_SQRT_2;
+        let ch = PlayChannel {
+            node: 0,
+            path: ChannelPath::Rotation,
+            times: vec![0.0, 1.0],
+            // key 0: identity; key 1: quarter turn about Z; zero tangents.
+            values: vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, //
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, quarter, quarter, 0.0, 0.0, 0.0, 0.0,
+            ],
+            interpolation: Interp::CubicSpline,
+        };
+        let q = sample_quat(&ch, 0.5);
+        assert!((q.length() - 1.0).abs() < 1e-5, "normalized: {q:?}");
+        assert!(
+            q.z > 0.1 && q.z < quarter,
+            "partway through the turn: {q:?}"
+        );
+    }
+
+    /// A short output accessor is refused at load, not discovered by an
+    /// out-of-range index during playback.
+    #[test]
+    fn a_short_output_accessor_is_an_error_not_a_panic() {
+        let mut bytes = tiny_clip_glb();
+        // Shrink the translation accessor to one value against two times.
+        let json_len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&bytes[20..20 + json_len]).unwrap();
+        doc["accessors"][6]["count"] = json!(1);
+        let bin_start = 20 + json_len + 8;
+        let bin = bytes.split_off(bin_start);
+        let glb = pack_glb(&doc, &bin);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("short.glb");
+        std::fs::write(&path, glb).unwrap();
+        let err = SkinnedClip::from_glb(&path).unwrap_err();
+        assert!(err.contains("output values"), "{err}");
+    }
+
     #[test]
     fn identity_bind_pose_at_t0() {
         let bytes = tiny_clip_glb();
@@ -1252,7 +1415,7 @@ mod tests {
             .write_all(&bytes)
             .unwrap();
         let mut clip = SkinnedClip::from_glb(&path).expect("load");
-        clip.apply_world_heads(&[("joint".into(), [2.0, 0.0, 0.0])]);
+        clip.apply_world_heads(&[("hips".into(), [2.0, 0.0, 0.0])]);
         let mut rest = Vec::new();
         clip.sample_positions_rest_into(&mut rest);
         assert!(

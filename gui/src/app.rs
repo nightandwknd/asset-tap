@@ -107,6 +107,13 @@ pub(crate) fn is_no_op_run(skip_3d: bool, has_existing_image: bool) -> bool {
     skip_3d && has_existing_image
 }
 
+/// The file name for a toast, or the whole path when there is none.
+fn file_label(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 fn bundle_import_combined_exts() -> Vec<&'static str> {
     let mut exts = Vec::with_capacity(3 + asset_tap_core::constants::files::IMAGE_EXTS.len());
     exts.extend(["zip", "json", "glb"]);
@@ -175,42 +182,37 @@ pub(crate) fn hovered_paths_over(ctx: &egui::Context, rect: egui::Rect) -> Vec<s
     })
 }
 
-/// If the pointer is over `rect`, take this frame's dropped paths so later
-/// zones cannot also claim them. Must run during [`eframe::App::ui`].
-pub(crate) fn take_dropped_over(ctx: &egui::Context, rect: egui::Rect) -> Vec<std::path::PathBuf> {
+/// This frame's dropped paths, if the pointer is over `rect`. Read-only:
+/// pair with [`claim_dropped`] to take the ones a zone actually uses.
+fn dropped_paths_over(ctx: &egui::Context, rect: egui::Rect) -> Vec<std::path::PathBuf> {
     if !pointer_over_rect(ctx, rect) {
         return Vec::new();
     }
-    ctx.input_mut(|i| {
-        std::mem::take(&mut i.raw.dropped_files)
-            .into_iter()
-            .filter_map(|f| f.path)
+    ctx.input(|i| {
+        i.raw
+            .dropped_files
+            .iter()
+            .filter_map(|f| f.path.clone())
             .collect()
     })
 }
 
-/// Like [`take_dropped_over`] but only claims the drop when `accept` matches
-/// one of the paths. A zone that can't use what was dropped must not swallow
-/// it: [`App::drop_unclaimed`] is what turns an unroutable drop into a toast,
-/// and it only sees what no zone took.
-pub(crate) fn take_dropped_over_if(
-    ctx: &egui::Context,
-    rect: egui::Rect,
-    accept: impl Fn(&std::path::Path) -> bool,
-) -> Vec<std::path::PathBuf> {
-    if !pointer_over_rect(ctx, rect) {
-        return Vec::new();
+/// Remove `claimed` from this frame's dropped files so later zones cannot
+/// also take them. Anything left is what [`App::drop_unclaimed`] sees at the
+/// end of the frame, which is why a zone claims only the files it will use:
+/// the rest must still reach the toast that says where they belong. Must run
+/// during [`eframe::App::ui`].
+fn claim_dropped(ctx: &egui::Context, claimed: &[std::path::PathBuf]) {
+    if claimed.is_empty() {
+        return;
     }
-    let usable = ctx.input(|i| {
-        i.raw
-            .dropped_files
-            .iter()
-            .any(|f| f.path.as_deref().is_some_and(&accept))
+    ctx.input_mut(|i| {
+        i.raw.dropped_files.retain(|f| {
+            !f.path
+                .as_deref()
+                .is_some_and(|p| claimed.iter().any(|c| c == p))
+        });
     });
-    if !usable {
-        return Vec::new();
-    }
-    take_dropped_over(ctx, rect)
 }
 
 pub(crate) fn paint_drop_overlay(ctx: &egui::Context, rect: egui::Rect, label: &str) {
@@ -274,9 +276,14 @@ enum WorkbenchDone {
         /// Placeable joints moved > 1 cm from the auto-fit, and the largest move.
         moved_joints: usize,
         max_moved_m: f32,
+        /// Animations the file holds after the write.
+        clips: Vec<String>,
+        /// Baked clips the re-bind could not carry over.
+        dropped_clips: Vec<String>,
     },
     Bake {
-        count: usize,
+        /// Exactly what the file holds now; Bake is declarative.
+        clips: Vec<String>,
     },
     Seed {
         markers: Vec<asset_tap_core::BindMarker>,
@@ -284,6 +291,100 @@ enum WorkbenchDone {
     Preview {
         clip: Box<asset_tap_core::SkinnedClip>,
     },
+    /// Everything opening the Animation panel needs to read off disk, in one
+    /// trip: the baked set, whether a foreign skin is about to be replaced,
+    /// and (unfitted only) the skeleton Rig opens with.
+    Opened {
+        clips: Vec<String>,
+        foreign_joints: Option<usize>,
+        markers: Option<Vec<asset_tap_core::BindMarker>>,
+    },
+}
+
+/// Which model and which request a workbench job was issued for, so a
+/// completion that arrives after the user moved on is dropped instead of
+/// being applied to whatever is loaded now (VIEWER_ANIMATE.md: "Never
+/// silently apply pending edits to another asset").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkbenchJob {
+    /// From `App::workbench_seq`, bumped per job and on every model swap.
+    pub id: u64,
+    pub model: PathBuf,
+}
+
+/// True when a finished job still describes the model on screen and no
+/// newer request or model swap has superseded it.
+pub(crate) fn workbench_completion_is_current(
+    job: &WorkbenchJob,
+    current_model: Option<&std::path::Path>,
+    latest_id: u64,
+) -> bool {
+    job.id == latest_id && current_model == Some(job.model.as_path())
+}
+
+/// Non-blocking read of a oneshot: the value when it is ready, `None` while
+/// it is not (the receiver goes back in `slot` and a repaint is requested so
+/// the next frame asks again) or if the sender was dropped (logged; the job
+/// is gone).
+fn poll_oneshot<T>(
+    slot: &mut Option<tokio::sync::oneshot::Receiver<T>>,
+    ctx: &egui::Context,
+    what: &str,
+) -> Option<T> {
+    let mut rx = slot.take()?;
+    match rx.try_recv() {
+        Ok(value) => Some(value),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+            *slot = Some(rx);
+            ctx.request_repaint();
+            None
+        }
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+            tracing::warn!("{what} channel closed unexpectedly");
+            None
+        }
+    }
+}
+
+/// Split the ticked set into what Bake can actually write (catalog order, so
+/// the file matches the list) and what it cannot: names whose pack is not
+/// installed. A model baked on another machine, or with a pack since removed,
+/// pre-ticks clips nothing can re-source. Bake used to count them, then
+/// write only the rest — with none installed it silently became Clear.
+pub(crate) fn split_bake_set<'a>(
+    bake_set: &std::collections::BTreeSet<String>,
+    catalog_ids: impl IntoIterator<Item = &'a str>,
+) -> (Vec<String>, Vec<String>) {
+    let available: Vec<String> = catalog_ids
+        .into_iter()
+        .filter(|id| bake_set.contains(*id))
+        .map(str::to_string)
+        .collect();
+    let unavailable = bake_set
+        .iter()
+        .filter(|id| !available.contains(id))
+        .cloned()
+        .collect();
+    (available, unavailable)
+}
+
+/// How a mixed drop of loose meshes and stills becomes bundles: the first
+/// mesh pairs with the first still, and every other file gets a bundle of
+/// its own. Core's pair import keeps the largest of each kind and deletes
+/// the rest, so handing it everything lost files without a word.
+pub(crate) fn plan_loose_imports(glbs: Vec<PathBuf>, images: Vec<PathBuf>) -> Vec<Vec<PathBuf>> {
+    let mut glbs = glbs.into_iter();
+    let mut images = images.into_iter();
+    let mut plan = Vec::new();
+    match (glbs.next(), images.next()) {
+        (Some(g), Some(i)) => plan.push(vec![g, i]),
+        (Some(g), None) => plan.push(vec![g]),
+        (None, Some(i)) => plan.push(vec![i]),
+        (None, None) => {}
+    }
+    plan.extend(glbs.map(|g| vec![g]));
+    plan.extend(images.map(|i| vec![i]));
+    plan
 }
 
 /// A toast notification message shown briefly to the user.
@@ -479,8 +580,16 @@ pub struct App {
     /// is reset for a new image.
     pub approval_texture_failed: Option<PathBuf>,
 
-    /// In-flight fit / bake / clip-download / rebake.
-    pending_workbench: Option<tokio::sync::oneshot::Receiver<Result<WorkbenchDone, String>>>,
+    /// In-flight fit / bake / preview / open, with the identity it was
+    /// issued for. Only one at a time.
+    pending_workbench: Option<(
+        WorkbenchJob,
+        tokio::sync::oneshot::Receiver<Result<WorkbenchDone, String>>,
+    )>,
+
+    /// Id of the latest workbench request. Bumped per job and on every model
+    /// swap, so a completion carrying an older id is stale by construction.
+    workbench_seq: u64,
 
     /// Optional Animation panel. Off is inspect.
     pub workbench_animate: bool,
@@ -933,6 +1042,7 @@ impl App {
             bundle_info_panel: views::bundle_info::BundleInfoPanel::new(),
             confirmation_dialog: views::confirmation_dialog::ConfirmationDialog::new(),
             pending_workbench: None,
+            workbench_seq: 0,
             workbench_animate: false,
             workbench_show_bones: true,
             clip_catalog: asset_tap_core::list_clips(),
@@ -1078,6 +1188,25 @@ impl App {
             .is_some_and(|e| e.eq_ignore_ascii_case("glb"))
     }
 
+    /// Refuse to replace `self.output` while something else owns it: a
+    /// running pipeline will install its own result, and an in-flight
+    /// rig/bake was issued for the model on screen. Toasts the reason.
+    fn output_swap_blocked(&mut self) -> bool {
+        if self.state.lock().unwrap().running {
+            self.add_toast(Toast::info(
+                "Generation in progress. The bundle is in the library; open it when the run finishes",
+            ));
+            return true;
+        }
+        if self.workbench_busy() {
+            self.add_toast(Toast::info(
+                "Wait for the current rig or bake to finish before switching bundles",
+            ));
+            return true;
+        }
+        false
+    }
+
     /// True for paths that can become a library bundle when dropped on
     /// Bundle Info: folders, zips, GLBs, images, and bundle.json.
     pub(crate) fn is_bundle_drop(path: &std::path::Path) -> bool {
@@ -1097,20 +1226,12 @@ impl App {
         asset_tap_core::looks_like_clip_pack(path)
     }
 
-    /// Sidebar "Drop image here" — pipeline input, not a library bundle.
-    /// Claims only stills, so a zip or `.glb` dropped here falls through to
-    /// [`Self::drop_unclaimed`] and gets told where it belongs.
-    pub(crate) fn drop_generation_image(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let dropped = take_dropped_over_if(ctx, rect, Self::is_image_file);
-        if let Some(path) = dropped.into_iter().find(|p| Self::is_image_file(p)) {
-            self.queue_image_for_generation(path.to_string_lossy().into_owned());
-        }
-    }
-
     /// [`Self::is_pack_drop`] memoized for the length of one drag. Classifying
     /// a zip opens the archive and parses its whole central directory — tens of
     /// thousands of entries for a UAL Source zip — and the hover path asks
-    /// twice per file per frame while the drag holds the UI repainting.
+    /// twice per file per frame while the drag holds the UI repainting. Every
+    /// drop path goes through here too, since the drop frame still has the
+    /// verdicts the hover frames computed.
     fn is_pack_drop_cached(&mut self, path: &std::path::Path) -> bool {
         if let Some(&known) = self.pack_drop_cache.get(path) {
             return known;
@@ -1120,129 +1241,209 @@ impl App {
         verdict
     }
 
-    /// Bundle Info pane — always a new library bundle.
-    pub(crate) fn drop_import_on_bundle_info(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let hovered = hovered_paths_over(ctx, rect);
-        if !hovered.is_empty() {
-            let saw_pack = hovered.iter().any(|p| self.is_pack_drop_cached(p));
-            let saw_bundle = hovered
-                .iter()
-                .any(|p| Self::is_bundle_drop(p) && !self.is_pack_drop_cached(p));
-            let label = if saw_pack && !saw_bundle {
-                clip_packs::DROP_PACKS_ON_ANIMATE
-            } else {
-                clip_packs::DROP_IMPORT
-            };
-            paint_drop_overlay(ctx, rect, label);
+    /// A modal is up. Zones underneath it must not accept a drop: the user
+    /// is answering a dialog, not importing, and the rect test alone cannot
+    /// tell the two apart because the backdrop is painted over the zones,
+    /// not through them.
+    pub fn modal_open(&self) -> bool {
+        let approval = {
+            let state = self.state.lock().unwrap();
+            state.awaiting_approval.is_some() || state.regenerating_image
+        };
+        approval
+            || self.settings_modal.is_open
+            || self.welcome_modal.is_open()
+            || self.about_modal.is_open
+            || self.show_template_editor
+            || self.library_browser.is_open
+            || self.show_demo_download_confirm
+            || self.show_clip_packs_download_confirm
+            || self.pending_delete_bundle.is_some()
+            || self.pending_clear_animation
+            || self.show_clear_history_confirmation
+            || self.confirmation_dialog.is_open
+    }
+
+    /// Hovered OS-drag paths over `rect`, or nothing while a modal is open.
+    /// Zones paint their hover overlay from this so the overlay and the drop
+    /// agree on whether the zone is live.
+    pub(crate) fn zone_hovered(&self, ctx: &egui::Context, rect: egui::Rect) -> Vec<PathBuf> {
+        if self.modal_open() {
+            return Vec::new();
         }
-        let dropped = take_dropped_over(ctx, rect);
+        hovered_paths_over(ctx, rect)
+    }
+
+    /// The shape every drop zone shares: paint a label while files hover,
+    /// then on the drop frame claim exactly the files `accept` wants and
+    /// return them. Rejected files stay in the frame's drop list for
+    /// [`Self::drop_unclaimed`], which is the one place that says where a
+    /// misdropped file belongs — a zone never toasts about what it declined.
+    ///
+    /// `accept` is `FnMut` so a zone that uses one file can stop after the
+    /// first match instead of swallowing the batch.
+    fn drop_zone(
+        &mut self,
+        ctx: &egui::Context,
+        rect: egui::Rect,
+        label: impl FnOnce(&mut Self, &[PathBuf]) -> Option<&'static str>,
+        mut accept: impl FnMut(&mut Self, &std::path::Path) -> bool,
+    ) -> Vec<PathBuf> {
+        if self.modal_open() {
+            return Vec::new();
+        }
+        let hovered = hovered_paths_over(ctx, rect);
+        if !hovered.is_empty()
+            && let Some(text) = label(self, &hovered)
+        {
+            paint_drop_overlay(ctx, rect, text);
+        }
+        let dropped = dropped_paths_over(ctx, rect);
+        if dropped.is_empty() {
+            return Vec::new();
+        }
+        let claimed: Vec<PathBuf> = dropped.into_iter().filter(|p| accept(self, p)).collect();
+        claim_dropped(ctx, &claimed);
+        claimed
+    }
+
+    /// Sidebar "Drop image here" — pipeline input, not a library bundle.
+    /// Claims one still; anything else falls through to
+    /// [`Self::drop_unclaimed`] and gets told where it belongs. The sidebar
+    /// paints its own hover state, so no label here.
+    pub(crate) fn drop_generation_image(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let mut taken = false;
+        let claimed = self.drop_zone(
+            ctx,
+            rect,
+            |_, _| None,
+            |_, p| {
+                let take = !taken && Self::is_image_file(p);
+                taken |= take;
+                take
+            },
+        );
+        if let Some(path) = claimed.into_iter().next() {
+            self.queue_image_for_generation(path.to_string_lossy().into_owned());
+        }
+    }
+
+    /// Bundle Info pane — always a new library bundle. Takes everything, and
+    /// [`Self::import_as_new_bundle`] says per file what could not be used.
+    pub(crate) fn drop_import_on_bundle_info(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let dropped = self.drop_zone(
+            ctx,
+            rect,
+            |app, hovered| {
+                let saw_pack = hovered.iter().any(|p| app.is_pack_drop_cached(p));
+                let saw_bundle = hovered
+                    .iter()
+                    .any(|p| Self::is_bundle_drop(p) && !app.is_pack_drop_cached(p));
+                if saw_pack && !saw_bundle {
+                    Some(clip_packs::DROP_PACKS_ON_ANIMATE)
+                } else {
+                    Some(clip_packs::DROP_IMPORT)
+                }
+            },
+            |_, _| true,
+        );
         if !dropped.is_empty() {
             self.import_as_new_bundle(dropped);
         }
     }
 
-    /// Empty Image tab — attach `image.png` only.
+    /// Empty Image tab — attach `image.png` only. Claims one still.
     pub(crate) fn drop_attach_image(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let hovered = hovered_paths_over(ctx, rect);
-        if !hovered.is_empty() {
-            let label = if hovered.iter().any(|p| Self::is_image_file(p)) {
-                clip_packs::DROP_ATTACH_IMAGE
-            } else if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
-                clip_packs::DROP_PACKS_ON_ANIMATE
-            } else {
-                clip_packs::DROP_BUNDLES_ON_INFO
-            };
-            paint_drop_overlay(ctx, rect, label);
-        }
-        let dropped = take_dropped_over(ctx, rect);
-        if dropped.is_empty() {
-            return;
-        }
-        if let Some(path) = dropped.iter().find(|p| Self::is_image_file(p)).cloned() {
+        let mut taken = false;
+        let claimed = self.drop_zone(
+            ctx,
+            rect,
+            |app, hovered| {
+                if hovered.iter().any(|p| Self::is_image_file(p)) {
+                    Some(clip_packs::DROP_ATTACH_IMAGE)
+                } else if hovered.iter().any(|p| app.is_pack_drop_cached(p)) {
+                    Some(clip_packs::DROP_PACKS_ON_ANIMATE)
+                } else {
+                    Some(clip_packs::DROP_BUNDLES_ON_INFO)
+                }
+            },
+            |_, p| {
+                let take = !taken && Self::is_image_file(p);
+                taken |= take;
+                take
+            },
+        );
+        if let Some(path) = claimed.into_iter().next() {
             self.attach_to_current_bundle(path);
-        } else if dropped.iter().any(|p| Self::is_pack_drop(p)) {
-            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
-        } else {
-            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
         }
     }
 
-    /// Empty 3D tab — attach `model.glb` only.
+    /// Empty 3D tab — attach `model.glb` only. Claims one mesh that is not a
+    /// clip pack.
     pub(crate) fn drop_attach_model(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let hovered = hovered_paths_over(ctx, rect);
-        if !hovered.is_empty() {
-            let label = if hovered
-                .iter()
-                .any(|p| Self::is_glb_file(p) && !self.is_pack_drop_cached(p))
-            {
-                clip_packs::DROP_ATTACH_MODEL
-            } else if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
-                clip_packs::DROP_PACKS_ON_ANIMATE
-            } else {
-                clip_packs::DROP_BUNDLES_ON_INFO
-            };
-            paint_drop_overlay(ctx, rect, label);
-        }
-        let dropped = take_dropped_over(ctx, rect);
-        if dropped.is_empty() {
-            return;
-        }
-        if let Some(path) = dropped
-            .iter()
-            .find(|p| Self::is_glb_file(p) && !Self::is_pack_drop(p))
-            .cloned()
-        {
+        let mut taken = false;
+        let claimed = self.drop_zone(
+            ctx,
+            rect,
+            |app, hovered| {
+                if hovered
+                    .iter()
+                    .any(|p| Self::is_glb_file(p) && !app.is_pack_drop_cached(p))
+                {
+                    Some(clip_packs::DROP_ATTACH_MODEL)
+                } else if hovered.iter().any(|p| app.is_pack_drop_cached(p)) {
+                    Some(clip_packs::DROP_PACKS_ON_ANIMATE)
+                } else {
+                    Some(clip_packs::DROP_BUNDLES_ON_INFO)
+                }
+            },
+            |app, p| {
+                let take = !taken && Self::is_glb_file(p) && !app.is_pack_drop_cached(p);
+                taken |= take;
+                take
+            },
+        );
+        if let Some(path) = claimed.into_iter().next() {
             self.attach_to_current_bundle(path);
-        } else if dropped.iter().any(|p| Self::is_pack_drop(p)) {
-            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
-        } else {
-            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
         }
     }
 
     /// Animation panel — clip packs only.
     pub(crate) fn drop_install_pack(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let hovered = hovered_paths_over(ctx, rect);
-        if !hovered.is_empty() {
-            let label = if hovered.iter().any(|p| self.is_pack_drop_cached(p)) {
-                clip_packs::DROP_INSTALL_PACK
-            } else {
-                // Not "drop packs on the Animation panel" — they are already
-                // on it. Name where a mesh or still actually goes.
-                clip_packs::DROP_BUNDLES_ON_INFO
-            };
-            paint_drop_overlay(ctx, rect, label);
-        }
-        let dropped = take_dropped_over(ctx, rect);
-        if dropped.is_empty() {
-            return;
-        }
-        let mut saw_non_pack = false;
-        for path in dropped {
-            if Self::is_pack_drop(&path) {
-                self.install_clip_pack(path);
-            } else {
-                saw_non_pack = true;
-            }
-        }
-        if saw_non_pack {
-            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
+        let packs = self.drop_zone(
+            ctx,
+            rect,
+            |app, hovered| {
+                if hovered.iter().any(|p| app.is_pack_drop_cached(p)) {
+                    Some(clip_packs::DROP_INSTALL_PACK)
+                } else {
+                    // Not "drop packs on the Animation panel" — they are
+                    // already on it. Name where a mesh or still actually goes.
+                    Some(clip_packs::DROP_BUNDLES_ON_INFO)
+                }
+            },
+            |app, p| app.is_pack_drop_cached(p),
+        );
+        for path in packs {
+            self.install_clip_pack(path);
         }
     }
 
     /// Runs at the end of [`eframe::App::ui`], after every zone has had its
-    /// chance. A drop must never vanish, and there are two ways it can reach
-    /// here:
+    /// chance. A drop must never vanish, and there are three ways it can
+    /// reach here:
     ///
+    /// - **A modal is open.** Every zone declined on purpose. Say so, rather
+    ///   than importing behind a dialog the user is still answering.
     /// - **No pointer at all.** No zone could match, because none of them can
     ///   know where the drop landed: the platform can't report the cursor
     ///   during a drag (X11 has no drag coordinates, Wayland no file drops),
     ///   or [`crate::dnd`]'s query failed this frame.
     ///   Route by file type, which is what shipped before zones existed.
-    /// - **Dropped outside every zone** — the menu bar, the progress panel, a
-    ///   modal. Say where it belongs rather than guessing, since guessing
-    ///   "new bundle" for a window-wide drop is the behavior that made the
-    ///   zones necessary.
+    /// - **Dropped outside every zone** — the menu bar, the progress panel, or
+    ///   a zone that had no use for this file type. Say where it belongs
+    ///   rather than guessing, since guessing "new bundle" for a window-wide
+    ///   drop is the behavior that made the zones necessary.
     pub(crate) fn drop_unclaimed(&mut self, ctx: &egui::Context) {
         let dropped: Vec<std::path::PathBuf> = ctx.input_mut(|i| {
             std::mem::take(&mut i.raw.dropped_files)
@@ -1251,6 +1452,11 @@ impl App {
                 .collect()
         });
         if dropped.is_empty() {
+            return;
+        }
+
+        if self.modal_open() {
+            self.add_toast(Toast::info("Close the dialog first, then drop again"));
             return;
         }
 
@@ -1281,59 +1487,30 @@ impl App {
         }
     }
 
-    /// Preview pane is not an import target. Leftover drops toast instead of
-    /// wrapping a new bundle.
-    pub(crate) fn drop_preview_not_import(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        let dropped = take_dropped_over(ctx, rect);
-        if dropped.is_empty() {
-            return;
-        }
-        if dropped.iter().any(|p| Self::is_pack_drop(p))
-            && !dropped.iter().any(|p| {
-                (Self::is_bundle_drop(p) || Self::is_image_file(p) || Self::is_glb_file(p))
-                    && !Self::is_pack_drop(p)
-            })
-        {
-            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
-        } else {
-            self.add_toast(Toast::info(clip_packs::DROP_BUNDLES_ON_INFO));
-        }
-    }
-
-    /// Bundle Info import: always a new bundle. Packs are not wrapped.
+    /// Bundle Info import: always a new bundle. Packs are not wrapped; every
+    /// other file is handed to core, whose refusal (a `.gltf` without its
+    /// sidecar buffers, an unknown type) comes back as a toast naming the
+    /// file, so nothing dropped here is skipped without a word.
     fn import_as_new_bundle(&mut self, dropped: Vec<std::path::PathBuf>) {
-        let mut packs = Vec::new();
         let mut loose_glbs = Vec::new();
         let mut loose_images = Vec::new();
-        let mut other = Vec::new();
         for path in dropped {
-            if Self::is_pack_drop(&path) {
-                packs.push(path);
+            if self.is_pack_drop_cached(&path) {
+                self.add_toast(Toast::info(format!(
+                    "{}: {}",
+                    file_label(&path),
+                    clip_packs::DROP_PACKS_ON_ANIMATE
+                )));
             } else if Self::is_glb_file(&path) {
                 loose_glbs.push(path);
             } else if Self::is_image_file(&path) {
                 loose_images.push(path);
-            } else if Self::is_bundle_drop(&path) {
-                other.push(path);
+            } else {
+                self.import_bundle(path);
             }
         }
-        if !packs.is_empty() {
-            self.add_toast(Toast::info(clip_packs::DROP_PACKS_ON_ANIMATE));
-        }
-        for path in other {
-            self.import_bundle(path);
-        }
-        if !loose_glbs.is_empty() && !loose_images.is_empty() {
-            let mut files = loose_glbs;
-            files.extend(loose_images);
+        for files in plan_loose_imports(loose_glbs, loose_images) {
             self.import_loose_files(files);
-        } else {
-            for path in loose_glbs {
-                self.import_bundle(path);
-            }
-            for path in loose_images {
-                self.import_bundle(path);
-            }
         }
     }
 
@@ -1392,6 +1569,16 @@ impl App {
             return;
         };
         let output_dir = self.settings.output_dir.clone();
+        // Several files can be queued from one drop, so a refusal has to say
+        // which one it is about.
+        let label = match &job {
+            QueuedImport::Bundle(source) => file_label(source),
+            QueuedImport::Loose(sources) => sources
+                .iter()
+                .map(|s| file_label(s))
+                .collect::<Vec<_>>()
+                .join(" + "),
+        };
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.pending_import = Some(rx);
         self.add_toast(Toast::info(clip_packs::IMPORTING));
@@ -1403,7 +1590,8 @@ impl App {
                 }
             })
             .await
-            .unwrap_or_else(|e| Err(format!("Import task failed: {}", e)));
+            .unwrap_or_else(|e| Err(format!("Import task failed: {}", e)))
+            .map_err(|e| format!("{label}: {e}"));
             let _ = tx.send(result);
         });
     }
@@ -2176,6 +2364,9 @@ impl App {
         parent_dir: &std::path::Path,
         primary_asset_type: &str,
     ) {
+        if self.output_swap_blocked() {
+            return;
+        }
         // Update app state
         self.app_state.current_generation = Some(parent_dir.to_path_buf());
 
@@ -2236,6 +2427,13 @@ impl App {
     /// parsed. Failures are logged via tracing — callers don't need to do
     /// their own error handling unless they want to act on the failure.
     fn activate_bundle_from_dir(&mut self, bundle_dir: PathBuf) -> bool {
+        if self.output_swap_blocked() {
+            // Still make it findable: the dropdown is where the user will
+            // look for it once the run is over.
+            self.bundle_info_panel
+                .refresh_bundle_list(&self.settings.output_dir);
+            return false;
+        }
         match load_bundle(&bundle_dir) {
             Ok(bundle) => {
                 let output = PipelineOutput::from(bundle);
@@ -2264,7 +2462,34 @@ impl App {
         }
     }
 
-    /// Render toast notifications.
+    /// Remove a bundle directory after the user confirmed, and drop it from
+    /// the view if it was the one open.
+    fn delete_bundle(&mut self, path: &std::path::Path) {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => {
+                self.add_toast(Toast::success("Bundle deleted"));
+                if self
+                    .app_state
+                    .current_generation
+                    .as_deref()
+                    .is_some_and(|p| p == path)
+                {
+                    self.output = None;
+                    self.app_state.current_generation = None;
+                    self.bundle_info_panel.current_bundle = None;
+                    self.reset_animate_for_new_asset();
+                }
+                self.bundle_info_panel
+                    .refresh_bundle_list(&self.settings.output_dir);
+            }
+            Err(e) => {
+                tracing::error!("Failed to delete bundle: {}", e);
+                self.toasts
+                    .push(Toast::error(format!("Failed to delete: {e}")));
+            }
+        }
+    }
+
     /// Render the clear history confirmation dialog.
     fn render_clear_history_confirmation(&mut self, ctx: &egui::Context) {
         if !self.show_clear_history_confirmation {
@@ -2496,6 +2721,41 @@ impl App {
         self.pending_workbench.is_some()
     }
 
+    /// Run `work` off-thread against `model`, tagged with a fresh request id.
+    /// One job at a time; returns `false` if one is already in flight. The
+    /// completion is applied only if [`workbench_completion_is_current`]
+    /// still holds when it lands.
+    fn start_workbench_job(
+        &mut self,
+        model: PathBuf,
+        work: impl FnOnce(&std::path::Path) -> Result<WorkbenchDone, String> + Send + 'static,
+    ) -> bool {
+        if self.pending_workbench.is_some() {
+            return false;
+        }
+        self.workbench_seq += 1;
+        let job = WorkbenchJob {
+            id: self.workbench_seq,
+            model: model.clone(),
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_workbench = Some((job, rx));
+        self.runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(move || work(&model))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(std::convert::identity);
+            let _ = tx.send(result);
+        });
+        true
+    }
+
+    /// The model on screen is changing. Any job in flight was issued for the
+    /// old one; bumping the sequence makes its completion stale.
+    fn invalidate_workbench(&mut self) {
+        self.workbench_seq += 1;
+    }
+
     /// Inspect is the default. Closing the Animation panel stops playback
     /// and hides bones; it does not write the asset.
     pub fn close_animate_panel(&mut self) {
@@ -2507,12 +2767,32 @@ impl App {
     }
 
     pub fn open_animate_panel(&mut self) {
+        if self.pending_workbench.is_some() {
+            self.toasts
+                .push(Toast::info("Wait for the current job to finish"));
+            return;
+        }
+        let Some(model) = self.current_model_path() else {
+            self.toasts.push(Toast::error(
+                "No model loaded. Generate or open a bundle first",
+            ));
+            return;
+        };
+        if self.model_viewer.lock().unwrap().is_loading() {
+            self.toasts.push(Toast::info(
+                "The model is still loading. Try again in a moment",
+            ));
+            return;
+        }
         self.workbench_animate = true;
         self.refresh_clip_catalog();
-        self.sync_bake_set_from_model();
+        // The file is read once, off-thread, in the `Opened` job below. Until
+        // it lands the panel shows nothing ticked rather than the previous
+        // model's set.
+        self.bake_set.clear();
+        self.model_clips.clear();
         let mut viewer = self.model_viewer.lock().unwrap();
         viewer.set_show_bones(self.workbench_show_bones);
-        viewer.ensure_clip();
         // Unfitted: land in Rig. Playback is locked until Bind.
         // Fitted (prior Bind / CLI --rig): stay on the clip viewer.
         let entered = (!viewer.is_fitted()).then(|| viewer.enter_place());
@@ -2528,41 +2808,43 @@ impl App {
         // all and no way to summon any: a monitor left the panel with an empty
         // skeleton and a greyed-out Bind. Placing the skeleton is the user's
         // job; Auto-fit is a button they reach for once they are in here.
-        if needs_seed {
-            self.start_default_skeleton();
-            // A skin we cannot name is one we cannot animate, so Bind replaces
-            // it. That is the right default and a poor surprise: say it before
-            // the author spends time arranging joints.
-            if let Some(path) = self.model_viewer.lock().unwrap().loaded_path()
-                && let Ok(Some(n)) = asset_tap_core::foreign_rig_joints(path)
-            {
-                self.toasts.push(Toast::info(format!(
-                    "This model already has a rig of {n} joints that Asset Tap cannot read. \
-                     Bind will replace it."
-                )));
-            }
-        }
+        //
+        // The same trip reads the baked set and, for an unfitted mesh, whether
+        // a skin we cannot name is about to be replaced: that is the right
+        // default and a poor surprise, so say it before the author spends time
+        // arranging joints. None of this reads the file on the UI thread.
+        self.start_workbench_job(model, move |path| {
+            let clips = asset_tap_core::baked_clip_names(path).unwrap_or_default();
+            let (foreign_joints, markers) = if needs_seed {
+                let foreign = asset_tap_core::foreign_rig_joints(path).ok().flatten();
+                let markers =
+                    asset_tap_core::default_bind_markers(path).map_err(|e| e.to_string())?;
+                if markers.is_empty() {
+                    return Err("That produced no joints to place".to_string());
+                }
+                (foreign, Some(markers))
+            } else {
+                (None, None)
+            };
+            Ok(WorkbenchDone::Opened {
+                clips,
+                foreign_joints,
+                markers,
+            })
+        });
     }
 
     fn reset_animate_for_new_asset(&mut self) {
+        self.invalidate_workbench();
         self.model_viewer.lock().unwrap().exit_place();
         self.close_animate_panel();
+        self.bake_set.clear();
+        self.model_clips.clear();
     }
 
     #[allow(dead_code)]
     pub fn preview_obscured(&self) -> bool {
-        self.settings_modal.is_open
-            || self.welcome_modal.is_open()
-            || self.about_modal.is_open
-            || self.show_template_editor
-            || self.library_browser.is_open
-            || self.show_demo_download_confirm
-            || self.show_clip_packs_download_confirm
-            || self.pending_delete_bundle.is_some()
-            || self.pending_clear_animation
-            || self.show_clear_history_confirmation
-            || self.confirmation_dialog.is_open
-            || self.preview_tab != PreviewTab::Model3D
+        self.modal_open() || self.preview_tab != PreviewTab::Model3D
     }
 
     pub fn preview_clip(&mut self, id: &str) {
@@ -2575,111 +2857,66 @@ impl App {
             ));
             return;
         };
-        if self.pending_workbench.is_some() {
-            return;
-        }
         let clip_id = id.to_string();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_workbench = Some(rx);
-        self.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                asset_tap_core::preview_skinned_clip(&clip_id, &model)
-                    .map(|clip| WorkbenchDone::Preview {
-                        clip: Box::new(clip),
-                    })
-                    .map_err(|e| e.to_string())
-            })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(std::convert::identity);
-            let _ = tx.send(result);
+        self.start_workbench_job(model, move |path| {
+            asset_tap_core::preview_skinned_clip(&clip_id, path)
+                .map(|clip| WorkbenchDone::Preview {
+                    clip: Box::new(clip),
+                })
+                .map_err(|e| e.to_string())
         });
     }
 
-    /// Auto-fit in the Rig step: guess the skeleton off-thread, then drop it
-    /// into the open Rig session for review. Never writes. Goes through the
-    /// workbench channel so the panel shows busy while the mesh is re-read.
-    /// Auto-fit: solve the skeleton onto the mesh's landmarks.
+    /// Auto-fit in the Rig step: solve the skeleton onto the mesh's landmarks
+    /// off-thread, then drop it into the open Rig session for review. Never
+    /// writes. Goes through the workbench channel so the panel shows busy
+    /// while the mesh is re-read.
     pub fn start_reseed(&mut self) {
-        self.start_marker_job(asset_tap_core::seed_bind_markers);
-    }
-
-    /// The skeleton Rig opens with: shipped rest pose, scaled to the mesh.
-    pub fn start_default_skeleton(&mut self) {
-        self.start_marker_job(asset_tap_core::default_bind_markers);
-    }
-
-    /// Both skeleton sources bake the whole mesh, which is far too slow for the
-    /// UI thread, so both run off it and land through `WorkbenchDone::Seed`.
-    fn start_marker_job(
-        &mut self,
-        solve: fn(
-            &std::path::Path,
-        ) -> Result<Vec<asset_tap_core::BindMarker>, asset_tap_core::BindError>,
-    ) {
-        if self.pending_workbench.is_some() {
+        if !self.model_viewer.lock().unwrap().is_placing() {
             return;
         }
-        let path = {
-            let viewer = self.model_viewer.lock().unwrap();
-            if !viewer.is_placing() {
-                return;
-            }
-            viewer.loaded_path().map(std::path::Path::to_path_buf)
-        };
-        let Some(path) = path else {
+        let Some(model) = self.current_model_path() else {
             self.toasts.push(Toast::error("No model loaded"));
             return;
         };
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_workbench = Some(rx);
-        self.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                let markers = solve(&path).map_err(|e| e.to_string())?;
-                if markers.is_empty() {
-                    return Err("That produced no joints to place".to_string());
-                }
-                Ok(WorkbenchDone::Seed { markers })
-            })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(std::convert::identity);
-            let _ = tx.send(result);
+        self.start_workbench_job(model, |path| {
+            let markers = asset_tap_core::seed_bind_markers(path).map_err(|e| e.to_string())?;
+            if markers.is_empty() {
+                return Err("That produced no joints to place".to_string());
+            }
+            Ok(WorkbenchDone::Seed { markers })
         });
     }
 
     pub fn start_fit(&mut self, model: PathBuf, heads: Option<Vec<(String, [f32; 3])>>) {
-        if self.pending_workbench.is_some() {
-            return;
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_workbench = Some(rx);
-        self.runtime.spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                let options = asset_tap_core::BindOptions {
-                    fit_only: true,
-                    ..Default::default()
-                };
-                let report = match heads.as_deref() {
-                    Some(heads) if !heads.is_empty() => {
-                        asset_tap_core::fit_mesh_from_heads(&model, &model, heads, &options)
-                            .map_err(|e| e.to_string())?
-                    }
-                    _ => asset_tap_core::fit_mesh(&model, &model, &options)
-                        .map_err(|e| e.to_string())?,
-                };
-                if let Some(dir) = model.parent() {
-                    asset_tap_core::stamp_bind_step(dir, &[]).map_err(|e| e.to_string())?;
+        // Bind rewrites the skin; the clips already baked in are re-sourced
+        // onto the new rig rather than lost with it.
+        let keep: Vec<String> = self.model_clips.iter().cloned().collect();
+        self.start_workbench_job(model, move |path| {
+            let options = asset_tap_core::BindOptions {
+                fit_only: true,
+                ..Default::default()
+            };
+            let report = match heads.as_deref() {
+                Some(heads) if !heads.is_empty() => {
+                    asset_tap_core::rig::fit_mesh_from_heads_keeping(
+                        path, path, heads, &keep, &options,
+                    )
+                    .map_err(|e| e.to_string())?
                 }
-                Ok(WorkbenchDone::Fit {
-                    moved_joints: report.moved_joints,
-                    max_moved_m: report.max_moved_m,
-                })
+                _ => asset_tap_core::fit_mesh(path, path, &options).map_err(|e| e.to_string())?,
+            };
+            let clips = report.clips.clone();
+            let dropped_clips = report.dropped_clips.clone();
+            if let Some(dir) = path.parent() {
+                asset_tap_core::stamp_bind_step(dir, &clips).map_err(|e| e.to_string())?;
+            }
+            Ok(WorkbenchDone::Fit {
+                moved_joints: report.moved_joints,
+                max_moved_m: report.max_moved_m,
+                clips,
+                dropped_clips,
             })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(std::convert::identity);
-            let _ = tx.send(result);
         });
     }
 
@@ -2687,33 +2924,45 @@ impl App {
         if self.refuse_if_placing() {
             return;
         }
-        if self.pending_workbench.is_some() {
-            return;
-        }
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.pending_workbench = Some(rx);
-        self.runtime.spawn(async move {
-            let clips_for_stamp = clips.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                let options = asset_tap_core::BindOptions {
-                    clips,
-                    fit_only: false,
-                    ..Default::default()
-                };
-                asset_tap_core::apply_clip(&model, &model, &options).map_err(|e| e.to_string())?;
-                if let Some(dir) = model.parent() {
-                    asset_tap_core::stamp_bind_step(dir, &clips_for_stamp)
-                        .map_err(|e| e.to_string())?;
-                }
-                Ok(WorkbenchDone::Bake {
-                    count: clips_for_stamp.len(),
-                })
-            })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(std::convert::identity);
-            let _ = tx.send(result);
+        self.start_workbench_job(model, move |path| {
+            let options = asset_tap_core::BindOptions {
+                clips: clips.clone(),
+                fit_only: false,
+                ..Default::default()
+            };
+            asset_tap_core::apply_clip(path, path, &options).map_err(|e| e.to_string())?;
+            if let Some(dir) = path.parent() {
+                asset_tap_core::stamp_bind_step(dir, &clips).map_err(|e| e.to_string())?;
+            }
+            Ok(WorkbenchDone::Bake { clips })
         });
+    }
+
+    /// Record what the file holds now and reset the ticked set to match.
+    ///
+    /// Bake is declarative, so this is the starting point the author edits:
+    /// tick to add, untick to remove, Bake writes exactly what is ticked.
+    /// Fed by completions, never by a read on the UI thread.
+    fn set_model_clips(&mut self, clips: Vec<String>) {
+        self.model_clips = clips.into_iter().collect();
+        self.bake_set.clone_from(&self.model_clips);
+    }
+
+    /// Ticked clips Bake can write, and the ticked names no installed pack
+    /// supplies. See [`split_bake_set`].
+    pub fn bake_plan(&self) -> (Vec<String>, Vec<String>) {
+        split_bake_set(
+            &self.bake_set,
+            self.clip_catalog.iter().map(|c| c.id.as_str()),
+        )
+    }
+
+    /// Clips a Bake would add and remove, given what is on disk. Counts only
+    /// what Bake can write: an unavailable name in the ticked set is a
+    /// removal, and the panel says so.
+    pub fn bake_delta(&self) -> (usize, usize) {
+        let (available, _) = self.bake_plan();
+        bake_delta_of(&available.into_iter().collect(), &self.model_clips)
     }
 
     /// Re-read the merged clip catalog and keep the selection valid.
@@ -2721,37 +2970,6 @@ impl App {
     /// Every listed clip is installed by definition, so a selection that is no
     /// longer present means its pack was removed — fall back to the first clip
     /// rather than leaving a name nothing can resolve.
-    /// Read the set already baked into the loaded model.
-    ///
-    /// Bake is declarative, so this is the starting point the author edits:
-    /// tick to add, untick to remove, Bake writes exactly what is ticked.
-    pub fn sync_bake_set_from_model(&mut self) {
-        let Some(model) = self.current_model_path() else {
-            self.bake_set.clear();
-            self.model_clips.clear();
-            return;
-        };
-        self.model_clips = asset_tap_core::baked_clip_names(&model)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        self.bake_set.clone_from(&self.model_clips);
-    }
-
-    /// Clips a Bake would add and remove, given what is on disk.
-    pub fn bake_delta(&self) -> (usize, usize) {
-        bake_delta_of(&self.bake_set, &self.model_clips)
-    }
-
-    /// Clips Bake will write, in catalog order so the file matches the list.
-    pub fn bake_clips(&self) -> Vec<String> {
-        self.clip_catalog
-            .iter()
-            .filter(|c| self.bake_set.contains(&c.id))
-            .map(|c| c.id.clone())
-            .collect()
-    }
-
     pub fn refresh_clip_catalog(&mut self) {
         self.clip_catalog = asset_tap_core::list_clips();
         if self.clip_catalog.iter().any(|c| c.id == self.clip) {
@@ -2809,15 +3027,36 @@ impl App {
         });
     }
 
-    fn poll_workbench(&mut self) {
-        let Some(mut rx) = self.pending_workbench.take() else {
+    fn poll_workbench(&mut self, ctx: &egui::Context) {
+        let Some((job, rx)) = self.pending_workbench.take() else {
             return;
         };
-        match rx.try_recv() {
-            Ok(Ok(done)) => match done {
+        let mut slot = Some(rx);
+        let Some(result) = poll_oneshot(&mut slot, ctx, "Workbench") else {
+            if let Some(rx) = slot {
+                self.pending_workbench = Some((job, rx));
+            }
+            return;
+        };
+        let current = self.current_model_path();
+        if !workbench_completion_is_current(&job, current.as_deref(), self.workbench_seq) {
+            // The user moved on while this ran. Applying it now would reload
+            // or re-tick a model it was never about.
+            tracing::debug!(
+                job = job.id,
+                latest = self.workbench_seq,
+                model = %job.model.display(),
+                "dropping stale workbench completion"
+            );
+            return;
+        }
+        match result {
+            Ok(done) => match done {
                 WorkbenchDone::Fit {
                     moved_joints,
                     max_moved_m,
+                    clips,
+                    dropped_clips,
                 } => {
                     // Say what the bind consumed, so "did my pose get in?"
                     // is answered on screen rather than inferred from the walk.
@@ -2831,6 +3070,16 @@ impl App {
                         ),
                     };
                     self.toasts.push(Toast::success(msg));
+                    if !dropped_clips.is_empty() {
+                        self.toasts.push(Toast::info(format!(
+                            "Re-bind could not keep {}: {}. Bake again to restore",
+                            match dropped_clips.len() {
+                                1 => "1 baked clip".to_string(),
+                                n => format!("{n} baked clips"),
+                            },
+                            dropped_clips.join(", ")
+                        )));
+                    }
                     let mut viewer = self.model_viewer.lock().unwrap();
                     viewer.exit_place();
                     viewer.reload();
@@ -2838,17 +3087,17 @@ impl App {
                     // Bind lands on the clip list with nothing playing. The
                     // "N joints moved" toast is the confirmation the pose went
                     // in; a walk cycle starting on its own is not.
-                    self.sync_bake_set_from_model();
+                    self.set_model_clips(clips);
                 }
-                WorkbenchDone::Bake { count } => {
-                    let msg = match count {
+                WorkbenchDone::Bake { clips } => {
+                    let msg = match clips.len() {
                         0 => "Cleared animation from model.glb".to_string(),
                         1 => "Baked 1 clip into model.glb".to_string(),
                         n => format!("Baked {n} clips into model.glb"),
                     };
                     self.toasts.push(Toast::success(msg));
                     self.model_viewer.lock().unwrap().reload();
-                    self.sync_bake_set_from_model();
+                    self.set_model_clips(clips);
                 }
                 WorkbenchDone::Seed { markers } => {
                     self.model_viewer
@@ -2859,8 +3108,28 @@ impl App {
                 WorkbenchDone::Preview { clip } => {
                     self.model_viewer.lock().unwrap().set_clip(*clip);
                 }
+                WorkbenchDone::Opened {
+                    clips,
+                    foreign_joints,
+                    markers,
+                } => {
+                    self.set_model_clips(clips);
+                    if let Some(markers) = markers {
+                        // No-op if the user already left Rig.
+                        self.model_viewer
+                            .lock()
+                            .unwrap()
+                            .apply_seeded_markers(markers);
+                    }
+                    if let Some(n) = foreign_joints {
+                        self.toasts.push(Toast::info(format!(
+                            "This model already has a rig of {n} joints that Asset Tap cannot read. \
+                             Bind will replace it."
+                        )));
+                    }
+                }
             },
-            Ok(Err(e)) => {
+            Err(e) => {
                 // Auto-fit failing is soft: Rig already holds the default
                 // skeleton, so the author simply keeps the joints they have and
                 // places them by hand. Only a session that never got a skeleton
@@ -2871,12 +3140,6 @@ impl App {
                 }
                 drop(viewer);
                 self.toasts.push(Toast::error(e));
-            }
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                self.pending_workbench = Some(rx);
-            }
-            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                tracing::warn!("workbench channel closed");
             }
         }
     }
@@ -2965,7 +3228,7 @@ impl eframe::App for App {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_workbench();
+        self.poll_workbench(ctx);
         // A queued install may have been waiting on that workbench job.
         self.pump_pack_installs();
         let dt = ctx.input(|i| i.stable_dt);
@@ -2980,6 +3243,9 @@ impl eframe::App for App {
         // Captured under the state lock and processed after release; see the
         // error-toast branch below for context.
         let mut pending_recovery_bundle: Option<PathBuf> = None;
+        // Likewise: the reset locks the viewer and bumps the workbench
+        // sequence, which needs `&mut self` after the state guard is gone.
+        let mut swapped_output = false;
 
         // Check for completed pipeline
         {
@@ -3007,7 +3273,7 @@ impl eframe::App for App {
                 }
 
                 self.output = Some(output);
-                self.workbench_animate = false;
+                swapped_output = true;
 
                 // Refresh bundle list so the new bundle appears in the dropdown
                 self.bundle_info_panel
@@ -3036,177 +3302,111 @@ impl eframe::App for App {
         // and switches the preview tab to the most-derived asset present.
         // Without this, the user would have to manually click "Refresh" to
         // find the bundle they just generated.
+        if swapped_output {
+            self.reset_animate_for_new_asset();
+        }
         if let Some(bundle_dir) = pending_recovery_bundle {
             self.activate_bundle_from_dir(bundle_dir);
         }
 
-        // Check for completed file selection
-        if let Some(mut rx) = self.pending_file_selection.take() {
-            // Try to receive without blocking
-            match rx.try_recv() {
-                Ok(Some(path)) => {
-                    // File was selected
-                    self.existing_image = Some(path.to_string_lossy().to_string());
-                }
-                Ok(None) => {
-                    // Dialog was cancelled (no file selected)
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    // Not ready yet, put it back
-                    self.pending_file_selection = Some(rx);
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    // Channel closed without result (shouldn't happen)
-                    tracing::warn!("File dialog channel closed unexpectedly");
-                }
-            }
+        // Completed file selection; `None` is a cancelled dialog.
+        if let Some(Some(path)) = poll_oneshot(&mut self.pending_file_selection, ctx, "File dialog")
+        {
+            self.existing_image = Some(path.to_string_lossy().to_string());
         }
 
-        // Check for completed export
-        if let Some(mut rx) = self.pending_export.take() {
-            match rx.try_recv() {
-                Ok(Ok(msg)) => {
-                    self.add_toast(Toast::success(msg));
-                }
-                Ok(Err(msg)) => {
-                    self.toasts.push(Toast::error(msg));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_export = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Export channel closed unexpectedly");
-                }
-            }
+        match poll_oneshot(&mut self.pending_export, ctx, "Export") {
+            Some(Ok(msg)) => self.add_toast(Toast::success(msg)),
+            Some(Err(msg)) => self.toasts.push(Toast::error(msg)),
+            None => {}
         }
 
-        // Check for completed bundle import
-        if let Some(mut rx) = self.pending_import.take() {
-            match rx.try_recv() {
-                Ok(Ok(bundle_dir)) => {
-                    self.add_toast(Toast::success("Bundle imported"));
-                    self.activate_bundle_from_dir(bundle_dir);
-                }
-                Ok(Err(msg)) => {
-                    tracing::error!("Bundle import failed: {}", msg);
-                    self.toasts
-                        .push(Toast::error(format!("Import failed: {msg}")));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_import = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Import channel closed unexpectedly");
-                }
+        match poll_oneshot(&mut self.pending_import, ctx, "Import") {
+            Some(Ok(bundle_dir)) => {
+                self.add_toast(Toast::success("Bundle imported"));
+                self.activate_bundle_from_dir(bundle_dir);
             }
-            self.pump_imports();
+            Some(Err(msg)) => {
+                tracing::error!("Bundle import failed: {}", msg);
+                self.toasts
+                    .push(Toast::error(format!("Import failed: {msg}")));
+            }
+            None => {}
+        }
+        self.pump_imports();
+
+        match poll_oneshot(&mut self.pending_attach, ctx, "Attach") {
+            Some(Ok(bundle_dir)) => {
+                let tab = self.preview_tab;
+                self.add_toast(Toast::success("Added to bundle"));
+                self.activate_bundle_from_dir(bundle_dir);
+                self.preview_tab = tab;
+            }
+            Some(Err(msg)) => {
+                tracing::error!("Bundle attach failed: {}", msg);
+                self.toasts
+                    .push(Toast::error(format!("Could not add to bundle: {msg}")));
+            }
+            None => {}
         }
 
-        if let Some(mut rx) = self.pending_attach.take() {
-            match rx.try_recv() {
-                Ok(Ok(bundle_dir)) => {
-                    let tab = self.preview_tab;
-                    self.add_toast(Toast::success("Added to bundle"));
-                    self.activate_bundle_from_dir(bundle_dir);
-                    self.preview_tab = tab;
-                }
-                Ok(Err(msg)) => {
-                    tracing::error!("Bundle attach failed: {}", msg);
-                    self.toasts
-                        .push(Toast::error(format!("Could not add to bundle: {msg}")));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_attach = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Attach channel closed unexpectedly");
-                }
+        match poll_oneshot(&mut self.pending_pack_install, ctx, "Pack install") {
+            Some(Ok((name, id, clips))) => {
+                self.refresh_clip_catalog();
+                self.add_toast(Toast::success(format!(
+                    "Installed {name} ({id}) with {clips} clips"
+                )));
             }
+            Some(Err(msg)) => {
+                tracing::error!("Clip pack install failed: {}", msg);
+                self.toasts
+                    .push(Toast::error(format!("Pack install failed: {msg}")));
+            }
+            None => {}
+        }
+        self.pump_pack_installs();
+
+        match poll_oneshot(&mut self.pending_demo_download, ctx, "Demo download") {
+            Some(Ok(asset_tap_core::DemoDownloadResult::Downloaded(demo_dir))) => {
+                self.add_toast(Toast::success("Demo assets downloaded"));
+                self.activate_bundle_from_dir(demo_dir);
+            }
+            Some(Ok(asset_tap_core::DemoDownloadResult::AlreadyExists(v))) => {
+                self.toasts
+                    .push(Toast::info(format!("Demo bundle v{v} already downloaded")));
+            }
+            Some(Err(msg)) => {
+                tracing::error!("Demo bundle download failed: {}", msg);
+                self.toasts
+                    .push(Toast::error("Failed to download demo assets"));
+            }
+            None => {}
         }
 
-        if let Some(mut rx) = self.pending_pack_install.take() {
-            match rx.try_recv() {
-                Ok(Ok((name, id, clips))) => {
-                    self.refresh_clip_catalog();
-                    self.add_toast(Toast::success(format!(
-                        "Installed {name} ({id}) with {clips} clips"
-                    )));
-                }
-                Ok(Err(msg)) => {
-                    tracing::error!("Clip pack install failed: {}", msg);
-                    self.toasts
-                        .push(Toast::error(format!("Pack install failed: {msg}")));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_pack_install = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Pack install channel closed unexpectedly");
-                }
+        match poll_oneshot(
+            &mut self.pending_clip_packs_download,
+            ctx,
+            "Clip-pack download",
+        ) {
+            Some(Ok(asset_tap_core::ClipPacksDownloadResult::Downloaded { installed, .. })) => {
+                self.refresh_clip_catalog();
+                self.toasts.push(Toast::success(format!(
+                    "Installed Universal Animation Libraries ({})",
+                    installed.join(", "),
+                )));
             }
-            self.pump_pack_installs();
-        }
-
-        // Check for completed demo bundle download
-        if let Some(mut rx) = self.pending_demo_download.take() {
-            match rx.try_recv() {
-                Ok(Ok(asset_tap_core::DemoDownloadResult::Downloaded(demo_dir))) => {
-                    self.add_toast(Toast::success("Demo assets downloaded"));
-                    self.activate_bundle_from_dir(demo_dir);
-                }
-                Ok(Ok(asset_tap_core::DemoDownloadResult::AlreadyExists(v))) => {
-                    self.toasts
-                        .push(Toast::info(format!("Demo bundle v{v} already downloaded")));
-                }
-                Ok(Err(msg)) => {
-                    tracing::error!("Demo bundle download failed: {}", msg);
-                    self.toasts
-                        .push(Toast::error("Failed to download demo assets"));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_demo_download = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Demo download channel closed unexpectedly");
-                }
+            Some(Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { .. })) => {
+                self.toasts.push(Toast::info(
+                    "Universal Animation Libraries already installed",
+                ));
             }
-        }
-
-        if let Some(mut rx) = self.pending_clip_packs_download.take() {
-            match rx.try_recv() {
-                Ok(Ok(asset_tap_core::ClipPacksDownloadResult::Downloaded {
-                    installed, ..
-                })) => {
-                    self.refresh_clip_catalog();
-                    self.toasts.push(Toast::success(format!(
-                        "Installed Universal Animation Libraries ({})",
-                        installed.join(", "),
-                    )));
-                }
-                Ok(Ok(asset_tap_core::ClipPacksDownloadResult::AlreadyExists { .. })) => {
-                    self.toasts.push(Toast::info(
-                        "Universal Animation Libraries already installed",
-                    ));
-                }
-                Ok(Err(msg)) => {
-                    tracing::error!("Clip-pack download failed: {}", msg);
-                    self.toasts.push(Toast::error(
-                        "Failed to download Universal Animation Libraries",
-                    ));
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                    self.pending_clip_packs_download = Some(rx);
-                    ctx.request_repaint();
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    tracing::warn!("Clip-pack download channel closed unexpectedly");
-                }
+            Some(Err(msg)) => {
+                tracing::error!("Clip-pack download failed: {}", msg);
+                self.toasts.push(Toast::error(
+                    "Failed to download Universal Animation Libraries",
+                ));
             }
+            None => {}
         }
 
         // Update library browser with current output directory
@@ -3267,334 +3467,116 @@ impl eframe::App for App {
             self.show_demo_download_confirm = true;
         }
 
-        // Demo download confirmation dialog
+        use views::confirmation_dialog::{ConfirmOutcome, ConfirmSpec, render_confirm};
+
+        // Demo download confirmation dialog. Expensive (34 MB), so no
+        // Enter-to-confirm; `render_confirm` never binds one.
         if self.show_demo_download_confirm {
-            let backdrop_clicked = crate::views::modal_backdrop(
+            match render_confirm(
                 ctx,
-                "demo_download_confirm_backdrop",
-                180,
-                crate::views::BackdropClick::Close,
-            );
-
-            let mut confirmed = false;
-            let mut dismissed = backdrop_clicked;
-
-            egui::Window::new("Download Demo Bundle")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    ui.set_width(400.0);
-                    ui.add_space(8.0);
-
-                    ui.label(
-                        egui::RichText::new(
-                            "Download a sample asset bundle with a generated Image and 3D Model?",
-                        )
-                        .size(14.0),
-                    );
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "This will download approximately {DEMO_BUNDLE_SIZE_LABEL}.",
-                        ))
-                        .size(12.0)
-                        .weak(),
-                    );
-
-                    ui.add_space(16.0);
-
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .button(
-                                    egui::RichText::new(format!(
-                                        "{} Download",
-                                        crate::icons::DOWNLOAD
-                                    ))
-                                    .size(14.0),
-                                )
-                                .clicked()
-                            {
-                                confirmed = true;
-                            }
-                            if ui
-                                .button(egui::RichText::new("Cancel").size(14.0))
-                                .clicked()
-                            {
-                                dismissed = true;
-                            }
-                        });
-                    });
-
-                    ui.add_space(8.0);
-                });
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                dismissed = true;
-            }
-            // Policy: no global Enter-to-confirm on expensive/destructive
-            // actions. This kicks off a large (34 MB) download, so require an
-            // explicit button click — matching the delete-bundle dialog, which
-            // deliberately omits Enter for the same reason.
-
-            if confirmed {
-                self.show_demo_download_confirm = false;
-                self.start_demo_download();
-            } else if dismissed {
-                self.show_demo_download_confirm = false;
+                &ConfirmSpec {
+                    id: "demo_download_confirm_backdrop",
+                    title: "Download Demo Bundle",
+                    message: "Download a sample asset bundle with a generated Image and 3D Model?"
+                        .to_string(),
+                    detail: Some(format!(
+                        "This will download approximately {DEMO_BUNDLE_SIZE_LABEL}."
+                    )),
+                    destructive: false,
+                    confirm_label: format!("{} Download", crate::icons::DOWNLOAD),
+                },
+            ) {
+                ConfirmOutcome::Confirmed => {
+                    self.show_demo_download_confirm = false;
+                    self.start_demo_download();
+                }
+                ConfirmOutcome::Dismissed => self.show_demo_download_confirm = false,
+                ConfirmOutcome::Pending => {}
             }
         }
 
         if self.show_clip_packs_download_confirm {
-            let backdrop_clicked = crate::views::modal_backdrop(
+            match render_confirm(
                 ctx,
-                "clip_packs_download_confirm_backdrop",
-                180,
-                crate::views::BackdropClick::Close,
-            );
-
-            let mut confirmed = false;
-            let mut dismissed = backdrop_clicked;
-
-            egui::Window::new(clip_packs::DOWNLOAD_ACTION)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    ui.set_width(400.0);
-                    ui.add_space(8.0);
-
-                    ui.label(egui::RichText::new(clip_packs::DOWNLOAD_PROMPT).size(14.0));
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(clip_packs::download_detail())
-                            .size(12.0)
-                            .weak(),
-                    );
-
-                    ui.add_space(16.0);
-
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .button(
-                                    egui::RichText::new(format!(
-                                        "{} Download",
-                                        crate::icons::DOWNLOAD
-                                    ))
-                                    .size(14.0),
-                                )
-                                .clicked()
-                            {
-                                confirmed = true;
-                            }
-                            if ui
-                                .button(egui::RichText::new("Cancel").size(14.0))
-                                .clicked()
-                            {
-                                dismissed = true;
-                            }
-                        });
-                    });
-
-                    ui.add_space(8.0);
-                });
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                dismissed = true;
-            }
-
-            if confirmed {
-                self.show_clip_packs_download_confirm = false;
-                self.start_clip_packs_download();
-            } else if dismissed {
-                self.show_clip_packs_download_confirm = false;
+                &ConfirmSpec {
+                    id: "clip_packs_download_confirm_backdrop",
+                    title: clip_packs::DOWNLOAD_ACTION,
+                    message: clip_packs::DOWNLOAD_PROMPT.to_string(),
+                    detail: Some(clip_packs::download_detail()),
+                    destructive: false,
+                    confirm_label: format!("{} Download", crate::icons::DOWNLOAD),
+                },
+            ) {
+                ConfirmOutcome::Confirmed => {
+                    self.show_clip_packs_download_confirm = false;
+                    self.start_clip_packs_download();
+                }
+                ConfirmOutcome::Dismissed => self.show_clip_packs_download_confirm = false,
+                ConfirmOutcome::Pending => {}
             }
         }
 
-        // Delete bundle confirmation dialog
-        if let Some(ref bundle_path) = self.pending_delete_bundle.clone() {
-            let backdrop_clicked = crate::views::modal_backdrop(
-                ctx,
-                "delete_bundle_confirm_backdrop",
-                180,
-                crate::views::BackdropClick::Close,
-            );
-
-            let mut confirmed = false;
-            let mut dismissed = backdrop_clicked;
-
+        // Delete bundle confirmation dialog. Destructive: explicit click only.
+        if let Some(bundle_path) = self.pending_delete_bundle.clone() {
             let bundle_name = bundle_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("this bundle");
-
-            egui::Window::new("Delete Bundle")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    ui.set_width(400.0);
-                    ui.add_space(8.0);
-
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Permanently delete \"{}\"?",
-                            bundle_name
-                        ))
-                        .size(14.0)
-                        .strong(),
-                    );
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(
-                            "This will delete the bundle directory and all its contents. This action cannot be undone.",
-                        )
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(255, 150, 100)),
-                    );
-
-                    ui.add_space(16.0);
-
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .button(
-                                    egui::RichText::new(format!(
-                                        "{} Delete",
-                                        crate::icons::TRASH
-                                    ))
-                                    .size(14.0)
-                                    .color(egui::Color32::from_rgb(255, 100, 100)),
-                                )
-                                .clicked()
-                            {
-                                confirmed = true;
-                            }
-                            if ui
-                                .button(egui::RichText::new("Cancel").size(14.0))
-                                .clicked()
-                            {
-                                dismissed = true;
-                            }
-                        });
-                    });
-
-                    ui.add_space(8.0);
-                });
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                dismissed = true;
-            }
-            // Intentionally no Enter-to-confirm for destructive actions
-
-            if confirmed {
-                let path = self.pending_delete_bundle.take().unwrap();
-                match std::fs::remove_dir_all(&path) {
-                    Ok(()) => {
-                        self.add_toast(Toast::success("Bundle deleted"));
-                        // Clear current bundle if it was the deleted one
-                        if self
-                            .app_state
-                            .current_generation
-                            .as_ref()
-                            .is_some_and(|p| p == &path)
-                        {
-                            self.output = None;
-                            self.app_state.current_generation = None;
-                            self.bundle_info_panel.current_bundle = None;
-                        }
-                        self.bundle_info_panel
-                            .refresh_bundle_list(&self.settings.output_dir);
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to delete bundle: {}", e);
-                        self.toasts
-                            .push(Toast::error(format!("Failed to delete: {e}")));
-                        self.pending_delete_bundle = None;
-                    }
+            match render_confirm(
+                ctx,
+                &ConfirmSpec {
+                    id: "delete_bundle_confirm_backdrop",
+                    title: "Delete Bundle",
+                    message: format!("Permanently delete \"{bundle_name}\"?"),
+                    detail: Some(
+                        "This will delete the bundle directory and all its contents. \
+                         This action cannot be undone."
+                            .to_string(),
+                    ),
+                    destructive: true,
+                    confirm_label: format!("{} Delete", crate::icons::TRASH),
+                },
+            ) {
+                ConfirmOutcome::Confirmed => {
+                    self.pending_delete_bundle = None;
+                    self.delete_bundle(&bundle_path);
                 }
-            } else if dismissed {
-                self.pending_delete_bundle = None;
+                ConfirmOutcome::Dismissed => self.pending_delete_bundle = None,
+                ConfirmOutcome::Pending => {}
             }
         }
 
         // Clearing every animation is destructive and irreversible without
         // re-baking, so it confirms rather than riding on the Bake button.
         if self.pending_clear_animation {
-            let ctx = ui.ctx().clone();
-            let backdrop_clicked = crate::views::modal_backdrop(
-                &ctx,
-                "clear_animation_backdrop",
-                180,
-                crate::views::BackdropClick::Close,
-            );
-            let mut confirmed = false;
-            let mut dismissed = backdrop_clicked;
             let count = self.model_clips.len();
-
-            egui::Window::new("Clear Animation")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(&ctx, |ui| {
-                    ui.set_width(400.0);
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new(match count {
-                            1 => "Remove 1 animation from this model?".to_string(),
-                            n => format!("Remove all {n} animations from this model?"),
-                        })
-                        .size(14.0)
-                        .strong(),
-                    );
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(
-                            "The rig and mesh are kept. Only the animation is removed. \
-                             You can bake clips again afterwards.",
-                        )
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(255, 150, 100)),
-                    );
-                    ui.add_space(16.0);
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .button(
-                                    egui::RichText::new("Clear animation")
-                                        .size(14.0)
-                                        .color(egui::Color32::from_rgb(255, 100, 100)),
-                                )
-                                .clicked()
-                            {
-                                confirmed = true;
-                            }
-                            if ui
-                                .button(egui::RichText::new("Cancel").size(14.0))
-                                .clicked()
-                            {
-                                dismissed = true;
-                            }
-                        });
-                    });
-                    ui.add_space(8.0);
-                });
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                dismissed = true;
-            }
-            // Intentionally no Enter-to-confirm for destructive actions
-
-            if confirmed {
-                self.pending_clear_animation = false;
-                self.bake_set.clear();
-                if let Some(path) = self.current_model_path() {
-                    self.start_bake(path, Vec::new());
+            match render_confirm(
+                ctx,
+                &ConfirmSpec {
+                    id: "clear_animation_backdrop",
+                    title: "Clear Animation",
+                    message: match count {
+                        1 => "Remove 1 animation from this model?".to_string(),
+                        n => format!("Remove all {n} animations from this model?"),
+                    },
+                    detail: Some(
+                        "The rig and mesh are kept. Only the animation is removed. \
+                         You can bake clips again afterwards."
+                            .to_string(),
+                    ),
+                    destructive: true,
+                    confirm_label: "Clear animation".to_string(),
+                },
+            ) {
+                ConfirmOutcome::Confirmed => {
+                    self.pending_clear_animation = false;
+                    self.bake_set.clear();
+                    if let Some(path) = self.current_model_path() {
+                        self.start_bake(path, Vec::new());
+                    }
                 }
-            } else if dismissed {
-                self.pending_clear_animation = false;
+                ConfirmOutcome::Dismissed => self.pending_clear_animation = false,
+                ConfirmOutcome::Pending => {}
             }
         }
 
@@ -3961,9 +3943,87 @@ fn bake_delta_of(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, PreviewTab, ToastType, ZonelessRoute, bake_delta_of, build_startup_toasts,
-        is_no_op_run, is_remote_url, pick_preview_tab_for_output, route_without_zones,
+        App, PreviewTab, ToastType, WorkbenchJob, ZonelessRoute, bake_delta_of,
+        build_startup_toasts, is_no_op_run, is_remote_url, pick_preview_tab_for_output,
+        plan_loose_imports, route_without_zones, split_bake_set, workbench_completion_is_current,
     };
+    use std::path::Path;
+
+    #[test]
+    fn stale_workbench_completions_are_rejected() {
+        let job = WorkbenchJob {
+            id: 3,
+            model: PathBuf::from("/out/a/model.glb"),
+        };
+        // Same model, latest request: apply.
+        assert!(workbench_completion_is_current(
+            &job,
+            Some(Path::new("/out/a/model.glb")),
+            3
+        ));
+        // The user opened another bundle while it ran.
+        assert!(!workbench_completion_is_current(
+            &job,
+            Some(Path::new("/out/b/model.glb")),
+            3
+        ));
+        // Nothing is loaded any more (bundle deleted).
+        assert!(!workbench_completion_is_current(&job, None, 3));
+        // Same model, but a swap or a newer request bumped the sequence.
+        assert!(!workbench_completion_is_current(
+            &job,
+            Some(Path::new("/out/a/model.glb")),
+            4
+        ));
+    }
+
+    #[test]
+    fn bake_writes_only_what_an_installed_pack_can_supply() {
+        // A model baked on another machine pre-ticks names no local pack
+        // has. They must not count toward Bake, or an all-foreign set
+        // enables the button and writes nothing — which is Clear.
+        let ticked = set(&["Walk_Loop", "Foreign_Clip", "Idle_Loop"]);
+        let catalog = ["Idle_Loop", "Walk_Loop", "Run_Loop"];
+        let (writable, unavailable) = split_bake_set(&ticked, catalog);
+        // Catalog order, so the file matches the list.
+        assert_eq!(writable, ["Idle_Loop", "Walk_Loop"]);
+        assert_eq!(unavailable, ["Foreign_Clip"]);
+
+        let (writable, unavailable) = split_bake_set(&set(&["Foreign_Clip"]), catalog);
+        assert!(writable.is_empty(), "nothing to bake");
+        assert_eq!(unavailable, ["Foreign_Clip"]);
+
+        let (writable, unavailable) = split_bake_set(&set(&[]), catalog);
+        assert!(writable.is_empty());
+        assert!(unavailable.is_empty());
+    }
+
+    #[test]
+    fn loose_imports_pair_one_still_with_one_mesh_and_keep_the_rest() {
+        let glbs = vec![PathBuf::from("a.glb"), PathBuf::from("b.glb")];
+        let images = vec![PathBuf::from("x.png"), PathBuf::from("y.png")];
+        let plan = plan_loose_imports(glbs, images);
+        assert_eq!(
+            plan,
+            vec![
+                vec![PathBuf::from("a.glb"), PathBuf::from("x.png")],
+                vec![PathBuf::from("b.glb")],
+                vec![PathBuf::from("y.png")],
+            ]
+        );
+        // Every file lands in exactly one bundle.
+        assert_eq!(plan.iter().map(Vec::len).sum::<usize>(), 4);
+    }
+
+    #[test]
+    fn loose_imports_without_a_still_are_one_bundle_per_mesh() {
+        let plan = plan_loose_imports(vec![PathBuf::from("a.glb"), PathBuf::from("b.glb")], vec![]);
+        assert_eq!(
+            plan,
+            vec![vec![PathBuf::from("a.glb")], vec![PathBuf::from("b.glb")]]
+        );
+        assert!(plan_loose_imports(vec![], vec![]).is_empty());
+    }
 
     #[test]
     fn zoneless_route_sends_a_lone_still_to_the_generation_slot() {

@@ -106,6 +106,103 @@ fn start_event_declares_interface_version() {
     );
 }
 
+/// Every fixture that carries an `interface` declares exactly the module
+/// constant — not merely the same MAJOR. A wire change that regenerates a
+/// fixture without bumping the constant, or bumps the constant without
+/// regenerating, fails here.
+#[test]
+fn every_fixture_interface_equals_the_constant() {
+    for &name in NDJSON_FIXTURES {
+        let content = read_fixture(name);
+        let first: Value = serde_json::from_str(content.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            first["interface"].as_str(),
+            Some(machine::INTERFACE_VERSION),
+            "{name}: start.interface"
+        );
+    }
+    for name in ["catalog.json", "auth_catalog.json"] {
+        let doc: Value = serde_json::from_str(&read_fixture(name)).unwrap();
+        assert_eq!(
+            doc["interface"].as_str(),
+            Some(machine::INTERFACE_VERSION),
+            "{name}: interface"
+        );
+    }
+}
+
+/// Run the built binary with `args`, stdin closed, returning (exit code,
+/// stdout). stderr is discarded: the contract says never parse it. Needs no
+/// `--mock`: the subcommands under test never reach a provider.
+fn run_cli(args: &[&str], env: &[(&str, &std::path::Path)]) -> (i32, String) {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_asset-tap"));
+    cmd.args(args)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("spawn asset-tap");
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8(out.stdout).expect("stdout is UTF-8"),
+    )
+}
+
+/// `--json bind --mesh <dir>` where the directory holds no `model.glb`: the
+/// failure is detected after `start` is out, so it must end in a `result`
+/// error (spec §1: exactly one result, always last), not a bare stderr line
+/// and a truncated stream.
+#[test]
+fn bind_json_on_a_dir_without_model_glb_emits_a_result_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let (code, stdout) = run_cli(
+        &["--json", "bind", "--mesh", dir.path().to_str().unwrap()],
+        &[],
+    );
+    let events: Vec<Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("NDJSON line"))
+        .collect();
+    assert_eq!(events.len(), 2, "start + result, got: {stdout}");
+    assert_eq!(events[0]["event"], "start");
+    assert_eq!(events[1]["event"], "result");
+    assert_eq!(events[1]["status"], "error");
+    assert_eq!(events[1]["kind"], machine::KIND_IO_ERROR);
+    assert!(
+        events[1]["message"].as_str().unwrap().contains("model.glb"),
+        "message names the missing file: {stdout}"
+    );
+    assert_eq!(code, i32::from(machine::EXIT_LOCAL));
+}
+
+/// `--json clip list --model <unreadable>` writes a single error document
+/// (the `clip download` error shape) rather than nothing on stdout.
+#[test]
+fn clip_list_json_with_unreadable_model_emits_an_error_document() {
+    let clips = tempfile::tempdir().unwrap();
+    let missing = clips.path().join("nope.glb");
+    let (code, stdout) = run_cli(
+        &[
+            "--json",
+            "clip",
+            "list",
+            "--model",
+            missing.to_str().unwrap(),
+        ],
+        &[("ASSET_TAP_CLIPS_DIR", clips.path())],
+    );
+    let doc: Value = serde_json::from_str(&stdout).expect("one JSON document");
+    assert!(
+        doc.is_object(),
+        "an error object, not the clip array: {stdout}"
+    );
+    assert_eq!(doc["status"], "error");
+    assert_eq!(doc["kind"], machine::KIND_IO_ERROR);
+    assert!(doc["message"].as_str().is_some_and(|m| !m.is_empty()));
+    assert_eq!(code, i32::from(machine::EXIT_LOCAL));
+}
+
 /// Each NDJSON fixture line is compact single-line JSON (no embedded newlines,
 /// no leading/trailing whitespace) — the shape `emit()` writes. Field *order*
 /// is validated separately by driving the real `Event` types
@@ -318,6 +415,7 @@ fn catalog_fixture_matches_catalog_serialization() {
             }],
             examples: vec!["a cowboy ninja with dual katanas".to_string()],
         }]),
+        clips: Some(vec!["Walk_Loop".to_string(), "Sword_Attack".to_string()]),
     };
 
     let serialized = serde_json::to_string_pretty(&catalog).unwrap();
@@ -819,17 +917,13 @@ fn clip_download_fixtures_match_serialization() {
         "clip_download_already_exists.json drifted from ClipDownloadDocument"
     );
 
-    let err = machine::ClipDownloadErrorDocument {
-        status: "error",
-        kind: machine::KIND_IO_ERROR,
-        message:
-            "Release manifest is missing a sha256 hash; refusing to install unverified download"
-                .into(),
-    };
+    let err = machine::ErrorDocument::from_clip_download_error(
+        &asset_tap_core::release_fetch::ReleaseFetchError::MissingHash.into(),
+    );
     assert_eq!(
         serde_json::to_string_pretty(&err).unwrap().trim_end(),
         read_fixture("clip_download_error.json").trim_end(),
-        "clip_download_error.json drifted from ClipDownloadErrorDocument"
+        "clip_download_error.json drifted from ErrorDocument"
     );
 }
 

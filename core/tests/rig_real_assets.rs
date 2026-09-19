@@ -30,12 +30,30 @@ const JSON_TEXT_JITTER: u64 = 256;
 const CLIP_A: &str = "Walk_Loop";
 const CLIP_B: &str = "Sword_Attack";
 
-fn fixtures() -> Vec<PathBuf> {
-    let Ok(dir) = std::env::var("ASSET_TAP_RIG_FIXTURES") else {
-        return Vec::new();
+/// Opt-in switch for this suite.
+const FIXTURES_ENV: &str = "ASSET_TAP_RIG_FIXTURES";
+
+/// The fixture meshes, or `None` with a visible skip notice.
+///
+/// Passing silently is the failure mode this guards: a CI run with the
+/// variable unset reports every test here green having checked nothing. The
+/// notice names the test and the reason, so a `--nocapture` run says which
+/// checks did not happen. It is a skip, not a failure — the fixtures are tens
+/// of megabytes and cannot be checked in.
+fn fixtures_or_skip(test: &str) -> Option<Vec<PathBuf>> {
+    let Ok(dir) = std::env::var(FIXTURES_ENV) else {
+        eprintln!(
+            "SKIPPED {test}: {FIXTURES_ENV} is not set; point it at a directory of .glb files \
+             to run the real-asset checks"
+        );
+        return None;
     };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            eprintln!("SKIPPED {test}: cannot read {FIXTURES_ENV}={dir}: {e}");
+            return None;
+        }
     };
     let mut out: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
@@ -43,7 +61,11 @@ fn fixtures() -> Vec<PathBuf> {
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("glb"))
         .collect();
     out.sort();
-    out
+    if out.is_empty() {
+        eprintln!("SKIPPED {test}: no .glb files in {FIXTURES_ENV}={dir}");
+        return None;
+    }
+    Some(out)
 }
 
 /// The glTF JSON chunk of a GLB, without touching buffers.
@@ -123,11 +145,9 @@ fn stage(src: &Path, dir: &Path) -> PathBuf {
 
 #[test]
 fn fit_and_bake_preserve_real_assets() {
-    let fixtures = fixtures();
-    if fixtures.is_empty() {
-        eprintln!("skipping: set ASSET_TAP_RIG_FIXTURES to a directory of .glb files");
+    let Some(fixtures) = fixtures_or_skip("fit_and_bake_preserve_real_assets") else {
         return;
-    }
+    };
 
     for src in fixtures {
         let name = src.file_name().unwrap().to_string_lossy().into_owned();
@@ -274,11 +294,11 @@ fn fit_and_bake_preserve_real_assets() {
 /// Bind's check stays the authority on what may be committed.
 #[test]
 fn a_dragged_marker_lands_inside_the_geometry_under_the_pointer() {
-    let fixtures = fixtures();
-    if fixtures.is_empty() {
-        eprintln!("skipping: set ASSET_TAP_RIG_FIXTURES to a directory of .glb files");
+    let Some(fixtures) =
+        fixtures_or_skip("a_dragged_marker_lands_inside_the_geometry_under_the_pointer")
+    else {
         return;
-    }
+    };
 
     for src in fixtures {
         let name = src.file_name().unwrap().to_string_lossy().into_owned();
@@ -339,14 +359,20 @@ fn adding_a_clip_keeps_a_hand_arranged_pose() {
     // Needs a mesh whose auto-fit seeds every joint on the body: Bind refuses
     // an off-mesh head, and some assets seed their shoulders outside (see the
     // VIEWER_ANIMATE.md Auto-fit / off-mesh retreat).
-    let Some(src) = fixtures().into_iter().find(|f| {
+    let Some(fixtures) = fixtures_or_skip("adding_a_clip_keeps_a_hand_arranged_pose") else {
+        return;
+    };
+    let Some(src) = fixtures.into_iter().find(|f| {
         seed_bind_markers(f).is_ok_and(|markers| {
             let heads: Vec<(String, [f32; 3])> =
                 markers.into_iter().map(|m| (m.name, m.world)).collect();
             heads_off_mesh(f, &heads).is_ok_and(|off| off.is_empty())
         })
     }) else {
-        eprintln!("skipping: no fixture auto-fits cleanly enough to Bind");
+        eprintln!(
+            "SKIPPED adding_a_clip_keeps_a_hand_arranged_pose: no fixture auto-fits cleanly \
+             enough to Bind"
+        );
         return;
     };
     let name = src.file_name().unwrap().to_string_lossy().into_owned();

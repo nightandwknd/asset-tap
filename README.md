@@ -3,7 +3,7 @@
 
 # Asset Tap
 
-**Generate 3D models from text prompts**
+**Agent-native asset pipeline: prompt in, engine-ready bundle out**
 
 [![Release](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml/badge.svg)](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml)
 [![Version](https://img.shields.io/github/v/release/nightandwknd/asset-tap?label=version)](https://github.com/nightandwknd/asset-tap/releases/latest)
@@ -13,7 +13,7 @@
 
 </div>
 
-Text prompt → AI image → 3D model → rigged and animated
+Asset Tap turns a text prompt into a game-ready asset: image, 3D model, and textures in one bundle, optionally rigged and animated. Drive it from the CLI, the desktop app, or any MCP-capable agent, on your own provider keys.
 
 ## Install
 

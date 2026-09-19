@@ -196,12 +196,17 @@ assert_json_stream() {
     set -e
     cat "$out" >> "$LOG_FILE"
 
+    # The wire version the binary declares; the start event must match it
+    # exactly (not just the MAJOR), so a wire change without a bump fails.
+    local expected_iface
+    expected_iface=$("$CLI" --version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["interface"])')
+
     # Validate the stream with python: pure NDJSON, start-first/result-last,
     # exactly one of each, and the terminal result status.
     set +e
-    python3 - "$out" "$expected_status" <<'PY'
+    python3 - "$out" "$expected_status" "$expected_iface" <<'PY'
 import json, sys
-path, want_status = sys.argv[1], sys.argv[2]
+path, want_status, want_iface = sys.argv[1], sys.argv[2], sys.argv[3]
 events = []
 with open(path) as f:
     for n, line in enumerate(f, 1):
@@ -224,12 +229,12 @@ if sum(e["event"] == "start" for e in events) != 1:
     sys.exit("expected exactly one start event")
 if sum(e["event"] == "result" for e in events) != 1:
     sys.exit("expected exactly one result event")
-# Pin the MAJOR, tolerate the MINOR: the contract says consumers reject an
-# unrecognized MAJOR and accept a higher MINOR, so hardcoding the full string
-# here would fail on every additive change.
+# Exact equality with what `--version --json` declares (single-sourced from
+# machine::INTERFACE_VERSION): a consumer tolerates a higher MINOR, but this
+# repo's own suite must notice a wire change that forgot the bump.
 iface = events[0].get("interface")
-if not isinstance(iface, str) or iface.split(".")[0] != "1":
-    sys.exit(f"start event interface {iface!r}, expected major version 1")
+if iface != want_iface:
+    sys.exit(f"start event interface {iface!r}, expected {want_iface!r}")
 status = events[-1].get("status")
 if status != want_status:
     sys.exit(f"result status {status!r}, expected {want_status!r}")
@@ -272,6 +277,44 @@ run_test() {
         test_pass
     else
         test_fail "exit code: $exit_code, expected: $expected_exit_code"
+    fi
+}
+
+# Helper: run a command whose stdout must be exactly one JSON object (the
+# single-document `--json` subcommands: clip download, clip list --model
+# error, auth list). Asserts the exit code and, optionally, a jq predicate
+# over the document.
+#
+# Args: <test_name> <cmd> [expected_exit_code] [jq_predicate]
+assert_json_document() {
+    local test_name="$1"
+    local test_cmd="$2"
+    local expected_exit="${3:-0}"
+    local jq_expr="${4:-true}"
+
+    local out
+    out=$(mktemp -t asset_tap_doc.XXXXXX)
+    test_begin "$test_name" "$test_cmd"
+
+    set +e
+    bash -c "$test_cmd" < /dev/null > "$out" 2>>"$LOG_FILE"
+    local exit_code=$?
+    set -e
+    cat "$out" >> "$LOG_FILE"
+
+    set +e
+    local result
+    # `-s` slurps stdout into one array: exactly one document, and it is an
+    # object, or the predicate never runs.
+    result=$(jq -s "if length == 1 and (.[0] | type) == \"object\" then (.[0] | $jq_expr) else false end" "$out" 2>>"$LOG_FILE")
+    local jq_exit=$?
+    set -e
+    rm -f "$out"
+
+    if [ $exit_code -eq "$expected_exit" ] && [ $jq_exit -eq 0 ] && [ "$result" = "true" ]; then
+        test_pass
+    else
+        test_fail "exit $exit_code (expected $expected_exit), one JSON object with '$jq_expr': $result"
     fi
 }
 
@@ -450,9 +493,6 @@ run_test "FBX: --convert-only is no longer a flag (usage error)" \
 # a human running `bind` must get the same differentiated code an agent gets
 # from --json, because "exit 1" reads as a retryable internal failure and an
 # agent will loop on a mesh that can never bind.
-run_test "Rig: --clip repeats (one model, N animations)" \
-    "$CLI --mock -y --rig --clip walk --clip Idle_Loop --list" 0
-
 run_test "Rig: --rig with --image-only is a usage error" \
     "$CLI --mock -y --rig --image-only 'test'" 2
 
@@ -481,10 +521,49 @@ run_test "Rig: 'clip download' installs from ASSET_TAP_CLIP_PACKS_DIR" \
     "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download" 0
 run_test "Rig: 'clip download' is a no-op when both packs are present" \
     "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download" 0
-run_test "Rig: '--json clip download' is a single JSON object, not NDJSON" \
-    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI --json clip download" 0
+assert_json_document "Rig: '--json clip download' is a single JSON object, not NDJSON" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI --json clip download" 0 \
+    '.status == "success" and .already_exists == true and (.installed | type) == "array"'
 run_test "Rig: 'clip download --force' refreshes stamped Standard packs" \
     "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS ASSET_TAP_CLIP_PACKS_DIR=$REPO_ROOT/packs $CLI clip download --force" 0
+assert_json_document "Rig: '--json clip list --model <unreadable>' is an error document, not empty stdout" \
+    "ASSET_TAP_CLIPS_DIR=$CLIP_DL_CLIPS $CLI --json clip list --model $CLIP_DL_CLIPS/nope.glb" 7 \
+    '.status == "error" and .kind == "io_error"'
+
+# `--clip` repeats: one mock run, one model, both animations baked. The
+# clips come from the packs installed just above; the bind step's `clips`
+# in bundle.json is the model's full baked set (Bake is declarative).
+RIG_OUT="$TEST_OUTPUT/rig_two_clips"
+rm -rf "$RIG_OUT"
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: Rig: --clip repeats (one model, N animations)${NC}" | tee -a "$LOG_FILE"
+set +e
+RIG_STREAM=$(ASSET_TAP_CLIPS_DIR="$CLIP_DL_CLIPS" $CLI --mock --json -o "$RIG_OUT" --rig --clip walk --clip idle 'a knight' < /dev/null 2>>"$LOG_FILE")
+RIG_EXIT=$?
+set -e
+echo "$RIG_STREAM" >> "$LOG_FILE"
+RIG_OK=false
+if [ $RIG_EXIT -eq 0 ] && echo "$RIG_STREAM" | python3 -c '
+import json, sys
+events = [json.loads(l) for l in sys.stdin if l.strip()]
+result = events[-1]
+assert result["event"] == "result" and result["status"] == "success", result
+d = json.load(open(result["bundle_dir"] + "/bundle.json"))
+bind = next(s for s in d["pipeline"]["steps"] if s.get("id") == "bind")
+clips = [c.lower() for c in bind["params"]["clips"]]
+assert len(clips) == 2, clips
+assert any("walk" in c for c in clips) and any("idle" in c for c in clips), clips
+' >> "$LOG_FILE" 2>&1; then
+    RIG_OK=true
+fi
+if [ "$RIG_OK" = true ]; then
+    echo -e "${GREEN}✓ PASS${NC}" | tee -a "$LOG_FILE"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL (exit=$RIG_EXIT; expected a bind step with walk + idle clips)${NC}" | tee -a "$LOG_FILE"
+    FAILED=$((FAILED + 1))
+fi
+echo "" | tee -a "$LOG_FILE"
 rm -rf "$CLIP_DL_CLIPS"
 
 # Regression guard: when no API key is configured, the CLI must fail BEFORE
@@ -933,7 +1012,7 @@ echo "" | tee -a "$LOG_FILE"
 
 echo "=== 13. BUNDLE DEEP VALIDATION ===" | tee -a "$LOG_FILE"
 
-# Validate bundle.json v2 (compat config + artifacts/pipeline) and non-zero file sizes
+# Validate bundle.json v2 (artifacts + pipeline steps; no v1 config/model_info) and non-zero file sizes
 DEEP_OUT="$TEST_OUTPUT/deep_bundle"
 rm -rf "$DEEP_OUT"
 TOTAL=$((TOTAL + 1))

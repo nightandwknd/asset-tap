@@ -323,9 +323,10 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     let native_v7 = param_names(&meshy, "meshy/v7/image-to-3d");
 
     // Params the native Meshy API documents but fal's v6 wrapper schema
-    // genuinely lacks (checked against fal's OpenAPI for
-    // `fal-ai/meshy/v6/image-to-3d`, 2026-08; texture_prompt IS in the
-    // schema and passes through).
+    // genuinely lacks. Verified 2026-09-18 against fal's OpenAPI for
+    // `fal-ai/meshy/v6/image-to-3d`: the wrapper does not accept
+    // texture_resolution, remove_lighting, or image_enhancement (it does
+    // accept texture_prompt), so the gap is real, not unverified.
     const NATIVE_ONLY: &[&str] = &["texture_resolution", "remove_lighting", "image_enhancement"];
 
     // No fal-only params: anything the wrapper exposes must exist natively too.

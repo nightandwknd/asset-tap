@@ -45,7 +45,9 @@ Env vars can be passed the usual way (`"env": {"FAL_KEY": "..."}`) if the host d
 ## Tools
 
 **`list_catalog`** -- no arguments. Backed by `asset-tap --list --json`.
-Returns providers, models with their parameter schemas, and templates.
+Returns providers, models with their parameter schemas, templates, and
+`clips`: the ids every installed animation pack provides, which is what
+`generate`'s `clips[]` accepts.
 
 **`auth_status`** -- no arguments. Backed by `asset-tap auth list --json`.
 Returns, per provider: `configured`, `source` (`stored` | `env` | `missing`),
@@ -56,7 +58,7 @@ Returns `{bundle_dir, files[], bundle}`.
 
 **`clip_download`** -- optional `force`. Backed by `asset-tap --json clip download`.
 Returns `{status, installed[], already_exists, packs_version}`. Fetches the
-free Standard packs (hash-verified). `force` refreshes only packs stamped by
+Standard packs (hash-verified). `force` refreshes only packs stamped by
 a previous download; it never replaces a Source / `clip install` pack.
 
 **`generate`** -- takes a `prompt` or an `image` path; optional `template`,

@@ -255,7 +255,7 @@ Clips come from [Quaternius](https://quaternius.com)' CC0
 [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
 and
 [Universal Animation Library 2](https://quaternius.com/packs/universalanimationlibrary2.html).
-`asset-tap clip download` pulls the free Standard libraries from the latest
+`asset-tap clip download` pulls the Standard libraries from the latest
 Asset Tap release (hash-verified, not in the binary). The remaining paid
 Source clips on those pages install the same way as any other zip. Full
 note: [Animation (experimental)](@/docs/guides/animation.md#clip-packs).
@@ -263,7 +263,7 @@ note: [Animation (experimental)](@/docs/guides/animation.md#clip-packs).
 Install from a download's `.zip`, an extracted folder, or a single `.glb`:
 
 ```bash
-# Free Standard packs from the latest Asset Tap release
+# Standard packs from the latest Asset Tap release
 asset-tap clip download
 asset-tap --json clip download
 asset-tap clip download --force
