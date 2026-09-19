@@ -787,7 +787,7 @@
     
 
 
-<p class="site-footer-note">The game-asset generation pipeline.</p>
+<p class="site-footer-note">Open-source game asset generation pipeline.</p>
 
 
 
@@ -1093,7 +1093,7 @@
     
 
 
-<p class="site-footer-note">The game-asset generation pipeline.</p>
+<p class="site-footer-note">Open-source game asset generation pipeline.</p>
 
 
 
@@ -1257,10 +1257,10 @@
 <tr><td><a rel="external" href="https://docs.meshy.ai/en/api/text-to-image">Nano Banana</a></td><td><code>meshy/nano-banana</code></td><td>Standard tier <em>(default)</em></td></tr>
 <tr><td><a rel="external" href="https://docs.meshy.ai/en/api/text-to-image">Nano Banana 2</a></td><td><code>meshy/nano-banana-2</code></td><td>Mid tier</td></tr>
 <tr><td><a rel="external" href="https://docs.meshy.ai/en/api/text-to-image">Nano Banana Pro</a></td><td><code>meshy/nano-banana-pro</code></td><td>Higher quality</td></tr>
-<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/text-to-image">GPT Image 2</a></td><td><code>meshy/gpt-image-2</code></td><td>The only Meshy model offering 2:3</td></tr>
+<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/text-to-image">GPT Image 2</a></td><td><code>meshy/gpt-image-2</code></td><td>The only Meshy model offering 3:2 and 2:3 (superset of the Nano Banana ratios)</td></tr>
 </tbody></table>
 <p>Tunable parameters: <code>aspect_ratio</code>, <code>generate_multi_view</code>, <code>pose_mode</code>, <code>remove_background</code> (transparent RGBA PNG output).</p>
-<p><strong>Aspect ratios differ per model.</strong> The Nano Banana family accepts <code>1:1</code>, <code>16:9</code>, <code>9:16</code>, <code>4:3</code>, <code>3:4</code>; GPT Image 2 accepts <code>1:1</code>, <code>3:2</code>, <code>2:3</code> only. <code>generate_multi_view</code> cannot be combined with <code>aspect_ratio</code>; clear it with <code>--param aspect_ratio=</code> (or the <code>(unset)</code> entry in the GUI dropdown) when enabling multi-view.</p>
+<p><strong>Aspect ratios differ per model.</strong> The Nano Banana family accepts <code>1:1</code>, <code>16:9</code>, <code>9:16</code>, <code>4:3</code>, <code>3:4</code>; GPT Image 2 accepts those plus <code>3:2</code> and <code>2:3</code>. <code>generate_multi_view</code> cannot be combined with <code>aspect_ratio</code>; clear it with <code>--param aspect_ratio=</code> (or the <code>(unset)</code> entry in the GUI dropdown) when enabling multi-view.</p>
 <h4 id="image-to-3d-models-1">Image-to-3D Models<a class="zola-anchor" href="#image-to-3d-models-1" aria-label="Anchor link for: image-to-3d-models-1">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1269,13 +1269,13 @@
 </a>
 </h4>
 <table><thead><tr><th>Model</th><th><code>--3d-model</code></th><th>Description</th></tr></thead><tbody>
-<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Meshy v5</a></td><td><code>meshy/v5/image-to-3d</code></td><td>Previous generation</td></tr>
+<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Meshy 6 Lite</a></td><td><code>meshy/v6-lite/image-to-3d</code></td><td>Budget tier -- successor to the retired Meshy 5</td></tr>
 <tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Meshy v6</a></td><td><code>meshy/v6/image-to-3d</code></td><td>Meshy 6 -- production-ready 3D with PBR textures</td></tr>
-<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Meshy v7</a></td><td><code>meshy/v7/image-to-3d</code></td><td>Meshy 7 -- newest generation, supports Ultra mode <em>(default)</em></td></tr>
+<tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Meshy v7</a></td><td><code>meshy/v7/image-to-3d</code></td><td>Meshy 7.1 -- newest generation, high-resolution geometry <em>(default)</em></td></tr>
 <tr><td><a rel="external" href="https://docs.meshy.ai/en/api/image-to-3d">Smart Topology</a></td><td><code>meshy/t2/image-to-3d</code></td><td>Meshy T2 -- clean topology, separated parts, game-ready face counts (max 15k)</td></tr>
 </tbody></table>
-<p>Tunable parameters (v5/v6/v7): <code>topology</code> (triangle/quad), <code>target_polycount</code>, <code>enable_pbr</code>, <code>should_remesh</code>, <code>should_texture</code>, <code>pose_mode</code>, <code>texture_prompt</code>. Smart Topology sets its face count directly with <code>target_polycount</code> (100-15,000) -- <code>topology</code> and <code>should_remesh</code> don't apply.</p>
-<p>Version-specific knobs, per Meshy's own docs: v6 and v7 add <code>texture_resolution</code> (2k/4k/8k) and <code>image_enhancement</code>; <code>remove_lighting</code> is v6-only; <code>ultra_mode</code> (higher-fidelity geometry) is v7-only. <code>symmetry_mode</code> remains on v5/v6 but is deprecated by Meshy and no longer affects output.</p>
+<p>Tunable parameters (6 Lite/v6/v7): <code>topology</code> (triangle/quad), <code>target_polycount</code>, <code>enable_pbr</code>, <code>should_remesh</code>, <code>should_texture</code>, <code>pose_mode</code>, <code>texture_prompt</code>. Smart Topology sets its face count directly with <code>target_polycount</code> (100-15,000) -- <code>topology</code> and <code>should_remesh</code> don't apply.</p>
+<p>Version-specific knobs, per Meshy's own docs: v6 and v7 add <code>texture_resolution</code> (2k/4k/8k -- "the 4k and 8k options are unavailable with meshy-6-lite") and <code>image_enhancement</code> ("only available with meshy-6, meshy-7.1, or latest"); <code>remove_lighting</code> is v6-only; <code>geometry_resolution</code> (<code>standard</code>/<code>2k</code>/<code>4k</code>, "requires meshy-7.1 or latest") is v7-only. <code>geometry_resolution</code> replaces the deprecated <code>ultra_mode</code>, which Meshy documents as equivalent to <code>geometry_resolution: 2k</code>. <code>symmetry_mode</code> is deprecated API-wide and no longer affects output, so it is no longer exposed on any model.</p>
 <blockquote>
 <p><strong>Why two ways to reach Meshy?</strong> The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a <code>FAL_KEY</code>. The Meshy provider's entry uses Meshy's subscription credits and requires a <code>MESHY_API_KEY</code>. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.</p>
 </blockquote>
@@ -1534,7 +1534,7 @@
 <span class="giallo-l"><span class="z-l-3 z-d-5">        s</span><span class="z-l-3 z-d-5">tatus_url_template</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: build poll URL from initial response</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        s</span><span class="z-l-3 z-d-5">tatus_check_field</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        s</span><span class="z-l-3 z-d-5">uccess_value</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span></span>
-<span class="giallo-l"><span class="z-l-3 z-d-5">        f</span><span class="z-l-3 z-d-5">ailure_value</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        f</span><span class="z-l-3 z-d-5">ailure_value</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring | string[]</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> one terminal failure status, or several</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        r</span><span class="z-l-3 z-d-5">esult_field</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        i</span><span class="z-l-3 z-d-5">nterval_ms</span><span>:</span><span class="z-l-2 z-d-6"> i</span><span class="z-l-2 z-d-6">nteger</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        m</span><span class="z-l-3 z-d-5">ax_attempts</span><span>:</span><span class="z-l-2 z-d-6"> i</span><span class="z-l-2 z-d-6">nteger</span></span>
