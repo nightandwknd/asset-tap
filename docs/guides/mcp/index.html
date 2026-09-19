@@ -1218,7 +1218,9 @@
 </a>
 </h2>
 <p><strong><code>list_catalog</code></strong> -- no arguments. Backed by <code>asset-tap --list --json</code>.
-Returns providers, models with their parameter schemas, and templates.</p>
+Returns providers, models with their parameter schemas, templates, and
+<code>clips</code>: the ids every installed animation pack provides, which is what
+<code>generate</code>'s <code>clips[]</code> accepts.</p>
 <p><strong><code>auth_status</code></strong> -- no arguments. Backed by <code>asset-tap auth list --json</code>.
 Returns, per provider: <code>configured</code>, <code>source</code> (<code>stored</code> | <code>env</code> | <code>missing</code>),
 and the <code>env_var</code> name -- never key material.</p>
@@ -1226,7 +1228,7 @@ and the <code>env_var</code> name -- never key material.</p>
 Returns <code>{bundle_dir, files[], bundle}</code>.</p>
 <p><strong><code>clip_download</code></strong> -- optional <code>force</code>. Backed by <code>asset-tap --json clip download</code>.
 Returns <code>{status, installed[], already_exists, packs_version}</code>. Fetches the
-free Standard packs (hash-verified). <code>force</code> refreshes only packs stamped by
+Standard packs (hash-verified). <code>force</code> refreshes only packs stamped by
 a previous download; it never replaces a Source / <code>clip install</code> pack.</p>
 <p><strong><code>generate</code></strong> -- takes a <code>prompt</code> or an <code>image</code> path; optional <code>template</code>,
 <code>provider</code>, <code>image_model</code>, <code>model_3d</code>, <code>params{}</code>,

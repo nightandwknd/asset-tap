@@ -1317,7 +1317,11 @@ template when you are not animating.</li>
 <li><strong>No weight painting, no invented bones, no full animation editor.</strong>
 Bind computes weights from the posed heads.</li>
 </ul>
-<p>A <code>bind</code> step is recorded on <code>bundle.json</code> when you bake. See
+<p>A <code>bind</code> step is recorded on <code>bundle.json</code> when you Bind and again when you
+bake. Re-binding a model that already carries baked clips keeps them: each
+one is re-sourced from its pack onto the new rig. A clip whose pack is no
+longer installed cannot be re-sourced; the panel says which ones were
+dropped, and baking again restores them once the pack is back. See
 <a href="https://assettap.dev/docs/guides/bundle-structure/#the-bind-step-experimental">Bundle structure</a>.</p>
 
 
