@@ -1,6 +1,6 @@
 //! Asset Tap GUI
 //!
-//! A cross-platform GUI for generating 3D models from text prompts.
+//! Cross-platform desktop app for the Asset Tap game asset generation pipeline.
 
 // Hide the console window on Windows release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

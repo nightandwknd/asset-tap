@@ -55,6 +55,7 @@ The project uses several development tools that auto-install on first use:
 - **cargo-llvm-cov** - Code coverage reports
 - **cargo-audit** - Security vulnerability scanning
 - **cargo-udeps** - Unused dependency detection
+- **`make audit-providers`** - Diffs `providers/fal-ai.yaml` against fal's live OpenAPI schemas (network; not in CI)
 
 ## Project Structure
 
@@ -372,6 +373,14 @@ make mock ARGS='-p my-provider -y "test"'
 make cli ARGS='-p my-provider -y "test"'
 ```
 
+4. If you added or changed a **fal** model, audit the YAML against fal's live schema:
+
+```bash
+make audit-providers
+```
+
+This diffs every model in `providers/fal-ai.yaml` against fal's per-endpoint OpenAPI schema and reports keys we send that the schema doesn't define, schema properties we neither send nor expose, declared parameters whose enum/default/min/max/type disagree, and required fields we omit. Deliberate omissions and narrowings go in [`scripts/audit-fal-allowlist.json`](../scripts/audit-fal-allowlist.json), each with a note explaining why; anything not listed there is a finding. It needs network and hits a third-party API, so it is not part of `make ci` — run it by hand.
+
 **To remove a provider:** Delete or move its YAML file out of `providers/` to exclude it from embedding.
 
 See [Provider Schema](guides/PROVIDER_SCHEMA.md) for complete reference.
@@ -521,6 +530,7 @@ All PRs must pass:
 - ✅ Unused dependencies (`cargo udeps`)
 - ✅ Build + package on all platforms via shared action (macOS, Linux, Windows)
 - ✅ CLI tests (downloads Linux binary artifact, runs `scripts/test_cli.sh`)
+- ✅ Installer smoke (only when `site/static/install*` changed; also runs after every release against the published version)
 
 ## Building Release Packages
 

@@ -4112,7 +4112,7 @@ mod tests {
         )));
         assert!(App::is_pack_drop(Path::new("UAL1_Standard.glb")));
         assert!(App::is_pack_drop(Path::new("clips/pack.json")));
-        // A mesh / taphub bundle does not.
+        // A mesh / Asset Tap bundle does not.
         assert!(!App::is_pack_drop(Path::new("hero.glb")));
         assert!(!App::is_pack_drop(Path::new("helmet.zip")));
         assert!(!App::is_pack_drop(Path::new("run/bundle.json")));

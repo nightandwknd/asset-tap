@@ -398,13 +398,15 @@ run_test "Meshy image-only with provider param" \
     "$CLI --mock -y --image-only -p meshy --param aspect_ratio=3:4 'test'" 0
 
 # Meshy's aspect_ratio set is per-model, not per-provider: gpt-image-2 takes
-# 1:1/3:2/2:3 and the nano-banana family takes 1:1/16:9/9:16/4:3/3:4. Sharing
-# one list would advertise ratios each model rejects.
+# 1:1/16:9/9:16/4:3/3:4/3:2/2:3 and the nano-banana family takes
+# 1:1/16:9/9:16/4:3/3:4. gpt-image-2 is a strict superset, so the shared
+# anchor still can't be reused — it would advertise 3:2 and 2:3 on models
+# that reject them.
 run_test "Meshy gpt-image-2 accepts 2:3" \
     "$CLI --mock -y --image-only -p meshy --image-model meshy/gpt-image-2 --param aspect_ratio=2:3 'test'" 0
 
-run_test "Meshy gpt-image-2 rejects 4:3" \
-    "$CLI --mock -y --image-only -p meshy --image-model meshy/gpt-image-2 --param aspect_ratio=4:3 'test'" 2
+run_test "Meshy gpt-image-2 accepts 4:3" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/gpt-image-2 --param aspect_ratio=4:3 'test'" 0
 
 run_test "Meshy nano-banana-pro rejects 2:3" \
     "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-pro --param aspect_ratio=2:3 'test'" 2
@@ -413,15 +415,15 @@ run_test "Meshy nano-banana-pro rejects 2:3" \
 run_test "Meshy v6 accepts texture_resolution" \
     "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param texture_resolution=4k 'test'" 0
 
-run_test "Meshy v5 rejects v6-only texture_resolution" \
-    "$CLI --mock -y -p meshy --3d-model meshy/v5/image-to-3d --param texture_resolution=4k 'test'" 2
+run_test "Meshy 6 Lite rejects v6-only texture_resolution" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6-lite/image-to-3d --param texture_resolution=4k 'test'" 2
 
-# ultra_mode is meshy-7 only; remove_lighting is meshy-6 only.
-run_test "Meshy v7 accepts ultra_mode" \
-    "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param ultra_mode=true 'test'" 0
+# geometry_resolution is meshy-7.1 only; remove_lighting is meshy-6 only.
+run_test "Meshy v7 accepts geometry_resolution" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param geometry_resolution=2k 'test'" 0
 
-run_test "Meshy v6 rejects v7-only ultra_mode" \
-    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param ultra_mode=true 'test'" 2
+run_test "Meshy v6 rejects v7-only geometry_resolution" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param geometry_resolution=2k 'test'" 2
 
 run_test "Meshy v7 rejects v6-only remove_lighting" \
     "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param remove_lighting=false 'test'" 2
@@ -1104,6 +1106,18 @@ run_test "Param: type mismatch string for float param (should fail)" \
 run_test "Param: NaN rejected (should fail)" \
     "$CLI --mock -y --param guidance_scale=NaN 'test'" 2
 
+# A declared min/max is enforced at parse time, so an out-of-range value is a
+# usage error rather than a provider rejection halfway through a paid run.
+# flux-2 declares num_inference_steps in [4, 50].
+run_test "Param: below declared minimum (should fail)" \
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param num_inference_steps=3 'test'" 2
+
+run_test "Param: above declared maximum (should fail)" \
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param num_inference_steps=51 'test'" 2
+
+run_test "Param: at declared minimum boundary" \
+    "$CLI --mock -y --image-model fal-ai/flux-2 --param num_inference_steps=4 'test'" 0
+
 # --image-only must not accept (or advertise) image-to-3D parameters.
 run_test "Param: 3D param rejected under --image-only" \
     "$CLI --mock -y --image-only --param topology=quad 'test'" 2
@@ -1164,13 +1178,16 @@ assert_bundle_json "Bundle: nano-banana-2 defaults (all 8 text-to-image params, 
     "--image-model fal-ai/nano-banana-2 'test'" \
     '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | length) == 8 and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).resolution == "1K" and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).aspect_ratio == "auto" and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).seed == null'
 
-assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps)" \
+assert_bundle_json "Bundle: flux-2-pro minimal params (no guidance_scale/steps, seed stripped)" \
     "--image-model fal-ai/flux-2-pro 'test'" \
-    '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | length) == 4 and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).safety_tolerance == "2" and ((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | has("guidance_scale") | not)'
+    '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | length) == 5 and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).safety_tolerance == "2" and ((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | has("guidance_scale") | not)'
 
-assert_bundle_json "Bundle: meshy v6 via fal wrapper (8 params, should_remesh=false, texture_prompt stripped-null)" \
+# 7 params, not 8: symmetry_mode is no longer declared (Meshy deprecated it
+# API-wide — "This parameter no longer affects output"). It still rides along
+# inert in fal's request body, but a dropped parameter is not a captured one.
+assert_bundle_json "Bundle: meshy v6 via fal wrapper (7 params, should_remesh=false, texture_prompt stripped-null)" \
     "--3d-model fal-ai/meshy/v6/image-to-3d 'test'" \
-    '((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | length) == 8 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).should_remesh == false and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).topology == "triangle" and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).texture_prompt == null'
+    '((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | length) == 7 and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).should_remesh == false and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).topology == "triangle" and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).texture_prompt == null'
 
 # --- Overrides captured and merged with defaults ---
 

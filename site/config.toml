@@ -1,5 +1,5 @@
 title = "Asset Tap"
-description = "The game-asset generation pipeline: prompt in, engine-ready bundle out."
+description = "Open-source game asset generation pipeline."
 base_url = "https://assettap.dev"
 
 theme = "devlab-theme"
@@ -31,10 +31,9 @@ taxonomies = "on"
 anchors = "on"
 
 [extra]
-meta_description = "Asset Tap is the game-asset generation pipeline: prompt in, engine-ready bundle out via CLI, desktop app, and MCP."
 keywords = "3d, ai, text-to-3d, asset generation, glb, gltf, rigging, animation, rust"
 home_layout = "wide"
-home_eyebrow = "Agent-native asset pipeline"
+home_eyebrow = "Game asset generation pipeline"
 home_primary_action_label = "Get started"
 home_primary_action_path = "/docs/getting-started/"
 home_secondary_action_label = "Download"
@@ -47,7 +46,7 @@ show_logo_mark = true
 logo_mark_path = "/images/icon.png"
 
 [extra.devlab.footer]
-note = "The game-asset generation pipeline."
+note = "Open-source game asset generation pipeline."
 links = [
   { name = "GitHub", path = "https://github.com/nightandwknd/asset-tap", icon = "github" },
 ]

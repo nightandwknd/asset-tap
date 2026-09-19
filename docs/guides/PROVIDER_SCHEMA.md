@@ -301,7 +301,10 @@ response:
     status_url_template: '/v1/jobs/${status_field}' # (Optional) template-built poll URL — see below
     status_check_field: 'status' # Field to check in polling response
     success_value: 'COMPLETED' # Value indicating completion
-    failure_value: 'FAILED' # Value indicating failure
+    failure_value: [
+      'FAILED',
+      'CANCELED',
+    ] # Terminal failure value(s): string or list
     result_field: 'images[0].url' # JSONPath to final result URL
     interval_ms: 1000 # Poll every 1 second
     max_attempts: 300 # Maximum 300 attempts
@@ -319,9 +322,19 @@ response:
    that value is already a full URL (fal.ai), or builds one from
    `status_url_template` when the provider returns only a task id (Meshy —
    see below). It then polls that URL every `interval_ms`.
-3. Checks `status_check_field` until it equals `success_value` or `failure_value`.
+3. Checks `status_check_field` until it equals `success_value` or any entry in
+   `failure_value`. **Anything else counts as still running**, so an unlisted
+   terminal status polls until `max_attempts` is exhausted.
 4. On success, extracts the result from `result_field` (fetching from
    `response_url_field` first if set).
+
+**`failure_value`** (optional) — **a string or a list of strings**. Most
+providers have a single terminal failure status (`failure_value: 'FAILED'`);
+where there is more than one, give a list and every entry is terminal. Meshy is
+the motivating case: it documents `PENDING`, `IN_PROGRESS`, `SUCCEEDED`,
+`FAILED` and `CANCELED`, and without `failure_value: ['FAILED', 'CANCELED']` a
+task canceled server-side would look like it was still running. List every
+terminal non-success status.
 
 **`status_url_template`** (optional) — for providers that return only a task id
 instead of a full status URL (e.g. Meshy's `{"result": "<task-id>"}`). When set,
@@ -690,7 +703,9 @@ See the existing configs in `providers/` for reference.
 
 1. **Reasonable intervals** - Don't poll too frequently (respect rate limits)
 2. **Adequate timeouts** - Set `max_attempts` based on typical operation time
-3. **Failure handling** - Always specify `failure_value` if provider supports it
+3. **Failure handling** - Always specify `failure_value` if provider supports it,
+   and give it the list form when there is more than one terminal status — an
+   unlisted one is read as "still running" and burns the whole attempt budget
 
 ## Validation
 

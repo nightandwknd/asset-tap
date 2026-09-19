@@ -46,8 +46,14 @@ pub const SERVER_NAME: &str = "asset-tap";
 /// tool error needs one so the model can branch on it).
 pub const KIND_USAGE: &str = "usage";
 pub const KIND_CANCELED: &str = "canceled";
-pub const INSTRUCTIONS: &str = "asset-tap generates game assets (image and 3D models) from text or \
-    a reference image, on your own provider keys. Typical flow: `auth_status` (do I have a key?) → \
+/// Server instructions. The first sentence is [`APP_DESCRIPTION`] verbatim;
+/// `cli/tests/positioning.rs` fails if the two drift apart.
+///
+/// [`APP_DESCRIPTION`]: asset_tap_core::constants::files::APP_DESCRIPTION
+pub const INSTRUCTIONS: &str = "Asset Tap turns a prompt, an image, or a mesh into a game-ready \
+asset: concept art, a textured GLB, humanoid rigging with animation clips, all in one bundle. \
+Desktop app, CLI, and MCP server. Open source, with generation routed to your chosen provider. \
+Typical flow: `auth_status` (do I have a key?) → \
     `list_catalog` (models, templates, parameters) → `generate` (returns the bundle directory) → \
     `inspect_bundle` (what's in it). A generation takes tens of seconds to minutes; progress is \
     reported via MCP progress notifications. Output is GLB. Pass `bind: true` to rig a humanoid; \

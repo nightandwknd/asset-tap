@@ -18,7 +18,7 @@ Install first if you haven't: [Installation](@/docs/getting-started/installation
 
 ## Get an API Key
 
-Asset Tap works in two AI-powered steps: first it generates an image from your text prompt (text-to-image), then it converts that image into a 3D model (image-to-3D). You'll need an API key from at least one provider that supports these models.
+Asset Tap works in two steps: first it generates an image from your text prompt (text-to-image), then it converts that image into a 3D model (image-to-3D). You'll need an API key from at least one provider that supports these models.
 
 **Included providers** -- pick either one (a single key unlocks the full pipeline):
 

@@ -75,8 +75,8 @@ asset-tap -p fal.ai --image-model fal-ai/nano-banana-pro "a detailed castle"
 # Native Meshy end-to-end (requires MESHY_API_KEY)
 asset-tap -p meshy --image-model meshy/nano-banana-pro --3d-model meshy/v6/image-to-3d "a detailed castle"
 
-# Budget tier on Meshy (meshy-5, 2-4x cheaper)
-asset-tap -p meshy --3d-model meshy/v5/image-to-3d "a simple cube"
+# Budget tier on Meshy (meshy-6-lite, 2-4x cheaper)
+asset-tap -p meshy --3d-model meshy/v6-lite/image-to-3d "a simple cube"
 ```
 
 > **Tip:** If you omit `-p/--provider`, Asset Tap routes the request to whichever provider owns the model you pick. `--3d-model fal-ai/trellis-2` goes to fal.ai; `--3d-model meshy/v6/image-to-3d` goes to Meshy. Set the provider explicitly only when you're not specifying a model.

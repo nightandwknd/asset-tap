@@ -384,7 +384,11 @@ fn result_body(polling: &PollingConfig, artifact_url: &str) -> Value {
 /// Status response for a failed job.
 fn failed_body(polling: &PollingConfig, message: &str) -> Value {
     let mut body = json!({ "error": message, "detail": message });
-    let failed = polling.failure_value.as_deref().unwrap_or("FAILED");
+    let failed = polling
+        .failure_value
+        .first()
+        .map(String::as_str)
+        .unwrap_or("FAILED");
     set_json_path(&mut body, &polling.status_check_field, json!(failed));
     body
 }

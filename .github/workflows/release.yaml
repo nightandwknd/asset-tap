@@ -349,6 +349,9 @@ jobs:
           CLIP_SHA256=$(sha256sum release/clip-packs.zip | awk '{print $1}')
           jq --arg sha "$CLIP_SHA256" '{packs_version, name, packs, sha256: $sha}' packs/manifest.json > release/clip-packs-manifest.json
 
+          # Machine-interface golden fixtures (consumers fetch + verify, not hand-copy)
+          scripts/machine-interface-fixtures.sh release
+
           # macOS
           cp artifacts/asset-tap-macos/AssetTap.dmg release/AssetTap-macos.dmg
           cp artifacts/asset-tap-cli-macos/asset-tap-cli-macos.tar.gz release/
@@ -385,3 +388,12 @@ jobs:
             --title "v${{ needs.version.outputs.new_version }}" \
             --notes-file release-notes.md \
             release/*
+
+  # Post-publish verification: the installer scripts against the tag just
+  # released. Not a gate on release creation — it runs after.
+  installer-smoke:
+    name: Installer Smoke
+    needs: [version, release]
+    uses: ./.github/workflows/installer-smoke.yaml
+    with:
+      version: v${{ needs.version.outputs.new_version }}

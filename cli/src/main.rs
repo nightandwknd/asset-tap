@@ -1,6 +1,6 @@
 //! Asset Tap CLI
 //!
-//! Generate 3D models from text prompts.
+//! Open-source game asset generation pipeline.
 
 use asset_tap_core::constants::files::bundle as bundle_files;
 #[cfg(feature = "mock")]
@@ -48,7 +48,7 @@ mod mcp;
 /// must never be pointed at an argument the binary rejects.
 const AFTER_HELP: &str = concat!(
     "EXAMPLES:\n",
-    "  asset-tap \"a stylized sci-fi crate\"          basic text-to-3D generation (GLB)\n",
+    "  asset-tap \"a stylized sci-fi crate\"          prompt to GLB\n",
     "  asset-tap --image ref.png                    image-to-3D from an existing image\n",
     "  asset-tap \"a crate\" --json -o ./out          programmatic use: parse NDJSON events\n",
     "  asset-tap --list --json                      machine-readable model/template catalog\n",
@@ -73,10 +73,12 @@ const AFTER_HELP: &str = concat!(
     "run: asset-tap --machine-help",
 );
 
-/// Asset Tap - Generate 3D models from text prompts
 #[derive(Parser)]
 #[command(name = "asset-tap")]
-#[command(about = "Asset Tap - AI-powered text-to-3D generation")]
+// `about` only, deliberately: clap prints `long_about` above the usage line on
+// `--help`, and APP_DESCRIPTION is a paragraph. The long form lives in
+// `--machine-help` and the MCP server instructions instead.
+#[command(about = asset_tap_core::constants::files::APP_CATEGORY)]
 #[command(version)]
 #[command(after_help = AFTER_HELP)]
 struct Cli {
@@ -126,6 +128,14 @@ struct Cli {
     /// Inspect a template's syntax and preview
     #[arg(long, value_name = "NAME")]
     inspect_template: Option<String>,
+
+    /// Dump a provider's raw resolved YAML config as JSON (anchors expanded).
+    ///
+    /// Hidden: this is a tooling hook (scripts/audit-fal-schemas.sh) rather
+    /// than a user-facing command, so the same parser the app runs on is the
+    /// one auditing scripts read, instead of a second hand-rolled YAML reader.
+    #[arg(long, value_name = "PROVIDER_ID", hide = true)]
+    dump_provider_config: Option<String>,
 
     /// Run in mock mode (simulated API responses, no costs)
     #[cfg(feature = "mock")]
@@ -337,6 +347,7 @@ fn print_banner() {
         "/_/ |_/___/___/\\__/\\__/   /_/  \\_,_/ .__/\n",
         "                                  /_/\n",
     ));
+    println!("  {}\n", asset_tap_core::constants::files::APP_HERO);
 }
 
 fn main() -> ExitCode {
@@ -496,6 +507,7 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // where stdout must stay machine-readable)
     if !cli.list
         && !cli.list_providers
+        && cli.dump_provider_config.is_none()
         && cli.inspect_template.is_none()
         && !cli.convert_webp
         && !cli.json
@@ -566,6 +578,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
             print_available_providers(&registry);
         }
         return Ok(ExitCode::SUCCESS);
+    }
+
+    // Handle --dump-provider-config
+    if let Some(provider_id) = &cli.dump_provider_config {
+        return handle_dump_provider_config(&registry, provider_id).map(|_| ExitCode::SUCCESS);
     }
 
     // Handle --list flag
@@ -947,6 +964,40 @@ fn parse_param_values(raw: &[String]) -> anyhow::Result<HashMap<String, serde_js
 /// For example, `--param guidance_scale=7` parses as integer but the model
 /// declares it as `float` — this converts `7` to `7.0` so the API gets the
 /// expected type.
+/// Reject a numeric `--param` outside the bounds its model declares.
+///
+/// The GUI clamps to the same `min`/`max` with a slider, so without this the
+/// CLI is the only way to send a value the provider will reject — and it fails
+/// mid-run, after a paid stage may already have completed, instead of as the
+/// usage error it is. A bound the model leaves unset is not enforced.
+fn check_range(
+    key: &str,
+    value: f64,
+    def: &asset_tap_core::providers::ParameterDef,
+) -> anyhow::Result<()> {
+    // Print the bound the way the YAML declares it: whole numbers without a
+    // trailing `.0`, so an integer param reads `minimum 4`, not `minimum 4.0`.
+    fn show(bound: f64) -> String {
+        if bound.fract() == 0.0 && bound.abs() < 1e15 {
+            format!("{}", bound as i64)
+        } else {
+            format!("{bound}")
+        }
+    }
+    let shown = show(value);
+    if let Some(min) = def.min
+        && value < min
+    {
+        anyhow::bail!("{key}={shown} is below the minimum {}", show(min));
+    }
+    if let Some(max) = def.max
+        && value > max
+    {
+        anyhow::bail!("{key}={shown} is above the maximum {}", show(max));
+    }
+    Ok(())
+}
+
 fn coerce_param_value(
     key: &str,
     value: &serde_json::Value,
@@ -963,6 +1014,7 @@ fn coerce_param_value(
                 let f = n.as_f64().ok_or_else(|| {
                     anyhow::anyhow!("Parameter '{}' expects a float, got '{}'", key, value)
                 })?;
+                check_range(key, f, def)?;
                 Ok(serde_json::json!(f))
             }
             _ => anyhow::bail!("Parameter '{}' expects a float, got '{}'", key, value),
@@ -972,6 +1024,7 @@ fn coerce_param_value(
                 let i = n.as_i64().ok_or_else(|| {
                     anyhow::anyhow!("Parameter '{}' expects an integer, got '{}'", key, value)
                 })?;
+                check_range(key, i as f64, def)?;
                 Ok(serde_json::json!(i))
             }
             _ => anyhow::bail!("Parameter '{}' expects an integer, got '{}'", key, value),
@@ -2072,6 +2125,40 @@ impl BatchConvertReport {
     }
 }
 
+/// Print a provider's raw `ProviderConfig` as pretty JSON, with YAML anchors
+/// already expanded by serde_yaml. No API key is required: the registry
+/// registers unconfigured providers too, and nothing here touches the network.
+fn handle_dump_provider_config(
+    registry: &ProviderRegistry,
+    provider_id: &str,
+) -> anyhow::Result<()> {
+    let provider = registry.get(provider_id).ok_or_else(|| {
+        let mut ids = registry.list_provider_ids();
+        ids.sort();
+        anyhow::Error::new(machine::UsageError {
+            message: format!(
+                "Unknown provider '{provider_id}'. Available providers: {}",
+                ids.join(", ")
+            ),
+        })
+    })?;
+
+    let dynamic = provider
+        .as_any()
+        .downcast_ref::<asset_tap_core::providers::DynamicProvider>()
+        .ok_or_else(|| {
+            anyhow::Error::new(machine::UsageError {
+                message: format!("Provider '{provider_id}' has no YAML config to dump"),
+            })
+        })?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&dynamic.config_snapshot())?
+    );
+    Ok(())
+}
+
 fn print_available_providers(registry: &ProviderRegistry) {
     // Single registry traversal shared with the --json catalog
     // (machine::build_catalog) so the human list and the machine catalog can't
@@ -2478,6 +2565,81 @@ mod tests {
             Some(vec![serde_json::json!("a"), serde_json::json!("b")]),
         );
         assert!(coerce_param_value("x", &serde_json::json!("c"), &def).is_err());
+    }
+
+    fn bounded(ty: ParameterType, min: f64, max: f64) -> asset_tap_core::providers::ParameterDef {
+        let mut def = mk_def(ty, None);
+        def.name = "num_inference_steps".into();
+        def.min = Some(min);
+        def.max = Some(max);
+        def
+    }
+
+    /// The GUI's slider can't leave the declared range, so the CLI is the only
+    /// way to send an out-of-bounds value. Catch it as a usage error instead of
+    /// letting the provider reject it mid-run.
+    #[test]
+    fn numeric_param_below_minimum_is_rejected() {
+        let def = bounded(ParameterType::Integer, 4.0, 50.0);
+        let err = coerce_param_value("num_inference_steps", &serde_json::json!(3), &def)
+            .expect_err("3 is below the minimum 4");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("num_inference_steps=3") && msg.contains("minimum 4"),
+            "message should name the param, value and bound: {msg}"
+        );
+        // Whole bounds render without a `.0` tail even though they're f64.
+        assert!(
+            !msg.contains("4.0"),
+            "integer bound should print as 4: {msg}"
+        );
+    }
+
+    #[test]
+    fn numeric_param_above_maximum_is_rejected() {
+        let def = bounded(ParameterType::Integer, 4.0, 50.0);
+        let err = coerce_param_value("num_inference_steps", &serde_json::json!(51), &def)
+            .expect_err("51 is above the maximum 50");
+        assert!(err.to_string().contains("maximum 50"), "{err}");
+    }
+
+    #[test]
+    fn numeric_param_inside_range_is_accepted() {
+        let int_def = bounded(ParameterType::Integer, 4.0, 50.0);
+        for v in [4, 28, 50] {
+            assert_eq!(
+                coerce_param_value("num_inference_steps", &serde_json::json!(v), &int_def).unwrap(),
+                serde_json::json!(v),
+                "{v} is within [4, 50]"
+            );
+        }
+
+        let float_def = bounded(ParameterType::Float, 1.0, 20.0);
+        assert_eq!(
+            coerce_param_value("guidance_scale", &serde_json::json!(7.5), &float_def).unwrap(),
+            serde_json::json!(7.5)
+        );
+        assert!(coerce_param_value("guidance_scale", &serde_json::json!(0.5), &float_def).is_err());
+    }
+
+    /// `--param seed=` means "unset", which has no value to bound-check.
+    #[test]
+    fn null_param_skips_range_check() {
+        let def = bounded(ParameterType::Integer, 4.0, 50.0);
+        assert_eq!(
+            coerce_param_value("num_inference_steps", &serde_json::Value::Null, &def).unwrap(),
+            serde_json::Value::Null
+        );
+    }
+
+    /// A model that declares no bounds accepts anything its type allows.
+    #[test]
+    fn unbounded_numeric_param_is_not_range_checked() {
+        let def = mk_def(ParameterType::Integer, None);
+        assert_eq!(
+            coerce_param_value("seed", &serde_json::json!(i64::MAX), &def).unwrap(),
+            serde_json::json!(i64::MAX)
+        );
     }
 
     fn mk_model(id: &str, params: &[&str]) -> ModelInfo {

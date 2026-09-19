@@ -365,6 +365,44 @@ pub enum ResponseType {
     Polling,
 }
 
+/// A YAML scalar or sequence of scalars, both read as a list.
+///
+/// Lets `failure_value:` accept the historical single string as well as the
+/// list form without two competing fields.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+fn deserialize_one_or_many<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match Option::<OneOrMany>::deserialize(deserializer)? {
+        None => Vec::new(),
+        Some(OneOrMany::One(v)) => vec![v],
+        Some(OneOrMany::Many(v)) => v,
+    })
+}
+
+/// Round-trips the shape it was written in: one value stays a scalar, several
+/// stay a list. Empty is skipped by `skip_serializing_if`.
+fn serialize_one_or_many<S>(
+    values: &[String],
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if values.len() == 1 {
+        serializer.serialize_str(&values[0])
+    } else {
+        serializer.collect_seq(values)
+    }
+}
+
 /// Polling configuration for async APIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PollingConfig {
@@ -392,9 +430,24 @@ pub struct PollingConfig {
     /// Value indicating success.
     pub success_value: String,
 
-    /// Optional value indicating failure.
-    #[serde(default)]
-    pub failure_value: Option<String>,
+    /// Values indicating a terminal failure.
+    ///
+    /// Accepts either a single string (`failure_value: 'FAILED'`) or a list
+    /// (`failure_value: ['FAILED', 'CANCELED']`); both deserialize into this
+    /// vec, so existing single-string configs keep working.
+    ///
+    /// A status matching neither `success_value` nor any failure value is
+    /// treated as still-in-progress, so a provider whose terminal states go
+    /// beyond a single string (e.g. Meshy's `FAILED` *and* `CANCELED`) would
+    /// otherwise poll until the attempt budget ran out. List every terminal
+    /// non-success status here.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_one_or_many",
+        serialize_with = "serialize_one_or_many",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub failure_value: Vec<String>,
 
     /// Optional field in the status response containing the URL to fetch the actual result.
     /// When set, the result is fetched from this URL instead of extracting it from the status response.
@@ -981,5 +1034,45 @@ mod tests {
         let p = numeric_param(None, None);
         assert_eq!(p.clamp_f64(-1e12), -1e12);
         assert_eq!(p.clamp_f64(1e12), 1e12);
+    }
+
+    /// `failure_value` replaced a scalar/list pair, so both spellings must
+    /// still parse — every shipped provider but Meshy uses the scalar form.
+    #[test]
+    fn failure_value_accepts_scalar_and_list() {
+        let base = "status_field: status_url\n\
+                    status_check_field: status\n\
+                    success_value: COMPLETED\n\
+                    result_field: result_url\n";
+
+        let scalar: PollingConfig =
+            serde_yaml_ng::from_str(&format!("{base}failure_value: FAILED\n")).unwrap();
+        assert_eq!(scalar.failure_value, vec!["FAILED".to_string()]);
+
+        let list: PollingConfig =
+            serde_yaml_ng::from_str(&format!("{base}failure_value: ['FAILED', 'CANCELED']\n"))
+                .unwrap();
+        assert_eq!(
+            list.failure_value,
+            vec!["FAILED".to_string(), "CANCELED".to_string()]
+        );
+
+        let absent: PollingConfig = serde_yaml_ng::from_str(base).unwrap();
+        assert!(absent.failure_value.is_empty());
+    }
+
+    /// The serializer collapses a single value back to a scalar, so a config
+    /// dumped and re-read is the same config (and `--dump-provider-config`
+    /// shows the shape the YAML used).
+    #[test]
+    fn failure_value_round_trips_through_serialization() {
+        for yaml in ["failure_value: FAILED\n", "failure_value: ['A', 'B']\n", ""] {
+            let base = "status_field: s\nstatus_check_field: status\n\
+                        success_value: OK\nresult_field: r\n";
+            let cfg: PollingConfig = serde_yaml_ng::from_str(&format!("{base}{yaml}")).unwrap();
+            let dumped = serde_yaml_ng::to_string(&cfg).unwrap();
+            let again: PollingConfig = serde_yaml_ng::from_str(&dumped).unwrap();
+            assert_eq!(cfg.failure_value, again.failure_value);
+        }
     }
 }

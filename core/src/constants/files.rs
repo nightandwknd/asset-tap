@@ -9,6 +9,25 @@ pub const APP_NAME: &str = "asset-tap";
 /// User-facing application display name
 pub const APP_DISPLAY_NAME: &str = "Asset Tap";
 
+/// One-line product category. The `--help` about line, the GUI About tagline,
+/// and the cargo-packager `description` in `gui/Cargo.toml` all say this.
+pub const APP_CATEGORY: &str = "Game asset generation pipeline";
+
+/// Headline: what goes in and what comes out.
+pub const APP_HERO: &str = "From prompt, image, or mesh to a rigged bundle.";
+
+/// Subhead, beneath [`APP_HERO`].
+pub const APP_SUBHEAD: &str = "Your machine, your providers, the whole asset lifecycle.";
+
+/// Single-sentence description for package metadata and site copy.
+pub const APP_ONE_LINER: &str = "Open-source game asset generation pipeline.";
+
+/// Long-form description. Mirrored by the cargo-packager `long_description`
+/// in `gui/Cargo.toml` (enforced by `cli/tests/positioning.rs`).
+pub const APP_DESCRIPTION: &str = "Asset Tap turns a prompt, an image, or a mesh into a game-ready \
+asset: concept art, a textured GLB, humanoid rigging with animation clips, all in one bundle. \
+Desktop app, CLI, and MCP server. Open source, with generation routed to your chosen provider.";
+
 /// Reverse-DNS application identifier (matches cargo-packager `identifier` in gui/Cargo.toml)
 pub const APP_ID: &str = "com.nightandwknd.asset-tap";
 

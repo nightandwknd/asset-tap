@@ -1,0 +1,113 @@
+name: Installer Smoke
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Tag to install (e.g. v26.9.3). Empty means latest published.'
+        type: string
+        required: false
+        default: ''
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to install (e.g. v26.9.3). Empty means latest published.'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  installer-smoke:
+    name: Installer Smoke
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      # Run the working-tree installer against a PUBLISHED release (the one
+      # just released, or the latest): this proves the script's
+      # download/verify/install contract end-to-end (platform detection,
+      # SHA256SUMS verification, PATH-free install) so a broken installer can
+      # never sit at assettap.dev/install unnoticed.
+      # /install.sh is a byte-identical alias of /install (catches the
+      # uv/ollama-school muscle memory that guesses the .sh form). The
+      # canonical URL in all docs stays /install; this guard is what makes
+      # the duplicate safe — the two files can never drift.
+      - name: install.sh alias is byte-identical
+        run: cmp site/static/install site/static/install.sh
+      # A fresh tag's assets can lag `gh release create` by a few seconds.
+      - name: Wait for release assets
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          url="https://github.com/nightandwknd/asset-tap/releases/download/$VERSION/SHA256SUMS.txt"
+          for _ in $(seq 1 20); do
+            curl -fsSL --head -o /dev/null "$url" && exit 0
+            sleep 15
+          done
+          echo "release assets for $VERSION not reachable" >&2
+          exit 1
+      - name: Run installer
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash site/static/install ${VERSION:+"$VERSION"}
+      - name: Run installer (pinned version path)
+        # A historical tag: releases are immutable, so this exercises the
+        # pinned-URL code path forever without maintenance.
+        run: ASSET_TAP_INSTALL_DIR="$RUNNER_TEMP/pin" bash site/static/install v26.8.11
+      - name: Installed binary runs
+        run: '"$HOME/.local/bin/asset-tap" --version'
+      - name: atap alias runs
+        run: '"$HOME/.local/bin/atap" --version'
+
+  installer-smoke-windows:
+    name: Installer Smoke (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows PowerShell 5.1 is what's preinstalled on users' machines;
+        # pwsh 7 is what power users run. The installer must work under both.
+        shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Wait for release assets
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $url = "https://github.com/nightandwknd/asset-tap/releases/download/$env:VERSION/SHA256SUMS.txt"
+          foreach ($i in 1..20) {
+            try { Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing | Out-Null; exit 0 } catch {}
+            Start-Sleep -Seconds 15
+          }
+          Write-Error "release assets for $env:VERSION not reachable"
+          exit 1
+      # An empty ASSET_TAP_VERSION is falsy in the installer — it falls back
+      # to latest, which is what an unset `version` input means.
+      - name: Run installer
+        env:
+          ASSET_TAP_VERSION: ${{ inputs.version }}
+        run: ./site/static/install.ps1
+      - name: Installed binary runs
+        run: |
+          & (Join-Path $env:LOCALAPPDATA "AssetTap\bin\asset-tap.exe") --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: atap alias runs
+        run: |
+          & (Join-Path $env:LOCALAPPDATA "AssetTap\bin\atap.cmd") --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Pinned version path
+        run: |
+          $env:ASSET_TAP_VERSION = "v26.8.11"
+          $env:ASSET_TAP_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "pin"
+          ./site/static/install.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }

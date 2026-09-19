@@ -1,10 +1,11 @@
 .PHONY: help lock-check build build-debug build-cli \
 	cli gui dev mock mock-delay mock-gui mock-gui-delay refresh-models \
 	test test-core test-cli test-gui test-unit test-integration test-mock test-cli-comprehensive bench \
-	coverage coverage-html check clippy clippy-fix fmt fmt-check audit udeps udeps-ci \
+	coverage coverage-html check clippy clippy-fix fmt fmt-check audit audit-providers udeps udeps-ci \
 	lint-workflows lint-shell changelog-check \
 	doc doc-open install watch watch-gui verify ci clean \
 	package-macos package-macos-universal package-windows package-linux install-packager \
+	fixtures-bundle \
 	site-serve site-build site-check tokens-check
 
 # Dependency check helpers
@@ -200,6 +201,9 @@ ifndef CHECK_AUDIT
 endif
 	cargo audit
 
+audit-providers: ## Audit fal provider YAML against fal's live OpenAPI schemas (network)
+	./scripts/audit-fal-schemas.sh
+
 udeps: ## Check for unused dependencies (requires nightly)
 ifndef CHECK_UDEPS
 	@echo "Installing cargo-udeps..."
@@ -272,6 +276,11 @@ clean: ## Clean build artifacts
 # =============================================================================
 # Packaging & Distribution
 # =============================================================================
+
+OUT ?= release
+
+fixtures-bundle: ## Package the machine-interface golden fixtures (OUT=release)
+	./scripts/machine-interface-fixtures.sh $(OUT)
 
 install-packager: ## Install cargo-packager
 ifndef CHECK_PACKAGER

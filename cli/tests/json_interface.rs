@@ -966,3 +966,157 @@ fn key_source_resolution_precedence() {
     assert!(!KeySource::Missing.is_configured());
     assert_eq!(KeySource::Env(var).as_str(), KeySource::ENV);
 }
+
+/// The set of fixture files, the README's table, and spec §6's vendor list must
+/// name exactly the same files. A fixture added without documenting it is one a
+/// consumer never learns to vendor.
+#[test]
+fn fixture_set_is_fully_documented() {
+    use std::collections::BTreeSet;
+
+    let on_disk: BTreeSet<String> = std::fs::read_dir(FIXTURE_DIR)
+        .expect("fixtures dir")
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n != "README.md")
+        .collect();
+    assert!(!on_disk.is_empty(), "no fixtures found in {FIXTURE_DIR}");
+
+    // README: backticked names in the leading cell of each table row.
+    let readme = read_fixture("README.md");
+    let documented: BTreeSet<String> = readme
+        .lines()
+        .filter(|l| l.starts_with("| `"))
+        .filter_map(|l| l.split('`').nth(1).map(str::to_owned))
+        .collect();
+
+    // Spec §6: backticked names anywhere in the "full set a consumer must
+    // vendor" bullet block, which ends at the `interface` sentence.
+    let spec = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/CLI_MACHINE_INTERFACE.md"
+    ))
+    .expect("spec");
+    let vendor_block = spec
+        .split_once("The full set a consumer must vendor:")
+        .expect("spec §6 vendor list")
+        .1
+        .split_once("Every fixture that carries")
+        .expect("spec §6 vendor list terminator")
+        .0;
+    let listed: BTreeSet<String> = vendor_block
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|s| s.ends_with(".json") || s.ends_with(".ndjson"))
+        .map(str::to_owned)
+        .collect();
+
+    for (label, set) in [("README table", &documented), ("spec §6", &listed)] {
+        let missing: Vec<&String> = on_disk.difference(set).collect();
+        assert!(
+            missing.is_empty(),
+            "fixtures on disk but absent from {label}: {missing:?}"
+        );
+        let extra: Vec<&String> = set.difference(&on_disk).collect();
+        assert!(
+            extra.is_empty(),
+            "{label} lists files with no fixture on disk: {extra:?}"
+        );
+    }
+
+    // NDJSON_FIXTURES above must also stay complete.
+    let ndjson_on_disk: BTreeSet<&String> =
+        on_disk.iter().filter(|n| n.ends_with(".ndjson")).collect();
+    let ndjson_listed: BTreeSet<&String> = NDJSON_FIXTURES
+        .iter()
+        .map(|n| {
+            on_disk
+                .get(*n)
+                .unwrap_or_else(|| panic!("NDJSON_FIXTURES names a missing fixture: {n}"))
+        })
+        .collect();
+    assert_eq!(
+        ndjson_on_disk, ndjson_listed,
+        "NDJSON_FIXTURES is out of sync with the .ndjson files on disk"
+    );
+}
+
+/// The release-asset script must describe the fixtures it ships: the interface
+/// version from the constant, and a hash per file that matches the source.
+#[test]
+fn fixtures_manifest_script_matches_constant() {
+    use std::collections::BTreeSet;
+    use std::process::Command;
+
+    if Command::new("zip").arg("-v").output().is_err() {
+        eprintln!("skipping: `zip` not available on this host (CI has it)");
+        return;
+    }
+
+    let repo = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = tempfile::tempdir().expect("tempdir");
+    let status = Command::new("bash")
+        .arg(format!("{repo}/scripts/machine-interface-fixtures.sh"))
+        .arg(out.path())
+        .status()
+        .expect("run machine-interface-fixtures.sh");
+    assert!(status.success(), "fixtures script failed: {status}");
+
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(out.path().join("machine-interface-fixtures-manifest.json"))
+            .expect("manifest written"),
+    )
+    .expect("manifest is JSON");
+
+    assert_eq!(
+        manifest["interface"].as_str(),
+        Some(machine::INTERFACE_VERSION),
+        "manifest interface drifted from machine::INTERFACE_VERSION"
+    );
+
+    let files = manifest["files"].as_object().expect("files object");
+    let listed: BTreeSet<&str> = files.keys().map(String::as_str).collect();
+    let on_disk: BTreeSet<String> = std::fs::read_dir(FIXTURE_DIR)
+        .expect("fixtures dir")
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    let on_disk_refs: BTreeSet<&str> = on_disk.iter().map(String::as_str).collect();
+    assert_eq!(
+        listed, on_disk_refs,
+        "manifest file list differs from the fixtures directory"
+    );
+
+    for (name, hash) in files {
+        let actual = sha256_of(&format!("{FIXTURE_DIR}/{name}"));
+        assert_eq!(
+            hash.as_str(),
+            Some(actual.as_str()),
+            "manifest sha256 for {name} does not match the file on disk"
+        );
+    }
+
+    let zip = out.path().join("machine-interface-fixtures.zip");
+    assert!(zip.is_file(), "zip not written");
+    assert_eq!(
+        manifest["sha256"].as_str(),
+        Some(sha256_of(&zip.to_string_lossy()).as_str()),
+        "manifest sha256 does not match the zip"
+    );
+}
+
+/// Shell out rather than add a hashing dependency for one test.
+fn sha256_of(path: &str) -> String {
+    use std::process::Command;
+    let out = Command::new("sha256sum")
+        .arg(path)
+        .output()
+        .or_else(|_| Command::new("shasum").args(["-a", "256", path]).output())
+        .expect("sha256sum or shasum");
+    assert!(out.status.success(), "hashing {path} failed");
+    String::from_utf8(out.stdout)
+        .expect("hash output is utf-8")
+        .split_whitespace()
+        .next()
+        .expect("hash field")
+        .to_string()
+}

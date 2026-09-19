@@ -1,0 +1,111 @@
+{
+  "fal-ai/nano-banana": {
+    "unexposed": [
+      "sync_mode"
+    ],
+    "mismatch": [
+      "limit_generations.default"
+    ],
+    "note": "sync_mode returns a data URI instead of a hosted file — irrelevant to a pipeline that downloads the result; limit_generations.default differs because we send the key explicitly rather than inheriting fal's."
+  },
+  "fal-ai/nano-banana-2": {
+    "unexposed": [
+      "sync_mode",
+      "system_prompt",
+      "thinking_level"
+    ],
+    "note": "sync_mode is a delivery mode we don't use; system_prompt and thinking_level steer the model's persona/reasoning, not asset generation — out of scope for text → image → 3D."
+  },
+  "fal-ai/nano-banana-pro": {
+    "unexposed": [
+      "sync_mode",
+      "system_prompt"
+    ],
+    "mismatch": [
+      "limit_generations.default"
+    ],
+    "note": "sync_mode is a delivery mode we don't use; system_prompt is persona steering, not pipeline-relevant; limit_generations.default differs because we send the key explicitly."
+  },
+  "fal-ai/flux-2": {
+    "unexposed": [
+      "sync_mode",
+      "enable_prompt_expansion"
+    ],
+    "mismatch": [
+      "guidance_scale.min"
+    ],
+    "note": "sync_mode is a delivery mode we don't use; enable_prompt_expansion rewrites the user's prompt behind their back, which our template system already owns; guidance_scale.min is a deliberate narrowing (ours 1.0 vs fal's 0 — a 0 guidance scale ignores the prompt entirely)."
+  },
+  "fal-ai/flux-2-pro": {
+    "unexposed": [
+      "sync_mode"
+    ],
+    "note": "sync_mode returns a data URI instead of a hosted file — irrelevant to a pipeline that downloads the result."
+  },
+  "fal-ai/trellis-2": {
+    "unexposed": [
+      "ss_guidance_interval_start",
+      "ss_guidance_interval_end",
+      "shape_slat_guidance_interval_start",
+      "shape_slat_guidance_interval_end",
+      "tex_slat_guidance_interval_start",
+      "tex_slat_guidance_interval_end",
+      "uv_unwrap_angle_threshold_deg",
+      "uv_unwrap_global_iterations",
+      "uv_unwrap_refine_iterations",
+      "uv_unwrap_smooth_strength"
+    ],
+    "mismatch": [
+      "seed.min",
+      "seed.max"
+    ],
+    "note": "The guidance-interval and uv_unwrap knobs are sampler/UV-chart internals with no user-facing meaning at our altitude; seed.min/max are a deliberate narrowing of an unbounded schema field to the u32 range the API actually accepts."
+  },
+  "fal-ai/hunyuan-3d/v3.1/pro/image-to-3d": {
+    "unexposed": [
+      "back_image_url",
+      "bottom_image_url",
+      "left_front_image_url",
+      "left_image_url",
+      "right_front_image_url",
+      "right_image_url",
+      "top_image_url"
+    ],
+    "note": "Extra-view image URLs: our pipeline produces exactly one image, so there is no second view to supply."
+  },
+  "fal-ai/meshy/v6/image-to-3d": {
+    "unexposed": [
+      "enable_rigging",
+      "enable_animation",
+      "animation_action_id",
+      "rigging_height_meters",
+      "enable_safety_checker",
+      "is_a_t_pose",
+      "texture_image_url",
+      "model_type"
+    ],
+    "mismatch": [
+      "should_remesh.default"
+    ],
+    "note": "Rigging/animation duplicate our own bind + clip pipeline; enable_safety_checker is a provider-side policy toggle we don't expose; is_a_t_pose is deprecated in favour of pose_mode, which we do expose; texture_image_url needs a second image we don't have; model_type is deferred to planned conditional-parameter support (its values gate which other knobs apply, which our flat parameter model can't express yet). should_remesh.default differs because we send the key explicitly, so fal's default never applies."
+  },
+  "fal-ai/meshy/v7/image-to-3d": {
+    "unexposed": [
+      "enable_rigging",
+      "enable_animation",
+      "animation_action_id",
+      "rigging_height_meters",
+      "enable_safety_checker",
+      "is_a_t_pose",
+      "texture_image_url",
+      "symmetry_mode",
+      "model_type",
+      "ultra_mode"
+    ],
+    "mismatch": [
+      "should_remesh.default",
+      "geometry_resolution.default"
+    ],
+    "note": "Same rationale as the v6 wrapper. symmetry_mode is additionally listed here because v7 sends no body key for it (Meshy deprecated it API-wide: 'This parameter no longer affects output'), where the v6 body still carries it inert. ultra_mode is deprecated in fal's own schema ('Deprecated: use geometry_resolution=2k') and superseded by geometry_resolution, which we do expose. model_type is deferred to planned conditional-parameter support. should_remesh.default and geometry_resolution.default differ because we send both keys explicitly, so fal's defaults (true, and none at all) never apply."
+  }
+}

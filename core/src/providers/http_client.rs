@@ -1070,9 +1070,8 @@ impl HttpProviderClient {
                 return self.download_file(&result_url).await;
             }
 
-            if let Some(ref failure_value) = polling.failure_value
-                && status == *failure_value
-            {
+            let is_failure = polling.failure_value.iter().any(|v| v == &status);
+            if is_failure {
                 let error_detail = json
                     .get("error")
                     .and_then(|e| e.as_str())
@@ -1907,17 +1906,23 @@ mod poll_tests {
     }
 
     // A fast polling config: near-instant interval, plenty of attempts.
-    fn fast_polling(extra: &str) -> PollingConfig {
+    // `failure` is spliced in verbatim so callers can pass the scalar or the
+    // list form of `failure_value`.
+    fn fast_polling_with(failure: &str, extra: &str) -> PollingConfig {
         polling(&format!(
             "status_field: status_url\n\
              status_check_field: status\n\
              success_value: COMPLETED\n\
-             failure_value: FAILED\n\
+             failure_value: {failure}\n\
              result_field: result_url\n\
              interval_ms: 1\n\
              max_attempts: 20\n\
              {extra}"
         ))
+    }
+
+    fn fast_polling(extra: &str) -> PollingConfig {
+        fast_polling_with("FAILED", extra)
     }
 
     #[tokio::test]
@@ -1989,6 +1994,77 @@ mod poll_tests {
             .await
             .expect_err("FAILED status should error");
         assert!(err.to_string().contains("model exploded") || err.to_string().contains("FAILED"));
+    }
+
+    /// Meshy's documented task statuses include CANCELED alongside FAILED.
+    /// `failure_value` therefore takes a list; without `CANCELED` in it a
+    /// canceled task looks "still running" and polls to the attempt limit.
+    /// `.expect(1)` proves it aborts on the first poll rather than retrying.
+    #[tokio::test]
+    async fn poll_reports_failure_for_listed_failure_values() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "CANCELED",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = fast_polling_with("['FAILED', 'CANCELED']", "");
+
+        let err = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect_err("CANCELED status should error");
+        assert!(
+            err.to_string().contains("CANCELED"),
+            "error should name the terminal status, got: {err}"
+        );
+    }
+
+    /// A status in neither the success nor any failure list keeps polling —
+    /// the behaviour the failure list exists to bound. Guards against someone
+    /// "simplifying" the check into treating unknown statuses as terminal.
+    #[tokio::test]
+    async fn poll_keeps_going_on_unlisted_status() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "IN_PROGRESS",
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "COMPLETED",
+                "result_url": format!("{}/result", server.uri()),
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/result"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"MODELBYTES".to_vec()))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = fast_polling_with("['FAILED', 'CANCELED']", "");
+
+        let result = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect("IN_PROGRESS should not be terminal");
+        assert_eq!(result, b"MODELBYTES");
     }
 
     #[tokio::test]

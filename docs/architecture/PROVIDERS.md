@@ -63,7 +63,7 @@ All `providers/*.yaml` files are automatically embedded in the binary at compile
 **Currently included:**
 
 - **fal.ai** ([`providers/fal-ai.yaml`](../../providers/fal-ai.yaml)) - Text-to-image and image-to-3D models with dynamic discovery. Pay-per-call billing; uses two-step upload (`initiate_then_put`).
-- **Meshy AI** ([`providers/meshy.yaml`](../../providers/meshy.yaml)) - Native Meshy API for text-to-image and image-to-3D. Subscription + credits billing; no upload endpoint (uses data-URI inline). Exposes `status_url_template` for task-id-based polling and `cancel_method: DELETE`.
+- **Meshy AI** ([`providers/meshy.yaml`](../../providers/meshy.yaml)) - Native Meshy API for text-to-image and image-to-3D. Subscription + credits billing; no upload endpoint (uses data-URI inline). Exposes `status_url_template` for task-id-based polling, `cancel_method: DELETE`, and a list of extra terminal failure statuses so a task Meshy reports as `CANCELED` ends the poll as a failure instead of spinning until timeout.
 
 Each YAML file in `providers/` defines models and API configuration. Only files directly in `providers/` are embedded; removing a file excludes its provider from the binary.
 
@@ -169,6 +169,10 @@ End users see only the curated static models from provider YAML files.
 - **Registry integration**: `core/src/providers/registry.rs`
 
 See [`providers/fal-ai.yaml`](../../providers/fal-ai.yaml) for a full example using `initiate_then_put` upload and queue-based polling, or [`providers/meshy.yaml`](../../providers/meshy.yaml) for the task-id polling / data-URI / DELETE-cancel pattern.
+
+### Auditing against provider schemas
+
+Curated YAML drifts from a provider's real API as models change under us, so [`scripts/audit-fal-schemas.sh`](../../scripts/audit-fal-schemas.sh) diffs every model in `providers/fal-ai.yaml` against fal's live per-endpoint OpenAPI schema (`https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<model id>`, cached under `$TMPDIR` or `--cache-dir`, refreshed with `--refresh`). It reports, per model, keys we send that the schema doesn't define (`SENT_BUT_UNKNOWN`), schema properties we neither send nor expose as tunable parameters (`UNEXPOSED`), declared parameters whose enum/default/min/max/type disagree with the schema (`MISMATCH`), and required fields we omit (`REQUIRED_MISSING`). Deliberate omissions and deliberate divergences are recorded in [`scripts/audit-fal-allowlist.json`](../../scripts/audit-fal-allowlist.json) as `{"<model id>": {"unexposed": [...], "mismatch": [...], "note": "..."}}`: `unexposed` lists schema properties we knowingly don't surface (knobs out of scope for the text → image → 3D pipeline, for instance) and suppresses their `UNEXPOSED` findings, while `mismatch` lists `"<param>.<field>"` entries (`field` is one of `enum`, `default`, `min`, `max`, `type`) and suppresses that one field's `MISMATCH` — a narrowed range or an explicitly-sent key whose default can never apply, not the whole parameter. `SENT_BUT_UNKNOWN` and `REQUIRED_MISSING` are never suppressible. Every entry carries a `note` saying why. The script exits non-zero when any finding remains, so it can be used as an on-demand gate, and `--json` emits the whole report as one document. It needs network and hits a third-party API, so it is **not** wired into CI or `make ci` — run it by hand (`make audit-providers`) when touching fal models or when a request starts getting rejected.
 
 ## Variable Interpolation
 

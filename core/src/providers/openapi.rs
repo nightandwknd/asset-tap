@@ -358,7 +358,7 @@ impl OpenApiParser {
                 result_field,
                 status_check_field: "status".to_string(),
                 success_value: "COMPLETED".to_string(),
-                failure_value: Some("FAILED".to_string()),
+                failure_value: vec!["FAILED".to_string()],
                 response_url_field: Some("response_url".to_string()),
                 response_envelope_field: Some("response".to_string()),
                 poll_query_params: None,

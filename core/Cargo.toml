@@ -8,7 +8,7 @@ keywords.workspace = true
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
-description = "Core library for Asset Tap - API clients, pipeline orchestration, and utilities"
+description = "Core library for Asset Tap - provider system, pipeline orchestration, rig and bundle"
 
 [package.metadata.docs.rs]
 all-features = true

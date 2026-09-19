@@ -1,8 +1,8 @@
 # Contributing to Asset Tap
 
-Thanks for your interest in contributing! Asset Tap generates 3D models from text prompts
-via a data-driven, YAML-based provider system. Bug fixes, new providers/templates, docs,
-and features are all welcome.
+Thanks for your interest in contributing! Asset Tap is an open-source game asset generation
+pipeline, built on a data-driven, YAML-based provider system. Bug fixes, new
+providers/templates, docs, and features are all welcome.
 
 ## Getting Set Up
 

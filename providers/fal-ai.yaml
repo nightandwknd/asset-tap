@@ -363,6 +363,8 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        # Null = unset: stripped unless the user supplies a seed.
+        seed: null
         image_size: 'landscape_4_3'
         num_images: 1
         guidance_scale: 2.5
@@ -404,8 +406,15 @@ text_to_image:
         description: 'More steps = finer detail, slower generation.'
         type: integer
         default: 28
-        min: 1
+        # fal's schema sets minimum: 4 — below that the request is rejected.
+        min: 4
         max: 50
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Lock the random seed for reproducible output. Leave blank for random.'
+        type: integer
+        widget: input
+        default: null
       - name: 'num_images'
         label: 'Number of Images'
         description: 'How many images to generate per request.'
@@ -445,6 +454,8 @@ text_to_image:
         <<: *fal-request-headers
       body:
         prompt: '${prompt}'
+        # Null = unset: stripped unless the user supplies a seed.
+        seed: null
         image_size: 'landscape_4_3'
         safety_tolerance: '2'
         enable_safety_checker: true
@@ -476,6 +487,12 @@ text_to_image:
         type: select
         default: '2'
         options: ['1', '2', '3', '4', '5']
+      - name: 'seed'
+        label: 'Seed'
+        description: 'Lock the random seed for reproducible output. Leave blank for random.'
+        type: integer
+        widget: input
+        default: null
       - name: 'enable_safety_checker'
         label: 'Safety Checker'
         description: 'Run images through the safety checker.'
@@ -724,7 +741,7 @@ image_to_3d:
 
   # --- Meshy v7 (fal wrapper) ---
   # Newest Meshy generation via fal — same task shape as the v6 wrapper below
-  # plus v7's ultra_mode. fal publishes it under the partner namespace
+  # plus v7's geometry_resolution. fal publishes it under the partner namespace
   # (endpoint id `meshy/v7/image-to-3d`, no `fal-ai/` prefix); our model id
   # keeps the `fal-ai/` prefix so it can never collide with the meshy
   # provider's native `meshy/v7/image-to-3d` id — find_provider_for_model
@@ -733,12 +750,19 @@ image_to_3d:
   # `meshy_v6_parameter_surface_matches_across_providers`); fal's v7 schema
   # confirms texture_prompt passes through but has no texture_resolution /
   # image_enhancement, so those two stay native-only. symmetry_mode exists in
-  # fal's schema but is deprecated API-wide — not advertised on new models.
+  # fal's schema but is deprecated API-wide — not advertised anywhere.
+  # ASYMMETRY: fal's geometry_resolution enum is ["standard", "2k"]
+  # ("Geometry resolution. Meshy-7 supports standard and 2k") where Meshy's
+  # native API also documents "4k" (4096³, "Requires meshy-7.1 or latest").
+  # We advertise exactly what each schema accepts; the parity test compares
+  # parameter NAMES, so the narrower option list here is intentional and does
+  # not trip it. fal's wrapper exposes no ai_model field, so there is no
+  # meshy-7 → meshy-7.1 pin to make on this side.
   # Rigging/animation and model_type knobs are deliberately omitted — out of
   # scope for our "text → image → 3D model" pipeline.
   - id: 'fal-ai/meshy/v7/image-to-3d'
     name: 'Meshy v7'
-    description: 'Meshy 7 — newest generation, supports Ultra mode'
+    description: 'Meshy 7 — newest generation, supports high-resolution geometry'
     endpoint: '/meshy/v7/image-to-3d'
     method: POST
     request:
@@ -754,7 +778,8 @@ image_to_3d:
         should_texture: true
         enable_pbr: false
         pose_mode: ''
-        ultra_mode: false
+        # Supersedes the deprecated ultra_mode; fal accepts standard/2k only.
+        geometry_resolution: 'standard'
         # Null = unset: stripped from the request so Meshy applies its own
         # default unless the user supplies one.
         texture_prompt: null
@@ -801,11 +826,16 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
-      - name: 'ultra_mode'
-        label: 'Ultra Mode'
-        description: 'Ultra generation — higher-fidelity geometry with finer surface detail.'
-        type: boolean
-        default: false
+      # fal's enum is standard/2k only — the native Meshy provider adds 4k.
+      - name: 'geometry_resolution'
+        label: 'Geometry Resolution'
+        description: 'Ultra pass tier for geometry detail. 2k runs the Ultra pass at 2048³. fal exposes standard and 2k; the native Meshy provider also offers 4k.'
+        type: select
+        default: 'standard'
+        options: ['standard', '2k']
+      # LIMIT DIFFERS BY PROVIDER: fal's schema caps texture_prompt at
+      # maxLength 600 where Meshy's native API documents 800, so the two
+      # providers legitimately advertise different limits. 600 is correct here.
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
@@ -821,10 +851,13 @@ image_to_3d:
   # provider they route through. texture_prompt passes through (confirmed
   # against fal's OpenAPI, 2026-08); texture_resolution / remove_lighting /
   # image_enhancement are absent from fal's schema and stay native-only.
-  # Rigging/animation, safety-checker, and Meshy-native-only knobs
-  # (hd_texture, decimation_mode, moderation, auto_size, model_type, etc.)
-  # are deliberately omitted — out of scope for our
-  # "text → image → 3D model" pipeline.
+  # Rigging/animation and safety-checker knobs are deliberately omitted —
+  # out of scope for our "text → image → 3D model" pipeline, which does its
+  # own bind + clip work. model_type, decimation_mode, auto_size and
+  # origin_at are deferred to planned conditional-parameter support: whether
+  # each is valid depends on the value of another field, which our flat
+  # parameter model cannot express yet. hd_texture and moderation are not
+  # exposed.
   - id: 'fal-ai/meshy/v6/image-to-3d'
     name: 'Meshy v6'
     description: 'Meshy 6 — production-ready 3D models with PBR textures'
@@ -837,6 +870,9 @@ image_to_3d:
         image_url: '${image_url}'
         topology: 'triangle'
         target_polycount: 30000
+        # Deprecated API-wide ("This parameter no longer affects output"), so
+        # it is no longer advertised as a parameter — but fal's v6 schema
+        # still declares it and accepts it, so the body key stays inert.
         symmetry_mode: 'auto'
         # Match Meshy's documented v6 default; flip on to make Target Polycount apply.
         should_remesh: false
@@ -883,18 +919,15 @@ image_to_3d:
         description: 'Generate PBR maps (metallic, roughness, normal). Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
-      - name: 'symmetry_mode'
-        label: 'Symmetry'
-        description: 'Controls symmetry during generation.'
-        type: select
-        default: 'auto'
-        options: ['off', 'auto', 'on']
       - name: 'pose_mode'
         label: 'Pose'
         description: 'Force a standard character pose. Leave blank for automatic.'
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      # LIMIT DIFFERS BY PROVIDER: fal's schema caps texture_prompt at
+      # maxLength 600 where Meshy's native API documents 800, so the two
+      # providers legitimately advertise different limits. 600 is correct here.
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
