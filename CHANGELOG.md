@@ -2,6 +2,44 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.5 — 2026-09-19
+
+### ⚠ Breaking Changes
+
+- provider audit, Meshy 6 Lite and 7.1, --param range checks, settled positioning
+
+### Features
+
+- provider audit, Meshy 6 Lite and 7.1, --param range checks, settled positioning
+
+  Meshy retired meshy-5 and deprecated meshy-7 and ultra_mode. The
+  `meshy/v5/image-to-3d` model is replaced by `meshy/v6-lite/image-to-3d`
+  (same parameters and credit cost); Meshy v7 now runs meshy-7.1 and
+  takes `geometry_resolution` (standard/2k/4k natively, standard/2k via
+  fal) instead of `ultra_mode`. Scripts that name the old id or knob need
+  updating. GPT Image 2 accepts all seven aspect ratios. The dead
+  `symmetry_mode` dropdown is gone. Texture prompts allow 800 characters
+  on Meshy. A task Meshy cancels now fails promptly instead of polling to
+  the timeout.
+
+  `--param` enforces declared min/max and select options: an out-of-range
+  value is a usage error (exit 2) with the allowed bound in the message.
+  flux-2 needs at least 4 steps; flux-2 and flux-2-pro accept `seed`.
+
+  Every fal model was checked against fal's live OpenAPI, and the check is
+  now a tool: `make audit-providers` diffs the YAML against each schema
+  and exits non-zero on drift, with deliberate skips recorded in an
+  allowlist. Provider polling accepts a list of failure statuses.
+
+  Releases attach `machine-interface-fixtures.zip` and a manifest so
+  downstream consumers fetch and verify the golden fixtures instead of
+  copying them. Installer smoke tests run only when the installer scripts
+  change and after every release against the published version.
+
+  Positioning copy is settled on one set of lines across the README, site,
+  app, CLI, packages, and MCP server, single-sourced in core with a test
+  that fails if any surface drifts.
+
 ## v26.9.4 — 2026-09-19
 
 ### Bug Fixes
