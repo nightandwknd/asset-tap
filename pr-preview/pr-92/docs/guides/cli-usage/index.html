@@ -1298,47 +1298,34 @@
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a brave knight with a glowing sword</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Inspect a template&#39;s syntax and preview</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-inspect-template</span><span class="z-l-2 z-d-6"> humanoid</span></span></code></pre><h3 id="built-in-templates">Built-in templates<a class="zola-anchor" href="#built-in-templates" aria-label="Anchor link for: built-in-templates">
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-inspect-template</span><span class="z-l-2 z-d-6"> humanoid</span></span></code></pre><h2 id="image-only-runs-and-image-shape">Image-Only Runs and Image Shape<a class="zola-anchor" href="#image-only-runs-and-image-shape" aria-label="Anchor link for: image-only-runs-and-image-shape">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
-</h3>
-<p>Two are shaped for image-to-3D:</p>
-<table><thead><tr><th>Template</th><th>For</th></tr></thead><tbody>
-<tr><td><code>humanoid</code></td><td>A T-pose character the auto-fit can rig: limbs separated, hands out</td></tr>
-<tr><td><code>prop</code></td><td>A single object, front view, one connected piece, plain background</td></tr>
-</tbody></table>
-<p>Four are shaped for 2D output; pair them with <code>--image-only</code>:</p>
-<table><thead><tr><th>Template</th><th>For</th><th>Suggested <code>--param</code></th></tr></thead><tbody>
-<tr><td><code>seamless-albedo</code></td><td>A tileable albedo texture: top-down, flat light, repeats on every edge</td><td><code>aspect_ratio=1:1</code></td></tr>
-<tr><td><code>sprite-chroma</code></td><td>A full-body sprite on pure <code>#00FF00</code>, no contact shadow, for background removal</td><td><code>aspect_ratio=3:4</code> (or <code>1:1</code>)</td></tr>
-<tr><td><code>fps-viewmodel</code></td><td>A first-person weapon or tool, cropped lower-right, black background, no HUD</td><td><code>aspect_ratio=16:9</code></td></tr>
-<tr><td><code>game-icon-pickup</code></td><td>An inventory icon: single item, three-quarter view, rim light, flat background</td><td><code>aspect_ratio=1:1</code></td></tr>
-</tbody></table>
-<p>A template is prompt text only -- it cannot set parameters, and the model picks
-its own shape if you don't. The default image model (<code>fal-ai/nano-banana-2</code>)
-often returns a wide 1408x768, which is wrong for a texture and wasteful for a
-sprite, so pass the ratio yourself.</p>
-<p>The <code>aspect_ratio</code> column applies to the nano-banana family on both providers:
+</h2>
+<p><code>--image-only</code> stops the pipeline after text-to-image: you get a bundle with an
+<code>image.png</code> and no 3D model. Nothing sets the image's shape for you, so the
+model picks its own -- the default image model (<code>fal-ai/nano-banana-2</code>) often
+returns a wide 1408x768, which is the wrong shape for a texture and wasteful for
+a sprite. Pass the shape yourself.</p>
+<p>The nano-banana family takes <code>aspect_ratio</code> on both providers:
 <code>fal-ai/nano-banana-2</code> (the default), <code>fal-ai/nano-banana</code>,
 <code>fal-ai/nano-banana-pro</code>, and Meshy's <code>meshy/nano-banana</code>,
 <code>meshy/nano-banana-2</code>, <code>meshy/nano-banana-pro</code>, <code>meshy/gpt-image-2</code>. The flux
 models (<code>fal-ai/flux-2</code>, <code>fal-ai/flux-2-pro</code>) have no <code>aspect_ratio</code> -- they
-take <code>image_size</code> from a preset list instead, so use <code>--param image_size=square_hd</code> for a texture or an icon, <code>portrait_4_3</code> for a sprite, and
-<code>landscape_16_9</code> for a viewmodel.</p>
+take <code>image_size</code> from a preset list instead.</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=1:1</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=3:4</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer idle pose</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> flux takes a preset instead of a ratio</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-model</span><span class="z-l-2 z-d-6"> fal-ai/flux-2</span><span class="z-l-1 z-d-4"> \</span></span>
+<span class="giallo-l"><span class="z-l-1 z-d-4">  -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> image_size=square_hd</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
 <p>On Meshy's text-to-image models, <code>aspect_ratio</code> is mutually exclusive with
 Multi-View -- clear it with <code>--param aspect_ratio=</code> if you turn
 <code>generate_multi_view</code> on, or the request is rejected.</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> seamless-albedo</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=1:1</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> sprite-chroma</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=3:4</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer idle pose</span><span class="z-l-2 z-d-6">&quot;</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> fps-viewmodel</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=16:9</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a battered semi-automatic pistol</span><span class="z-l-2 z-d-6">&quot;</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> game-icon-pickup</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=1:1</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a glowing blue mana crystal</span><span class="z-l-2 z-d-6">&quot;</span></span>
-<span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> flux takes a preset instead of a ratio</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> seamless-albedo</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-model</span><span class="z-l-2 z-d-6"> fal-ai/flux-2</span><span class="z-l-1 z-d-4"> \</span></span>
-<span class="giallo-l"><span class="z-l-1 z-d-4">  -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> image_size=square_hd</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre><h2 id="installing-the-artifact-into-your-project-install">Installing the Artifact Into Your Project (<code>--install</code>)<a class="zola-anchor" href="#installing-the-artifact-into-your-project-install" aria-label="Anchor link for: installing-the-artifact-into-your-project-install">
+<h2 id="installing-the-artifact-into-your-project-install">Installing the Artifact Into Your Project (<code>--install</code>)<a class="zola-anchor" href="#installing-the-artifact-into-your-project-install" aria-label="Anchor link for: installing-the-artifact-into-your-project-install">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1357,7 +1344,7 @@ run's <strong>primary artifact</strong> where your project wants it -- <code>mod
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-name</span><span class="z-l-2 z-d-6"> crate</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Assets/Models/</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a wooden crate</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Image-only runs install the PNG</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> sprite-chroma</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Sprites/goblin.png</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Sprites/goblin.png</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
 <p>An extension that doesn't match what the run produces (<code>.glb</code> under
 <code>--image-only</code>, <code>.png</code> without it) is a usage error: exit code 2, raised before
 any generation starts, so a mistyped path never costs an API call. An existing
@@ -1755,30 +1742,17 @@ pack provides is a clear local error rather than a silently empty animation.</p>
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <details class="docs-toc-group" data-docs-toc-group>
-        <summary class="docs-toc-group-toggle">
-          <a href="/pr-preview/pr-92/docs/guides/cli-usage/#templates">
-            Templates
-          </a>
-          <span class="docs-toc-group-indicator" aria-hidden="true">&rsaquo;</span>
-        </summary>
-
-        
-  
-  <ul class="docs-toc-list">
-    
-    <li class="docs-toc-item docs-toc-level-3">
-      
-      <a href="/pr-preview/pr-92/docs/guides/cli-usage/#built-in-templates">
-        Built-in templates
+      <a href="/pr-preview/pr-92/docs/guides/cli-usage/#templates">
+        Templates
       </a>
       
     </li>
     
-  </ul>
-  
-
-      </details>
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="/pr-preview/pr-92/docs/guides/cli-usage/#image-only-runs-and-image-shape">
+        Image-Only Runs and Image Shape
+      </a>
       
     </li>
     
