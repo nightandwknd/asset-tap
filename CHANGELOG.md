@@ -2,6 +2,33 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.4 — 2026-09-19
+
+### Bug Fixes
+
+- **site:** stop Pages marking publish as a failed deploy ([#88](https://github.com/nightandwknd/asset-tap/pull/88))
+
+  On merge, skip preview-removal. Publish keeps open previews in the same
+  commit so GitHub Pages only builds once.
+
+- review pass over rig, drops, bundle v2, and the machine interface ([#89](https://github.com/nightandwknd/asset-tap/pull/89))
+
+  Bake wrote only the clips an installed pack could supply but counted
+  every ticked one, so with a pack missing it cleared the model. Re-Bind
+  dropped baked clips; `bind --fit-only` re-fit a rigged mesh. Malformed
+  glTF (bad indices, NaN vertices, short animation accessors) panicked
+  instead of erroring. Windows could lose both copies of model.glb on a
+  failed rename. Pack install is atomic and refuses ids that escape the
+  packs root.
+
+  Workbench completions carry model and request identity, so a stale
+  result no longer lands on whichever bundle is current. GLB reads leave
+  the UI thread. Preview and Bake retarget against the same rest;
+  CUBICSPLINE clips play as written.
+
+  Drop zones claim nothing while a dialog is open and only the files they
+  use; leftovers are toasted, never swallowed.
+
 ## v26.9.3 — 2026-09-18
 
 ### Features
