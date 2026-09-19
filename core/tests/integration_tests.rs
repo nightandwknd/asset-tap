@@ -58,6 +58,11 @@ fn test_pipeline_config_with_existing_image() {
 
 #[test]
 fn test_template_workflow() {
+    // Drives the global REGISTRY, whose first touch builds a `TemplateRegistry::new()`
+    // and rewrites the shared user-templates dir. Same lock instance as the
+    // in-crate unit tests (see `test_support`), so they serialize.
+    let _dir = asset_tap_core::test_support::templates_dir_lock();
+
     // List available templates
     let templates = list_templates();
     assert!(!templates.is_empty());
@@ -327,7 +332,22 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     // `fal-ai/meshy/v6/image-to-3d`: the wrapper does not accept
     // texture_resolution, remove_lighting, or image_enhancement (it does
     // accept texture_prompt), so the gap is real, not unverified.
-    const NATIVE_ONLY: &[&str] = &["texture_resolution", "remove_lighting", "image_enhancement"];
+    //
+    // decimation_mode / auto_size / origin_at are absent from fal's published
+    // schema for the wrapper (checked 2026-09-19) while Meshy documents all
+    // three on the native endpoint: decimation_mode "Enable adaptive
+    // decimation by setting a polycount level. When set, `target_polycount`
+    // is ignored."; auto_size "uses AI vision to automatically estimate the
+    // real-world height of the object and resize the model accordingly";
+    // origin_at "Position of the origin when `auto_size` is enabled."
+    const NATIVE_ONLY: &[&str] = &[
+        "texture_resolution",
+        "remove_lighting",
+        "image_enhancement",
+        "decimation_mode",
+        "auto_size",
+        "origin_at",
+    ];
 
     // No fal-only params: anything the wrapper exposes must exist natively too.
     let only_in_fal: Vec<_> = fal_v6.difference(&native_v6).collect();
@@ -418,7 +438,15 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     // its own schema accepts, so option lists are allowed to diverge where
     // the schemas do. `meshy_v7_geometry_resolution_options_follow_each_schema`
     // below pins those two lists so neither drifts unnoticed.
-    const V7_NATIVE_ONLY: &[&str] = &["texture_resolution", "image_enhancement"];
+    // decimation_mode / auto_size / origin_at are missing from fal's v7
+    // schema for the same reason as v6 — the wrapper predates them.
+    const V7_NATIVE_ONLY: &[&str] = &[
+        "texture_resolution",
+        "image_enhancement",
+        "decimation_mode",
+        "auto_size",
+        "origin_at",
+    ];
 
     let fal_v7 = param_names(&fal, "fal-ai/meshy/v7/image-to-3d");
 
@@ -450,6 +478,10 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
         "should_texture",
         "enable_pbr",
         "pose_mode",
+        // auto_size/origin_at are not remesh-gated, so Smart Topology gets
+        // them too; decimation_mode is, and t2 ignores should_remesh.
+        "auto_size",
+        "origin_at",
         "texture_prompt",
     ]
     .iter()
@@ -557,10 +589,12 @@ fn meshy_text_to_image_surface_matches_across_models() {
 /// Meshy rejects a request that sets `aspect_ratio` while `generate_multi_view`
 /// is true — the two are mutually exclusive, not merely redundant.
 ///
-/// The YAML schema can't express "these conflict", so the user needs a way to
-/// clear one. The CLI has `--param aspect_ratio=`; a GUI dropdown can only
-/// write one of `options` unless `allow_unset` adds an explicit entry. Any
-/// model offering both knobs must therefore mark aspect_ratio clearable.
+/// The schema says so directly now: `conflicts_with` on aspect_ratio makes
+/// turning on Multi-View drop the aspect ratio automatically, and setting both
+/// explicitly a usage error. `allow_unset` stays alongside it — the conflict
+/// handles Multi-View, while allow_unset is how a user asks for Meshy's own
+/// default with Multi-View off. Any model offering both knobs must declare
+/// both.
 #[test]
 fn mutually_exclusive_select_params_are_clearable() {
     use asset_tap_core::providers::config::ProviderConfig;
@@ -587,10 +621,17 @@ fn mutually_exclusive_select_params_are_clearable() {
                     model.id
                 )
             });
+        assert_eq!(
+            aspect.conflicts_with.get("generate_multi_view"),
+            Some(&serde_json::json!(true)),
+            "{}: aspect_ratio must declare `conflicts_with: {{ generate_multi_view: true }}` — \
+             Meshy rejects the pair, so the GUI has to grey it out and `--param` has to refuse it",
+            model.id
+        );
         assert!(
             aspect.allow_unset,
-            "{}: aspect_ratio must set `allow_unset: true` — it conflicts with \
-             generate_multi_view, and a GUI dropdown offers no other way to clear it",
+            "{}: aspect_ratio must keep `allow_unset: true` — the conflict covers Multi-View, \
+             but a GUI dropdown still needs an entry for \"leave it to Meshy\"",
             model.id
         );
         checked += 1;

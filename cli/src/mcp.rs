@@ -109,6 +109,12 @@ pub struct GenerateArgs {
     /// Bundle name to record in bundle.json (does not change the directory).
     #[serde(default)]
     pub name: Option<String>,
+    /// Also copy the run's primary artifact (`model.glb`, or `image.png` under
+    /// `image_only`) to this path. A path ending in that extension is the file
+    /// verbatim; a directory receives `<name-or-bundle-dir>.<ext>`. Any other
+    /// extension is a usage error. The bundle is written as usual either way.
+    #[serde(default)]
+    pub install: Option<String>,
     /// Rig the mesh to the embedded humanoid skeleton.
     #[serde(default)]
     pub bind: bool,
@@ -166,6 +172,10 @@ impl GenerateArgs {
         if let Some(n) = &self.name {
             argv.push("--name".into());
             argv.push(n.clone());
+        }
+        if let Some(i) = &self.install {
+            argv.push("--install".into());
+            argv.push(i.clone());
         }
         if self.image_only {
             argv.push("--image-only".into());
@@ -341,7 +351,7 @@ impl AssetTapServer {
 
     #[tool(
         name = "generate",
-        description = "Generate an asset from a text prompt (text → image → 3D) or from a reference image (image → 3D). Long-running (tens of seconds to minutes); progress is sent as MCP progress notifications. Returns the bundle directory; call inspect_bundle for its contents. On failure returns kind/message/action/retryable exactly like the CLI's --json result.",
+        description = "Generate an asset from a text prompt (text → image → 3D) or from a reference image (image → 3D). Long-running (tens of seconds to minutes); progress is sent as MCP progress notifications. Returns the bundle directory; call inspect_bundle for its contents. Pass `install` to also drop the finished artifact at a path of your choosing. On failure returns kind/message/action/retryable exactly like the CLI's --json result.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -384,6 +394,11 @@ impl AssetTapServer {
             Ok(p) => p,
             Err(err) => return Ok(tool_error(usage_or_wire(&err))),
         };
+        // `--install` shape is checked before the run for the same reason the
+        // CLI checks it before `start`: a bad path must not cost a generation.
+        if let Err(err) = crate::validate_install_path(&cli) {
+            return Ok(tool_error(usage_or_wire(&err)));
+        }
 
         // Progress → notifications/progress (only if the host asked for them).
         // One forwarder task drains an ordered channel, so notification N can
@@ -575,5 +590,23 @@ mod tests {
             "no --clip: the pipeline default (walk) applies"
         );
         assert!(!argv.iter().any(|a| a == "--fit-only"));
+    }
+
+    /// `install` is a plain pass-through to `--install`; the root parser has
+    /// to accept it, and it must not imply any of the flags `--install`
+    /// conflicts with.
+    #[test]
+    fn install_reaches_the_cli_parser_as_a_path() {
+        let args: GenerateArgs = serde_json::from_value(serde_json::json!({
+            "prompt": "a knight",
+            "install": "out/hero.glb",
+        }))
+        .unwrap();
+        let argv = args.to_argv();
+        let cli = crate::Cli::try_parse_from(&argv).expect("argv must parse");
+        assert_eq!(
+            cli.install.as_deref(),
+            Some(std::path::Path::new("out/hero.glb"))
+        );
     }
 }

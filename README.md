@@ -151,6 +151,13 @@ asset-tap --image "photo.png"
 # Stop after image generation, producing an image-only bundle with no 3D model
 asset-tap --image-only -y "a wooden treasure chest"
 
+# Copy the finished artifact straight into your project (model.glb, or
+# image.png under --image-only). A directory destination is named after
+# --name, or the bundle folder.
+asset-tap -y --install Assets/Models/crate.glb "a wooden crate"
+asset-tap --image-only -y --install sprites/idle.png "a goblin archer idle pose"
+asset-tap -y --install Assets/Models/ --name crate "a wooden crate"
+
 # List available providers and models
 asset-tap --list-providers
 

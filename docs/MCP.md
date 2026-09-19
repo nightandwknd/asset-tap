@@ -39,13 +39,13 @@ doesn't inherit your shell's.
 
 ## Tools
 
-| Tool             | Arguments                                                                                                                                                          | Backed by                               | Returns                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `list_catalog`   | —                                                                                                                                                                  | `asset-tap --list --json`               | providers, models + parameter schemas, templates, `clips` (installed clip ids)                   |
-| `auth_status`    | —                                                                                                                                                                  | `asset-tap auth list --json`            | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` — never key material |
-| `inspect_bundle` | `bundle_dir`                                                                                                                                                       | reads `bundle.json`                     | `{bundle_dir, files[], bundle}`                                                                  |
-| `clip_download`  | optional `force`                                                                                                                                                   | `asset-tap --json clip download`        | `{status, installed[], already_exists, packs_version}`                                           |
-| `generate`       | `prompt` or `image`; optional `template`, `provider`, `image_model`, `model_3d`, `params{}`, `bind` (default false), `clips[]`, `image_only`, `output_dir`, `name` | the generation run, exactly as `--json` | `{status: "success", bundle_dir, duration_ms, bundle}`                                           |
+| Tool             | Arguments                                                                                                                                                                     | Backed by                               | Returns                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `list_catalog`   | —                                                                                                                                                                             | `asset-tap --list --json`               | providers, models + parameter schemas, templates, `clips` (installed clip ids)                   |
+| `auth_status`    | —                                                                                                                                                                             | `asset-tap auth list --json`            | per provider `configured`, `source` (`stored`\|`env`\|`missing`), `env_var` — never key material |
+| `inspect_bundle` | `bundle_dir`                                                                                                                                                                  | reads `bundle.json`                     | `{bundle_dir, files[], bundle}`                                                                  |
+| `clip_download`  | optional `force`                                                                                                                                                              | `asset-tap --json clip download`        | `{status, installed[], already_exists, packs_version}`                                           |
+| `generate`       | `prompt` or `image`; optional `template`, `provider`, `image_model`, `model_3d`, `params{}`, `bind` (default false), `clips[]`, `image_only`, `output_dir`, `name`, `install` | the generation run, exactly as `--json` | `{status: "success", bundle_dir, duration_ms, bundle}`                                           |
 
 Every tool returns **structured content** (JSON) plus the same JSON as text, so
 hosts that read either work.
@@ -71,6 +71,13 @@ hosts that read either work.
   in flight. `kind: "usage"` for argument problems, `"canceled"` on
   cancellation. Retry only when `retryable` is true; on `unauthorized`, ask
   the human for a key instead of looping.
+- `install` copies the run's primary artifact (`model.glb`, or `image.png`
+  under `image_only`) to a path of your choosing, the same as the CLI's
+  `--install`: a path ending in that extension is the file verbatim, a
+  directory receives `<name-or-bundle-dir>.<ext>`, and any other extension is
+  a usage error raised **before** the run starts. The bundle is written in
+  full either way — it is a copy, not a move — and the result document is
+  unchanged.
 - Output is GLB, which is enough for three.js, Godot, Bevy, and most engines.
   Older clients passing `fbx` or `no_fbx` are ignored: FBX was removed.
 - `bind` defaults to **false**. When true the mesh is rigged to the embedded

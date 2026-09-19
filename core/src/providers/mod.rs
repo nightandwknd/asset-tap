@@ -46,6 +46,7 @@
 //! - [`pipeline`](crate::pipeline) - Pipeline execution using providers
 //! - [`config::ProviderConfig`] - Provider YAML configuration format
 
+pub mod conditions;
 pub mod config;
 pub mod discovery;
 pub mod discovery_cache;
@@ -55,6 +56,7 @@ pub mod openapi;
 pub mod registry;
 pub mod traits;
 
+pub use conditions::{ConditionViolation, Dropped, evaluate_conditions};
 pub use config::{ParameterDef, ParameterType, ParameterWidget, ProviderConfig};
 pub use dynamic_provider::DynamicProvider;
 pub use registry::ProviderRegistry;

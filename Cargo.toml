@@ -39,7 +39,7 @@ dotenvy = "0.15"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
-indexmap = "2"
+indexmap = { version = "2", features = ["serde"] }
 
 # GUI (egui 0.34 uses glow 0.17, matching three-d 0.19)
 # eframe default features include wgpu since 0.34, and the runtime prefers wgpu

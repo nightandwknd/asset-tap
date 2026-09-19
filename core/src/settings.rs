@@ -71,12 +71,12 @@ const SETTINGS_FILE: &str = config_files::SETTINGS;
 /// Local settings file for dev mode.
 const DEV_SETTINGS_FILE: &str = config_files::DEV_SETTINGS;
 
-/// Filesystem extension sidecar suffixes asserted on in tests. The actual
-/// tmp/bak files are produced by [`crate::config::atomic_write`], which derives
-/// these same suffixes from the destination's extension; the tests reconstruct
-/// them here to check the on-disk artifacts.
-#[cfg(test)]
-const TMP_EXT: &str = "json.tmp";
+/// Backup sidecar suffix asserted on in tests. The actual `.bak` file is
+/// produced by [`crate::config::atomic_write`], which derives this suffix from
+/// the destination's extension; the tests reconstruct it here to check the
+/// on-disk artifact. There is deliberately no matching `TMP_EXT`: the staging
+/// sibling's suffix carries a per-writer UUID, so tests scan for the `.tmp.`
+/// marker rather than naming one exact file.
 #[cfg(test)]
 const BAK_EXT: &str = "json.bak";
 /// Prefix used to rename a corrupt settings file aside for recovery. The
@@ -352,9 +352,9 @@ impl Settings {
 
     /// Save settings to the config file atomically.
     ///
-    /// Writes to `settings.json.tmp`, fsyncs, then renames over the target.
-    /// A crash at any point leaves either the old file or the new file fully
-    /// written — never a half-written mix. Before the rename, the previous
+    /// Writes to a `settings.json.tmp.<uuid>` sibling, fsyncs, then renames it
+    /// over the target. A crash at any point leaves either the old file or the
+    /// new file fully written — never a half-written mix. Before the rename, the previous
     /// `settings.json` (if any) is copied to `settings.json.bak`, overwriting
     /// any prior backup. One `.bak` generation is kept; that's enough to
     /// recover from a single bad save without unbounded disk use.
@@ -1091,10 +1091,14 @@ mod tests {
 
         Settings::default().save_to(&path).unwrap();
 
-        let tmp = path.with_extension(TMP_EXT);
+        let leftovers: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
         assert!(
-            !tmp.exists(),
-            "a successful save should rename the tmp away, not leave it"
+            leftovers.is_empty(),
+            "a successful save should rename the tmp away, not leave it: {leftovers:?}"
         );
     }
 

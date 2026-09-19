@@ -4,6 +4,7 @@
 
 use crate::constants::polling;
 use anyhow::{Context, Result, anyhow};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -168,6 +169,29 @@ pub struct ParameterDef {
     /// does.
     #[serde(default)]
     pub allow_unset: bool,
+
+    /// Sibling parameters that must all hold the given value for this
+    /// parameter to apply.
+    ///
+    /// `requires: { should_remesh: true }` on `decimation_mode` says Meshy
+    /// only honours it during a remesh pass. A listed value of `null` means
+    /// "any non-null value" — the sibling just has to be set to something.
+    ///
+    /// When the condition is unmet the key is dropped from the request body
+    /// (the user gets their provider's default rather than a rejection),
+    /// unless they set it explicitly, which is a usage error instead.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub requires: IndexMap<String, serde_json::Value>,
+
+    /// Sibling parameters that make this one invalid when *any* of them holds
+    /// the given value.
+    ///
+    /// `conflicts_with: { generate_multi_view: true }` on `aspect_ratio`
+    /// records that Meshy rejects the pair outright. A listed value of `null`
+    /// means "any non-null value". Declaring the conflict on one side is
+    /// enough: it is evaluated symmetrically.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub conflicts_with: IndexMap<String, serde_json::Value>,
 }
 
 /// Preferred widget for a parameter, overriding the type's default widget.
@@ -613,6 +637,40 @@ impl ProviderConfig {
                     Some(_) => {}
                 }
             }
+
+            // Conditional parameters name siblings by string. A typo would
+            // otherwise mean a condition that can never be met, silently
+            // dropping the knob from every request.
+            let declared: std::collections::HashSet<&str> =
+                model.parameters.iter().map(|p| p.name.as_str()).collect();
+            for param in &model.parameters {
+                for (kind, siblings) in [
+                    ("requires", &param.requires),
+                    ("conflicts_with", &param.conflicts_with),
+                ] {
+                    for sibling in siblings.keys() {
+                        if sibling == &param.name {
+                            return Err(anyhow!(
+                                "Model '{}': parameter '{}' lists itself under `{}`",
+                                model.id,
+                                param.name,
+                                kind
+                            ));
+                        }
+                        if !declared.contains(sibling.as_str()) {
+                            return Err(anyhow!(
+                                "Model '{}': parameter '{}' has `{}: {}`, but '{}' is not a \
+                                 declared parameter on this model",
+                                model.id,
+                                param.name,
+                                kind,
+                                sibling,
+                                sibling
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -995,6 +1053,79 @@ mod tests {
         assert!(config.text_to_image[0].parameters.is_empty());
     }
 
+    /// A `requires:`/`conflicts_with:` entry naming a parameter that doesn't
+    /// exist is a condition that can never be met, which would silently drop
+    /// the knob from every request. Catch it at load time instead.
+    fn config_with_condition(kind: &str, sibling: &str) -> ProviderConfig {
+        let yaml = format!(
+            r#"
+provider:
+  id: "test"
+  name: "Test"
+  description: "Test"
+  env_vars: ["KEY"]
+image_to_3d:
+  - id: "m1"
+    name: "M1"
+    description: "Test"
+    endpoint: "/gen"
+    request:
+      body:
+        image_url: "${{image_url}}"
+        origin_at: "bottom"
+        auto_size: false
+    response:
+      response_type: json
+    parameters:
+      - name: "auto_size"
+        label: "Auto Size"
+        type: boolean
+        default: false
+      - name: "origin_at"
+        label: "Origin"
+        type: select
+        default: "bottom"
+        options: ["bottom", "center"]
+        {kind}: {{ {sibling}: true }}
+"#
+        );
+        serde_yaml_ng::from_str(&yaml).expect("parses")
+    }
+
+    #[test]
+    fn condition_naming_a_declared_sibling_validates() {
+        assert!(
+            config_with_condition("requires", "auto_size")
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            config_with_condition("conflicts_with", "auto_size")
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn condition_naming_an_unknown_sibling_is_rejected() {
+        let err = config_with_condition("requires", "not_a_param")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("m1"), "{err}");
+        assert!(err.contains("origin_at"), "{err}");
+        assert!(err.contains("not_a_param"), "{err}");
+    }
+
+    #[test]
+    fn a_parameter_may_not_reference_itself() {
+        let err = config_with_condition("conflicts_with", "origin_at")
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("lists itself"), "{err}");
+    }
+
     fn numeric_param(min: Option<f64>, max: Option<f64>) -> ParameterDef {
         ParameterDef {
             name: "x".into(),
@@ -1008,6 +1139,8 @@ mod tests {
             options: None,
             widget: None,
             allow_unset: false,
+            requires: IndexMap::new(),
+            conflicts_with: IndexMap::new(),
         }
     }
 

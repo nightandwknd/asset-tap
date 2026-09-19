@@ -362,6 +362,8 @@ fn catalog_fixture_matches_catalog_serialization() {
                         step: Some(0.5),
                         options: None,
                         widget: None,
+                        requires: Default::default(),
+                        conflicts_with: Default::default(),
                     }],
                 },
                 CatalogModel {
@@ -386,6 +388,8 @@ fn catalog_fixture_matches_catalog_serialization() {
                                 serde_json::json!(1536),
                             ]),
                             widget: None,
+                            requires: Default::default(),
+                            conflicts_with: Default::default(),
                         },
                         CatalogParameter {
                             name: "seed".to_string(),
@@ -398,6 +402,8 @@ fn catalog_fixture_matches_catalog_serialization() {
                             step: None,
                             options: None,
                             widget: Some("input"),
+                            requires: Default::default(),
+                            conflicts_with: Default::default(),
                         },
                     ],
                 },
@@ -740,6 +746,8 @@ fn parameter_serialization_omits_unset_optionals() {
         ]),
         widget: None,
         allow_unset: false,
+        requires: Default::default(),
+        conflicts_with: Default::default(),
     };
     let v = serde_json::to_value(machine::parameter_wire(&def)).unwrap();
     assert_eq!(v["name"], "topology");

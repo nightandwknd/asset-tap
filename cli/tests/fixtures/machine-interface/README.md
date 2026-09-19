@@ -12,7 +12,7 @@ without updating these files, its test suite breaks — that's the point.
 When the format changes intentionally, regenerate these files, bump
 `machine::INTERFACE_VERSION` (MINOR for additive changes), and copy them to
 consumers in the same change. Every fixture that carries `interface` states
-the current version verbatim (`1.1`), and `json_interface.rs` asserts exact
+the current version verbatim (`1.2`), and `json_interface.rs` asserts exact
 equality with the constant, not just the MAJOR.
 
 ## Files

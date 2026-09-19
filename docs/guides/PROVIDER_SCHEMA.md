@@ -138,6 +138,8 @@ image_to_3d:
 | `options`              | yes for `select` | select                 | Enum values (strings or numbers)                     |
 | `widget`               | no               | float, integer, string | `slider` (default) or `input`                        |
 | `allow_unset`          | no               | select                 | Adds an explicit `(unset)` entry that clears to null |
+| `requires`             | no               | all                    | Sibling values this parameter needs to apply         |
+| `conflicts_with`       | no               | all                    | Sibling values that make this parameter invalid      |
 
 ### Widget Selection (`widget:`)
 
@@ -166,7 +168,41 @@ Set `allow_unset: true` to add an explicit `(unset)` entry that stores null, dro
   options: ['1:1', '16:9', '9:16', '4:3', '3:4']
 ```
 
-This exists for **mutually exclusive parameters**, which the schema can't otherwise express. Meshy rejects `aspect_ratio` when `generate_multi_view` is `true`, so the GUI needs a way to clear it — the CLI equivalent is `--param aspect_ratio=`.
+`allow_unset` is how a user asks for the provider's own default. It is not how mutual exclusion is expressed — that is `conflicts_with`, below — but the two coexist: `aspect_ratio` declares the Multi-View conflict _and_ stays manually clearable.
+
+### Conditional Parameters (`requires:` / `conflicts_with:`)
+
+Some parameters only apply in combination with another. Meshy ignores `decimation_mode` outside a remesh pass, ignores `target_polycount` once `decimation_mode` is set, and outright rejects `aspect_ratio` alongside `generate_multi_view`. Declare the relationship and the runtime enforces it everywhere — CLI, GUI and MCP:
+
+```yaml
+- name: 'origin_at'
+  type: select
+  requires: { auto_size: true } # only applies when auto_size is on
+  default: 'bottom'
+  options: ['bottom', 'center']
+- name: 'target_polycount'
+  type: integer
+  conflicts_with: { decimation_mode: null } # null = "set to anything"
+  default: 30000
+- name: 'aspect_ratio'
+  type: select
+  conflicts_with: { generate_multi_view: true }
+  allow_unset: true
+  default: '1:1'
+  options: ['1:1', '16:9']
+```
+
+- `requires` needs **every** listed sibling to hold its value; `conflicts_with` fires when **any** does.
+- A listed value of `null` means "any non-null value" — the sibling merely has to be set.
+- Declaring a conflict on **one** side is enough; it is evaluated symmetrically.
+- Every name must be a parameter declared on the same model, and a parameter may not reference itself. Both are checked when the YAML loads.
+
+What happens when a condition isn't met depends on who set the value:
+
+- **The user set it** (`--param`, a GUI widget, MCP `params`) → usage error, exit 2, before the run starts: `--param origin_at=center requires auto_size=true (currently false)`.
+- **It's the YAML default** → the key is dropped from the request exactly as a null is, so the provider applies its own default. The GUI greys the widget out with the reason on hover, and the drop is logged and left out of the bundle's recorded parameters.
+
+Conditions chain: a parameter dropped this way can no longer satisfy another parameter's `requires`.
 
 ### Null Semantics
 

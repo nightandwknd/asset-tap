@@ -11,6 +11,7 @@ use asset_tap_core::providers::{
     ParameterDef, ParameterType, ParameterWidget, ProviderCapability, ProviderRegistry,
 };
 use asset_tap_core::types::{ApiErrorKind, Error as CoreError, Progress, Stage};
+use indexmap::IndexMap;
 use serde::Serialize;
 use std::io::Write;
 
@@ -29,7 +30,9 @@ use std::io::Write;
 ///   `bundle_dir` optional, `clips` in the catalog, the `clip list` /
 ///   `clip download` / `auth list` documents; the `fbx_conversion` stage and
 ///   `blender_not_found` kind are gone.
-pub const INTERFACE_VERSION: &str = "1.1";
+/// - `1.2`: catalog parameters carry `requires` / `conflicts_with`, the
+///   conditions under which a parameter applies.
+pub const INTERFACE_VERSION: &str = "1.2";
 
 /// Exit code for usage errors (matches clap's default).
 pub const EXIT_USAGE: u8 = 2;
@@ -803,6 +806,15 @@ pub struct CatalogParameter {
     pub options: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub widget: Option<&'static str>,
+    /// Sibling values this parameter needs in order to apply. Omitted when
+    /// unconditional. A `null` value means "any value" — the sibling just has
+    /// to be set. Sending the parameter when this isn't satisfied is a usage
+    /// error (exit 2).
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub requires: IndexMap<String, serde_json::Value>,
+    /// Sibling values that make this parameter invalid. Same `null` rule.
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub conflicts_with: IndexMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -922,6 +934,8 @@ pub fn parameter_wire(def: &ParameterDef) -> CatalogParameter {
             ParameterWidget::Slider => "slider",
             ParameterWidget::Input => "input",
         }),
+        requires: def.requires.clone(),
+        conflicts_with: def.conflicts_with.clone(),
     }
 }
 

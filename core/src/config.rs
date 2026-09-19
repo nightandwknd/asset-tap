@@ -194,11 +194,15 @@ pub fn atomic_write(path: &Path, contents: &[u8], opts: AtomicWriteOptions) -> s
         std::fs::create_dir_all(parent)?;
     }
 
-    // Unique temp sibling so concurrent writers to different files don't clash;
-    // `.tmp` extension keeps it recognizable if a crash leaves one behind.
+    // Temp sibling, unique *per writer*: the suffix carries a fresh UUID so two
+    // processes (or two threads) writing the same destination never share a
+    // staging file. Without that, writer A can rename B's half-written tmp over
+    // the target — the exact partial-read the rename is supposed to prevent.
+    // Concurrently rewriting the shared templates dir from parallel tests hits
+    // this. `.tmp.` stays in the name so a crash leftover is recognizable.
     let tmp_path = path.with_extension(match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => format!("{ext}.tmp"),
-        None => "tmp".to_string(),
+        Some(ext) => format!("{ext}.tmp.{}", uuid::Uuid::new_v4().simple()),
+        None => format!("tmp.{}", uuid::Uuid::new_v4().simple()),
     });
 
     {
@@ -254,7 +258,50 @@ mod tests {
         atomic_write(&path, b"hello", AtomicWriteOptions::default()).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"hello");
         // No stray tmp sibling remains after a successful write.
-        assert!(!path.with_extension("json.tmp").exists());
+        assert_eq!(leftover_tmp_files(tmp.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_atomic_write_overwrite_leaves_target_bak_and_nothing_else() {
+        // The overwrite path is what the embedded-config sync runs on every
+        // launch, and what parallel tests run concurrently. Afterwards exactly
+        // two files exist — the new target and the `.bak` — with the expected
+        // bytes, and no staging file is left behind for a reader to trip over.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.yaml");
+        let opts = AtomicWriteOptions {
+            backup: true,
+            owner_only: false,
+        };
+        atomic_write(&path, b"id: old\n", opts).unwrap();
+        atomic_write(&path, b"id: new\n", opts).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"id: new\n");
+        assert_eq!(
+            std::fs::read(path.with_extension("yaml.bak")).unwrap(),
+            b"id: old\n"
+        );
+        assert_eq!(leftover_tmp_files(tmp.path()), Vec::<String>::new());
+
+        let mut names: Vec<String> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["data.yaml", "data.yaml.bak"]);
+    }
+
+    /// Names of any staging siblings left in `dir`. The tmp suffix carries a
+    /// per-writer UUID, so tests match on the `.tmp.` marker rather than
+    /// reconstructing one exact filename.
+    fn leftover_tmp_files(dir: &std::path::Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        out.sort();
+        out
     }
 
     #[test]

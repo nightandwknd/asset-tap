@@ -257,6 +257,7 @@ mod tests {
 
     #[test]
     fn test_apply_template() {
+        let _dir = crate::test_support::templates_dir_lock();
         let result = apply_template("humanoid", "a knight");
         assert!(result.is_some());
         let prompt = result.unwrap();
@@ -269,18 +270,21 @@ mod tests {
 
     #[test]
     fn test_list_templates() {
+        let _dir = crate::test_support::templates_dir_lock();
         let templates = list_templates();
         assert!(templates.contains(&"humanoid".to_string()));
     }
 
     #[test]
     fn test_template_exists() {
+        let _dir = crate::test_support::templates_dir_lock();
         assert!(template_exists("humanoid"));
         assert!(!template_exists("nonexistent"));
     }
 
     #[test]
     fn test_get_template_definition() {
+        let _dir = crate::test_support::templates_dir_lock();
         let humanoid = get_template_definition("humanoid").unwrap();
         assert_eq!(humanoid.id, "humanoid");
         assert!(humanoid.is_builtin);
@@ -293,6 +297,7 @@ mod tests {
 
     #[test]
     fn test_builtin_template_cannot_be_deleted() {
+        let _dir = crate::test_support::templates_dir_lock();
         let result = delete_custom_template("humanoid");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Cannot delete builtin"));

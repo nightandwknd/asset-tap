@@ -56,18 +56,22 @@ x-meshy-t2i-params: &meshy-t2i-params
   - name: 'aspect_ratio'
     label: 'Aspect Ratio'
     # Meshy rejects the request if aspect_ratio is sent alongside
-    # generate_multi_view=true — it is not merely ignored. Clear it with
-    # `--param aspect_ratio=` (or an empty GUI field) when enabling Multi-View.
-    description: 'Output image aspect ratio. Cannot be combined with Multi-View — clear this field when Multi-View is on.'
+    # generate_multi_view=true — it is not merely ignored. Declared here so
+    # turning Multi-View on drops the default aspect ratio automatically and
+    # greys the dropdown out, instead of leaving the user to discover the
+    # rejection from the API.
+    description: 'Output image aspect ratio. Cannot be combined with Multi-View.'
     type: select
-    # Mutually exclusive with generate_multi_view, so the user needs a way to
-    # clear it: GUI dropdowns get an "(unset)" entry, CLI uses `--param aspect_ratio=`.
+    conflicts_with: { generate_multi_view: true }
+    # Still clearable by hand: the conflict covers Multi-View, allow_unset
+    # covers wanting Meshy's own default. GUI dropdowns get an "(unset)"
+    # entry, CLI uses `--param aspect_ratio=`.
     allow_unset: true
     default: '1:1'
     options: ['1:1', '16:9', '9:16', '4:3', '3:4']
   - name: 'generate_multi_view'
     label: 'Multi-View'
-    description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Requires Aspect Ratio to be cleared.'
+    description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Turning this on clears Aspect Ratio.'
     type: boolean
     default: false
   - name: 'pose_mode'
@@ -124,8 +128,13 @@ x-meshy-i23d-body: &meshy-i23d-body
   symmetry_mode: 'auto'
   pose_mode: ''
   target_formats: ['glb']
+  auto_size: false
+  # Dropped unless auto_size is on (see the parameter's `requires`).
+  origin_at: 'bottom'
   # Null = unset: stripped from the request so Meshy applies its own default
-  # unless the user supplies one.
+  # unless the user supplies one. decimation_mode additionally needs a remesh
+  # pass, so it is dropped whenever should_remesh is off.
+  decimation_mode: null
   texture_prompt: null
 
 provider:
@@ -249,14 +258,17 @@ text_to_image:
     parameters:
       - name: 'aspect_ratio'
         label: 'Aspect Ratio'
-        description: 'Output image aspect ratio. Cannot be combined with Multi-View — clear this field when Multi-View is on.'
+        description: 'Output image aspect ratio. Cannot be combined with Multi-View.'
         type: select
+        # Same mutual exclusion as the nano-banana family; only the option
+        # list differs (gpt-image-2 adds 3:2 and 2:3).
+        conflicts_with: { generate_multi_view: true }
         allow_unset: true
         default: '1:1'
         options: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']
       - name: 'generate_multi_view'
         label: 'Multi-View'
-        description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Requires Aspect Ratio to be cleared.'
+        description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Turning this on clears Aspect Ratio.'
         type: boolean
         default: false
       - name: 'pose_mode'
@@ -323,9 +335,13 @@ image_to_3d:
         options: ['triangle', 'quad']
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on.'
+        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on, and is superseded by Adaptive Decimation.'
         type: integer
         widget: input
+        # Meshy: setting decimation_mode means "target_polycount is ignored",
+        # so once a tier is picked this key is dropped rather than sent to be
+        # discarded server-side.
+        conflicts_with: { decimation_mode: null }
         default: 30000
         min: 100
         max: 300000
@@ -334,6 +350,21 @@ image_to_3d:
         description: 'Decimate to Target Polycount and clean up topology for DCC tools. Off by default — turn on if you want Target Polycount to apply.'
         type: boolean
         default: false
+      # Meshy: "Enable adaptive decimation by setting a polycount level.
+      # When set, `target_polycount` is ignored." Levels are 1 (ultra),
+      # 2 (high), 3 (medium), 4 (low). Documented as applying only during a
+      # remesh pass on the standard models, so it is gated on should_remesh
+      # and omitted from Smart Topology, which ignores should_remesh entirely.
+      # Null default = unset, so nothing changes until you pick a level.
+      - name: 'decimation_mode'
+        label: 'Adaptive Decimation'
+        description: 'Reduce the mesh to a polycount tier instead of an exact number: 1 = ultra, 2 = high, 3 = medium, 4 = low. Overrides Target Polycount. Needs Remesh on.'
+        type: integer
+        widget: input
+        requires: { should_remesh: true }
+        default: null
+        min: 1
+        max: 4
       - name: 'should_texture'
         label: 'Generate Textures'
         description: 'Generate texture maps. Disable for untextured geometry only.'
@@ -373,6 +404,22 @@ image_to_3d:
         description: 'Let Meshy pre-process the input image for better results. Turn off to preserve the original appearance exactly.'
         type: boolean
         default: true
+      # Meshy: auto_size "uses AI vision to automatically estimate the
+      # real-world height of the object and resize the model accordingly",
+      # and origin_at is the "Position of the origin when auto_size is
+      # enabled" — so the origin control only applies with sizing on.
+      - name: 'auto_size'
+        label: 'Auto Size'
+        description: 'Estimate the object''s real-world height with AI vision and scale the model to match, instead of returning it at an arbitrary size.'
+        type: boolean
+        default: false
+      - name: 'origin_at'
+        label: 'Origin'
+        description: 'Where the model''s origin sits once Auto Size has scaled it. Bottom is right for characters and props that stand on the ground.'
+        type: select
+        requires: { auto_size: true }
+        default: 'bottom'
+        options: ['bottom', 'center']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
@@ -390,6 +437,12 @@ image_to_3d:
   # block advertises none of them; the body sends only what applies.
   # (meshy-t1, the old low-poly model without settable face count, is
   # deliberately not offered.)
+  #
+  # This is also why `model_type` is not a tunable parameter anywhere: its
+  # values select between the standard pipeline, smart-topology and the
+  # deprecated lowpoly mode, and our catalog already models Smart Topology as
+  # its own model id with the surface Meshy documents for it. A model_type
+  # dropdown would be a second, worse way to pick a model.
   - id: 'meshy/t2/image-to-3d'
     name: 'Meshy Smart Topology'
     description: 'Meshy T2 — clean topology and separated parts, game-ready face counts'
@@ -407,6 +460,8 @@ image_to_3d:
         enable_pbr: false
         pose_mode: ''
         target_formats: ['glb']
+        auto_size: false
+        origin_at: 'bottom'
         # Null = unset: stripped from the request so Meshy applies its own
         # default unless the user supplies one.
         texture_prompt: null
@@ -439,6 +494,22 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      # Meshy: auto_size "uses AI vision to automatically estimate the
+      # real-world height of the object and resize the model accordingly",
+      # and origin_at is the "Position of the origin when auto_size is
+      # enabled" — so the origin control only applies with sizing on.
+      - name: 'auto_size'
+        label: 'Auto Size'
+        description: 'Estimate the object''s real-world height with AI vision and scale the model to match, instead of returning it at an arbitrary size.'
+        type: boolean
+        default: false
+      - name: 'origin_at'
+        label: 'Origin'
+        description: 'Where the model''s origin sits once Auto Size has scaled it. Bottom is right for characters and props that stand on the ground.'
+        type: select
+        requires: { auto_size: true }
+        default: 'bottom'
+        options: ['bottom', 'center']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
@@ -482,9 +553,13 @@ image_to_3d:
         options: ['triangle', 'quad']
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on.'
+        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on, and is superseded by Adaptive Decimation.'
         type: integer
         widget: input
+        # Meshy: setting decimation_mode means "target_polycount is ignored",
+        # so once a tier is picked this key is dropped rather than sent to be
+        # discarded server-side.
+        conflicts_with: { decimation_mode: null }
         default: 30000
         min: 100
         max: 300000
@@ -493,6 +568,21 @@ image_to_3d:
         description: 'Decimate to Target Polycount and clean up topology for DCC tools. Off by default — turn on if you want Target Polycount to apply.'
         type: boolean
         default: false
+      # Meshy: "Enable adaptive decimation by setting a polycount level.
+      # When set, `target_polycount` is ignored." Levels are 1 (ultra),
+      # 2 (high), 3 (medium), 4 (low). Documented as applying only during a
+      # remesh pass on the standard models, so it is gated on should_remesh
+      # and omitted from Smart Topology, which ignores should_remesh entirely.
+      # Null default = unset, so nothing changes until you pick a level.
+      - name: 'decimation_mode'
+        label: 'Adaptive Decimation'
+        description: 'Reduce the mesh to a polycount tier instead of an exact number: 1 = ultra, 2 = high, 3 = medium, 4 = low. Overrides Target Polycount. Needs Remesh on.'
+        type: integer
+        widget: input
+        requires: { should_remesh: true }
+        default: null
+        min: 1
+        max: 4
       - name: 'should_texture'
         label: 'Generate Textures'
         description: 'Generate texture maps. Disable for untextured geometry only.'
@@ -534,6 +624,22 @@ image_to_3d:
         description: 'Let Meshy pre-process the input image for better results. Turn off to preserve the original appearance exactly.'
         type: boolean
         default: true
+      # Meshy: auto_size "uses AI vision to automatically estimate the
+      # real-world height of the object and resize the model accordingly",
+      # and origin_at is the "Position of the origin when auto_size is
+      # enabled" — so the origin control only applies with sizing on.
+      - name: 'auto_size'
+        label: 'Auto Size'
+        description: 'Estimate the object''s real-world height with AI vision and scale the model to match, instead of returning it at an arbitrary size.'
+        type: boolean
+        default: false
+      - name: 'origin_at'
+        label: 'Origin'
+        description: 'Where the model''s origin sits once Auto Size has scaled it. Bottom is right for characters and props that stand on the ground.'
+        type: select
+        requires: { auto_size: true }
+        default: 'bottom'
+        options: ['bottom', 'center']
       # Not version-restricted — every image-to-3D model declares this one.
       # Null default so the key is omitted entirely unless the user sets it;
       # Meshy documents no empty-string sentinel for this field.
@@ -585,9 +691,13 @@ image_to_3d:
         options: ['triangle', 'quad']
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on.'
+        description: 'Target polygon count for the remesh pass. Has no effect unless Remesh is on, and is superseded by Adaptive Decimation.'
         type: integer
         widget: input
+        # Meshy: setting decimation_mode means "target_polycount is ignored",
+        # so once a tier is picked this key is dropped rather than sent to be
+        # discarded server-side.
+        conflicts_with: { decimation_mode: null }
         default: 30000
         min: 100
         max: 300000
@@ -596,6 +706,21 @@ image_to_3d:
         description: 'Decimate to Target Polycount and clean up topology for DCC tools. Recommended.'
         type: boolean
         default: true
+      # Meshy: "Enable adaptive decimation by setting a polycount level.
+      # When set, `target_polycount` is ignored." Levels are 1 (ultra),
+      # 2 (high), 3 (medium), 4 (low). Documented as applying only during a
+      # remesh pass on the standard models, so it is gated on should_remesh
+      # and omitted from Smart Topology, which ignores should_remesh entirely.
+      # Null default = unset, so nothing changes until you pick a level.
+      - name: 'decimation_mode'
+        label: 'Adaptive Decimation'
+        description: 'Reduce the mesh to a polycount tier instead of an exact number: 1 = ultra, 2 = high, 3 = medium, 4 = low. Overrides Target Polycount. Needs Remesh on.'
+        type: integer
+        widget: input
+        requires: { should_remesh: true }
+        default: null
+        min: 1
+        max: 4
       - name: 'should_texture'
         label: 'Generate Textures'
         description: 'Generate texture maps. Disable for untextured geometry only.'
@@ -612,6 +737,22 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
+      # Meshy: auto_size "uses AI vision to automatically estimate the
+      # real-world height of the object and resize the model accordingly",
+      # and origin_at is the "Position of the origin when auto_size is
+      # enabled" — so the origin control only applies with sizing on.
+      - name: 'auto_size'
+        label: 'Auto Size'
+        description: 'Estimate the object''s real-world height with AI vision and scale the model to match, instead of returning it at an arbitrary size.'
+        type: boolean
+        default: false
+      - name: 'origin_at'
+        label: 'Origin'
+        description: 'Where the model''s origin sits once Auto Size has scaled it. Bottom is right for characters and props that stand on the ground.'
+        type: select
+        requires: { auto_size: true }
+        default: 'bottom'
+        options: ['bottom', 'center']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
         description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'

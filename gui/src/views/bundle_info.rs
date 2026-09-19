@@ -772,7 +772,12 @@ impl BundleInfoPanel {
                                 .on_hover_text("Save entire bundle as a zip archive")
                                 .clicked()
                             {
-                                let filename = format!("{}.zip", sanitize_filename(&display_name));
+                                let filename = format!(
+                                    "{}.zip",
+                                    asset_tap_core::constants::files::safe_filename_stem(
+                                        &display_name
+                                    )
+                                );
                                 if let Some(dest) = rfd::FileDialog::new()
                                     .set_file_name(&filename)
                                     .add_filter("ZIP Archive", &["zip"])
@@ -840,21 +845,6 @@ impl BundleInfoPanel {
     }
 }
 
-/// Sanitize a string for use as a filename.
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
-
 /// Create a zip archive of an entire bundle directory.
 /// Re-export for use from app.rs async handler.
 pub use asset_tap_core::bundle::export_bundle_zip;
@@ -919,5 +909,22 @@ mod tests {
         let (text, is_unset) = format_param_display(&json!(7.5));
         assert_eq!(text, "7.5");
         assert!(!is_unset);
+    }
+
+    /// Export builds its zip name as `<safe stem>.zip`. The local sanitizer
+    /// this replaced was alphanumeric-only; an ASCII bundle name must still
+    /// come out byte-for-byte the same, and a non-ASCII one must no longer be
+    /// flattened into underscores.
+    #[test]
+    fn export_zip_name_is_the_shared_safe_stem() {
+        let zip = |name: &str| {
+            format!(
+                "{}.zip",
+                asset_tap_core::constants::files::safe_filename_stem(name)
+            )
+        };
+        assert_eq!(zip("My Robot-01_v2"), "My Robot-01_v2.zip");
+        assert_eq!(zip("a/b:c"), "a_b_c.zip");
+        assert_eq!(zip("剣士"), "剣士.zip");
     }
 }
