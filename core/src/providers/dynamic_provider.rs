@@ -380,8 +380,9 @@ impl DynamicProvider {
     /// Clone the provider's current config.
     ///
     /// Used by mock mode to build handlers that answer exactly what this
-    /// provider's YAML says it expects.
-    #[cfg(feature = "mock")]
+    /// provider's YAML says it expects, and by the CLI's
+    /// `--dump-provider-config` so auditing tools read the same parse the app
+    /// runs on.
     pub fn config_snapshot(&self) -> ProviderConfig {
         self.config.lock().unwrap().clone()
     }
@@ -1045,7 +1046,7 @@ mod tests {
                         status_url_template: Some("/status/${result}".to_string()),
                         status_check_field: "status".to_string(),
                         success_value: "SUCCEEDED".to_string(),
-                        failure_value: Some("FAILED".to_string()),
+                        failure_value: vec!["FAILED".to_string()],
                         response_url_field: None,
                         response_envelope_field: None,
                         poll_query_params: None,

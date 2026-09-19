@@ -8,7 +8,7 @@ keywords.workspace = true
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
-description = "GUI for Asset Tap - generate 3D models from text prompts with visual preview"
+description = "Asset Tap desktop app - open-source game asset generation pipeline"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -19,8 +19,8 @@ name = "Asset Tap"
 product_name = "Asset Tap"
 identifier = "com.nightandwknd.asset-tap"
 category = "Graphics and Design"
-description = "AI-powered text-to-3D model generation"
-long_description = "Transform text prompts into production-ready 3D models using state-of-the-art AI providers"
+description = "Game asset generation pipeline"
+long_description = "Asset Tap turns a prompt, an image, or a mesh into a game-ready asset: concept art, a textured GLB, humanoid rigging with animation clips, all in one bundle. Desktop app, CLI, and MCP server. Open source, with generation routed to your chosen provider."
 authors = ["Asset Tap Contributors"]
 publisher = "nightandwknd"
 homepage = "https://github.com/nightandwknd/asset-tap"

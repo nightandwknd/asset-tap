@@ -44,8 +44,12 @@ name = "Asset Tap"
 product_name = "AssetTap"
 identifier = "com.nightandwknd.asset-tap"
 category = "Graphics and Design"
-description = "AI-powered text-to-3D model generation"
 ```
+
+`description` and `long_description` are not repeated here on purpose: they live
+in the `[package.metadata.packager]` block in `gui/Cargo.toml` and must match
+`APP_CATEGORY` / `APP_DESCRIPTION` in `core/src/constants/files.rs`, which
+`cli/tests/positioning.rs` enforces.
 
 ### Platform-Specific Settings
 
@@ -307,6 +311,8 @@ All checks pass → PR mergeable
 
 **Shared action:** All build + package logic lives in `.github/actions/build-and-package/`, used by both CI and Release workflows. CI uploads artifacts with a `-pr-{N}` suffix (e.g., `asset-tap-macos-pr-7`). The Linux binary artifact is also uploaded for CLI tests.
 
+**Installer smoke:** `.github/workflows/installer-smoke.yaml` is a reusable workflow that runs `site/static/install{,.ps1}` against a published release. CI calls it only on PRs that touch the installer scripts; the release workflow calls it after publishing, pinned to the new version.
+
 **PR artifacts** (7-day retention): `asset-tap-macos-pr-{N}` (DMG), `asset-tap-linux-deb-pr-{N}`, `asset-tap-linux-appimage-pr-{N}`, `asset-tap-windows-pr-{N}` (NSIS installer), `asset-tap-binaries-linux-pr-{N}` (CLI binary for tests).
 
 ### Release (Push to Main)
@@ -354,10 +360,20 @@ Push to main
                  │ 2. Rename/organize       │
                  │ 3. gh release create     │
                  │    (git-cliff notes)     │
+                 └────────────┬─────────────┘
+                              ▼
+                 ┌──────────────────────────┐
+                 │   Installer Smoke        │
+                 │  (linux/macOS/windows)   │
+                 │                          │
+                 │ Installs the new tag via │
+                 │ site/static/install{,.ps1}│
                  └──────────────────────────┘
 ```
 
-**Release artifacts (up to 8 files):**
+**Release artifacts.** The `Prepare release assets` step assembles `release/`, `Generate checksums` adds `SHA256SUMS.txt` over everything in it, and `gh release create` uploads `release/*` — so every file below is attached to each release.
+
+Platform builds:
 
 | Artifact                          | Platform | Type                  |
 | --------------------------------- | -------- | --------------------- |
@@ -368,6 +384,19 @@ Push to main
 | `asset-tap-cli-linux.tar.gz`      | Linux    | CLI only              |
 | `asset-tap-windows-setup.exe`     | Windows  | GUI (NSIS installer)  |
 | `asset-tap-cli-windows.zip`       | Windows  | CLI only              |
+
+Downloaded-on-demand content and metadata (never compiled into the binary):
+
+| Artifact                                   | Produced by                                          | Purpose                                                                      |
+| ------------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `demo-bundle.zip`                          | `zip` of `bundles/asset-tap/` (generator stamped)    | Showcase bundle fetched by the welcome modal / Help menu / `demo download`   |
+| `demo-manifest.json`                       | `jq` over `bundles/asset-tap/bundle.json`            | `demo_version` + SHA-256, fetched first so the 34 MB zip is skipped if known |
+| `clip-packs.zip`                           | `zip` of the ids in `packs/manifest.json` + `NOTICE` | Quaternius Standard clip packs for `clip download` / Animate → Add pack      |
+| `clip-packs-manifest.json`                 | `jq` over `packs/manifest.json`                      | `packs_version`, pack ids, SHA-256                                           |
+| `machine-interface-fixtures.zip`           | `scripts/machine-interface-fixtures.sh`              | Golden `--json` wire fixtures for downstream consumers                       |
+| `machine-interface-fixtures-manifest.json` | same script                                          | Interface version, per-file and archive SHA-256                              |
+| `asset-tap-sbom.cdx.json`                  | the `sbom` build job                                 | CycloneDX software bill of materials                                         |
+| `SHA256SUMS.txt`                           | `sha256sum -- *` over `release/`                     | Checksums for every asset above; basenames, so `sha256sum -c` works in place |
 
 **Version flow:** CalVer `YY.MM.PATCH` — same month increments patch (26.03.1 → 26.03.2), new month resets (26.03.2 → 26.04.1). The release commit stamps the version into `Cargo.toml` and prepends this version onto `CHANGELOG.md`; workspace members inherit via `version.workspace = true`. Build jobs checkout the tagged commit, so the version in source matches the tag.
 

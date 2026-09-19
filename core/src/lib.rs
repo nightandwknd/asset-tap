@@ -1,7 +1,7 @@
 //! Asset Tap Core Library
 //!
-//! This library provides the core functionality for generating 3D models from text prompts
-//! using AI providers. It follows a data-driven architecture with YAML-based provider plugins.
+//! Core library for Asset Tap: the provider system, pipeline orchestration, rig, and bundle
+//! handling. It follows a data-driven architecture with YAML-based provider plugins.
 //!
 //! # Overview
 //!

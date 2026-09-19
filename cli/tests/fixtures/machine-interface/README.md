@@ -35,5 +35,16 @@ The `.ndjson` files are newline-delimited JSON: one event object per line.
 The `.json` files are single pretty-printed JSON documents. This table is the
 complete set; spec §6 lists the same files as what a consumer vendors.
 
+## Getting these files
+
+Every GitHub Release attaches `machine-interface-fixtures.zip` (these files,
+flat) and `machine-interface-fixtures-manifest.json` (the interface version, a
+SHA-256 per file, and one for the zip), at
+`releases/latest/download/<name>`. Both are built by
+[scripts/machine-interface-fixtures.sh](../../../../scripts/machine-interface-fixtures.sh).
+Consumers should fetch them in CI, verify the zip against the manifest's
+`sha256`, and diff against their vendored copy — not copy from a sibling
+checkout, which pins whatever that working tree happened to hold.
+
 Paths (`bundle_dir`) in `success.ndjson` are illustrative absolute paths; a
 consumer reads the real path from the live `result` event, not from the fixture.

@@ -8,7 +8,7 @@ keywords.workspace = true
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
-description = "CLI for Asset Tap - generate 3D models from text prompts"
+description = "Asset Tap CLI - open-source game asset generation pipeline"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -8,7 +8,7 @@
 
 use crate::icons;
 use crate::style::RichTextExt;
-use asset_tap_core::constants::files::{APP_DISPLAY_NAME, DEMO_BUNDLE_SIZE_LABEL};
+use asset_tap_core::constants::files::{APP_DISPLAY_NAME, APP_HERO, DEMO_BUNDLE_SIZE_LABEL};
 use eframe::egui;
 use std::path::PathBuf;
 
@@ -124,11 +124,7 @@ impl WelcomeModal {
                         egui::RichText::new(format!("Welcome to {APP_DISPLAY_NAME}")).size(20.0),
                     );
                     ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new("Generate 3D models from text prompts")
-                            .size(14.0)
-                            .secondary(),
-                    );
+                    ui.label(egui::RichText::new(APP_HERO).size(14.0).secondary());
                     ui.add_space(16.0);
                 });
 
@@ -238,20 +234,23 @@ impl WelcomeModal {
                 ui.label(egui::RichText::new("What you can do:").size(15.0).strong());
                 ui.add_space(8.0);
 
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("•").size(14.0));
-                    ui.label("Generate images from text prompts");
-                });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("•").size(14.0));
-                    ui.label("Convert images to 3D models");
-                });
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("•").size(14.0));
-                    ui.label("Preview in 3D, rig and animate, export as GLB");
-                });
+                for (i, step) in [
+                    "Generate a concept",
+                    "Model it in 3D",
+                    "Rig and animate",
+                    "Export a bundle",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    if i > 0 {
+                        ui.add_space(2.0);
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("•").size(14.0));
+                        ui.label(*step);
+                    });
+                }
 
                 ui.add_space(16.0);
 

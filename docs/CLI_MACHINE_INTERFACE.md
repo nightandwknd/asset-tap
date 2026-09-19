@@ -246,6 +246,7 @@ Exit codes apply in `--json` mode and (where feasible) in human mode, with one d
 - `modality`: `text_to_image` | `image_to_3d`.
 - Catalog `parameters` are per-model. A given run only accepts the parameters of the models it will actually use — under `--image-only` no image-to-3D parameter is valid, and with `--image` no text-to-image parameter is. Passing one that doesn't apply is a usage error (exit 2) whose message lists the parameters that do.
 - `parameters` mirrors the provider-YAML parameter definitions: `name`, `label`, `description`, `type` (`float`|`integer`|`boolean`|`string`|`select`), `default`, `min`, `max`, `step`, `options`, `widget` (`slider`|`input`). Optional fields omitted when unset.
+- The catalog's constraints are enforced, not advisory: a `--param` outside a numeric parameter's `min`/`max`, or a `select` value not in its `options`, is a usage error (exit 2, before `start`) naming the parameter, the value and the bound. An empty value (`--param seed=`) means "unset" and is always accepted.
 - `description` (string): human-readable provider description (shared with the human `--list-providers` output — both render from one catalog).
 - `configured` (bool): whether the provider's API key is present — lets a consumer build its form _and_ its preflight warnings from one call. Key material itself must never appear in output.
 - `asset-tap --list --json` additionally includes a `templates` array: `{id, name, description, category, variables: [{name, description, required}], examples}`, and (since 1.1) a `clips` array of strings: the clip ids every installed animation pack provides, in pack order — exactly the names `--clip` and MCP `generate.clips[]` accept. Empty when no pack is installed (`clip download` fills it). `clip list --json` is the same set with pack provenance per row.
@@ -353,6 +354,7 @@ wire result to report.
   - NDJSON streams: `success.ndjson`, `provider_error.ndjson`, `rate_limited_retry.ndjson`, `canceled.ndjson`, `bind_success.ndjson`, `bind_error.ndjson`.
   - Single documents: `catalog.json` (`--list --json`, with `templates` and `clips`), `auth_catalog.json` (`auth list --json`), `clip_download.json`, `clip_download_already_exists.json`, `clip_download_error.json` (the error object `clip list --json` also uses).
   - Every fixture that carries `interface` states the current version verbatim.
+- Each GitHub Release attaches `machine-interface-fixtures.zip` (the files above, flat, plus their README) and `machine-interface-fixtures-manifest.json` (the interface version, a SHA-256 per file, and one for the zip), at `releases/latest/download/<name>`. Consumers should fetch both in CI, verify the zip against the manifest's `sha256`, and diff the contents against their vendored copy — rather than copying from a sibling checkout, which silently pins whatever that working tree happened to hold.
 - Acceptance checklist for the asset-tap implementation:
   - [x] `--json` produces valid NDJSON on stdout; nothing else on stdout.
   - [x] `start` is first, `result` is last, exactly one of each per run.

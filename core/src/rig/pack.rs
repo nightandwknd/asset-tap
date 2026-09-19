@@ -569,7 +569,7 @@ fn is_zip(path: &Path) -> bool {
 /// True when a dropped path should install as a clip pack, not import as a bundle.
 ///
 /// The GUI drop router uses this so a Quaternius zip/folder/GLB is not wrapped
-/// into the library as `model.glb`. A taphub bundle (`bundle.json` / `image.png`)
+/// into the library as `model.glb`. An Asset Tap bundle (`bundle.json` / `image.png`)
 /// always wins, even when the mesh already has baked clips.
 pub fn looks_like_clip_pack(path: &Path) -> bool {
     if path.file_name().is_some_and(|n| n == PACK_MANIFEST) {
@@ -1096,7 +1096,7 @@ mod tests {
     #[test]
     fn looks_like_clip_pack_dir_and_zip_contents() {
         let dir = tempfile::tempdir().unwrap();
-        // A taphub bundle folder is never a pack, even beside a UAL-ish glb name.
+        // An Asset Tap bundle folder is never a pack, even beside a UAL-ish glb name.
         let bundle = dir.path().join("run");
         fs::create_dir_all(&bundle).unwrap();
         fs::write(bundle.join("image.png"), b"png").unwrap();

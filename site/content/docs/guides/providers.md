@@ -54,29 +54,29 @@ Native Meshy API -- bypasses fal's proxy markup and unlocks the full Meshy featu
 
 #### Text-to-Image Models
 
-| Model                                                         | `--image-model`         | Description                       |
-| ------------------------------------------------------------- | ----------------------- | --------------------------------- |
-| [Nano Banana](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/nano-banana`     | Standard tier _(default)_         |
-| [Nano Banana 2](https://docs.meshy.ai/en/api/text-to-image)   | `meshy/nano-banana-2`   | Mid tier                          |
-| [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | `meshy/nano-banana-pro` | Higher quality                    |
-| [GPT Image 2](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/gpt-image-2`     | The only Meshy model offering 2:3 |
+| Model                                                         | `--image-model`         | Description                                                                    |
+| ------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| [Nano Banana](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/nano-banana`     | Standard tier _(default)_                                                      |
+| [Nano Banana 2](https://docs.meshy.ai/en/api/text-to-image)   | `meshy/nano-banana-2`   | Mid tier                                                                       |
+| [Nano Banana Pro](https://docs.meshy.ai/en/api/text-to-image) | `meshy/nano-banana-pro` | Higher quality                                                                 |
+| [GPT Image 2](https://docs.meshy.ai/en/api/text-to-image)     | `meshy/gpt-image-2`     | The only Meshy model offering 3:2 and 2:3 (superset of the Nano Banana ratios) |
 
 Tunable parameters: `aspect_ratio`, `generate_multi_view`, `pose_mode`, `remove_background` (transparent RGBA PNG output).
 
-**Aspect ratios differ per model.** The Nano Banana family accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`; GPT Image 2 accepts `1:1`, `3:2`, `2:3` only. `generate_multi_view` cannot be combined with `aspect_ratio`; clear it with `--param aspect_ratio=` (or the `(unset)` entry in the GUI dropdown) when enabling multi-view.
+**Aspect ratios differ per model.** The Nano Banana family accepts `1:1`, `16:9`, `9:16`, `4:3`, `3:4`; GPT Image 2 accepts those plus `3:2` and `2:3`. `generate_multi_view` cannot be combined with `aspect_ratio`; clear it with `--param aspect_ratio=` (or the `(unset)` entry in the GUI dropdown) when enabling multi-view.
 
 #### Image-to-3D Models
 
-| Model                                                      | `--3d-model`           | Description                                                                   |
-| ---------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------- |
-| [Meshy v5](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v5/image-to-3d` | Previous generation                                                           |
-| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v6/image-to-3d` | Meshy 6 -- production-ready 3D with PBR textures                              |
-| [Meshy v7](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v7/image-to-3d` | Meshy 7 -- newest generation, supports Ultra mode _(default)_                 |
-| [Smart Topology](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/t2/image-to-3d` | Meshy T2 -- clean topology, separated parts, game-ready face counts (max 15k) |
+| Model                                                      | `--3d-model`                | Description                                                                   |
+| ---------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
+| [Meshy 6 Lite](https://docs.meshy.ai/en/api/image-to-3d)   | `meshy/v6-lite/image-to-3d` | Budget tier -- successor to the retired Meshy 5                               |
+| [Meshy v6](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v6/image-to-3d`      | Meshy 6 -- production-ready 3D with PBR textures                              |
+| [Meshy v7](https://docs.meshy.ai/en/api/image-to-3d)       | `meshy/v7/image-to-3d`      | Meshy 7.1 -- newest generation, high-resolution geometry _(default)_          |
+| [Smart Topology](https://docs.meshy.ai/en/api/image-to-3d) | `meshy/t2/image-to-3d`      | Meshy T2 -- clean topology, separated parts, game-ready face counts (max 15k) |
 
-Tunable parameters (v5/v6/v7): `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `pose_mode`, `texture_prompt`. Smart Topology sets its face count directly with `target_polycount` (100-15,000) -- `topology` and `should_remesh` don't apply.
+Tunable parameters (6 Lite/v6/v7): `topology` (triangle/quad), `target_polycount`, `enable_pbr`, `should_remesh`, `should_texture`, `pose_mode`, `texture_prompt`. Smart Topology sets its face count directly with `target_polycount` (100-15,000) -- `topology` and `should_remesh` don't apply.
 
-Version-specific knobs, per Meshy's own docs: v6 and v7 add `texture_resolution` (2k/4k/8k) and `image_enhancement`; `remove_lighting` is v6-only; `ultra_mode` (higher-fidelity geometry) is v7-only. `symmetry_mode` remains on v5/v6 but is deprecated by Meshy and no longer affects output.
+Version-specific knobs, per Meshy's own docs: v6 and v7 add `texture_resolution` (2k/4k/8k -- "the 4k and 8k options are unavailable with meshy-6-lite") and `image_enhancement` ("only available with meshy-6, meshy-7.1, or latest"); `remove_lighting` is v6-only; `geometry_resolution` (`standard`/`2k`/`4k`, "requires meshy-7.1 or latest") is v7-only. `geometry_resolution` replaces the deprecated `ultra_mode`, which Meshy documents as equivalent to `geometry_resolution: 2k`. `symmetry_mode` is deprecated API-wide and no longer affects output, so it is no longer exposed on any model.
 
 > **Why two ways to reach Meshy?** The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a `FAL_KEY`. The Meshy provider's entry uses Meshy's subscription credits and requires a `MESHY_API_KEY`. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.
 
@@ -327,7 +327,7 @@ text_to_image: # or image_to_3d
         status_url_template: string # Optional: build poll URL from initial response
         status_check_field: string
         success_value: string
-        failure_value: string
+        failure_value: string | string[] # one terminal failure status, or several
         result_field: string
         interval_ms: integer
         max_attempts: integer

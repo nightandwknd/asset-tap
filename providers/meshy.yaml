@@ -18,7 +18,11 @@ x-meshy-t2i-polling: &meshy-t2i-polling
   status_url_template: '/openapi/v1/text-to-image/${result}'
   status_check_field: 'status'
   success_value: 'SUCCEEDED'
-  failure_value: 'FAILED'
+  # Meshy's documented task statuses are PENDING, IN_PROGRESS, SUCCEEDED,
+  # FAILED and CANCELED. A status matching neither success nor failure is
+  # treated as still running, so a task canceled server-side (e.g. from the
+  # Meshy dashboard) would poll to the attempt limit without CANCELED listed.
+  failure_value: ['FAILED', 'CANCELED']
   result_field: 'image_urls[0]'
   interval_ms: 1500
   max_attempts: 120
@@ -31,7 +35,11 @@ x-meshy-i23d-polling: &meshy-i23d-polling
   status_url_template: '/openapi/v1/image-to-3d/${result}'
   status_check_field: 'status'
   success_value: 'SUCCEEDED'
-  failure_value: 'FAILED'
+  # Meshy's documented task statuses are PENDING, IN_PROGRESS, SUCCEEDED,
+  # FAILED and CANCELED. A status matching neither success nor failure is
+  # treated as still running, so a task canceled server-side (e.g. from the
+  # Meshy dashboard) would poll to the attempt limit without CANCELED listed.
+  failure_value: ['FAILED', 'CANCELED']
   result_field: 'model_urls.glb'
   interval_ms: 2000
   max_attempts: 300
@@ -78,24 +86,32 @@ x-meshy-t2i-params: &meshy-t2i-params
 # parameter lists below (under `parameters:` in each model block) are
 # intentionally duplicated. Keep them in sync except for these deltas, which
 # `meshy_v6_parameter_surface_matches_across_providers` enforces:
-#   - should_remesh default: false on meshy-6/meshy-7 (native clean topology),
-#                            true on meshy-5 (needs the remesh pass).
-#   - texture_resolution / image_enhancement are meshy-6-or-later only per
-#     Meshy's docs, so v5 omits them entirely.
-#   - remove_lighting is documented "Only supported when ai_model is meshy-6",
-#     so v6 alone exposes it.
-#   - ultra_mode is documented "Only supported when ai_model is meshy-7 (or
-#     latest)", so v7 alone exposes it.
-#   - symmetry_mode is deprecated API-wide ("no longer affects output"). It
-#     stays on v5/v6 for continuity but is NOT advertised on v7 — don't add
-#     dead knobs to new models.
+#   - should_remesh default: Meshy documents "false (Meshy 6 and Meshy 7
+#     models), true (others)". v6-lite inherits meshy-5's true, since Meshy
+#     documents it as the meshy-5 successor "with the same parameters".
+#   - texture_resolution: Meshy's only restriction is value-level — "The 4k
+#     and 8k options are unavailable with meshy-6-lite" — so v6-lite omits the
+#     knob rather than shipping a 2k-only dropdown with nothing to choose.
+#   - image_enhancement is documented "only available with meshy-6, meshy-7.1,
+#     or latest", so v6-lite omits it.
+#   - remove_lighting is documented "supported only with meshy-6", so v6 alone
+#     exposes it.
+#   - geometry_resolution is documented "Requires meshy-7.1 or latest", so v7
+#     alone exposes it. It replaces ultra_mode, which Meshy deprecated
+#     ("ultra_mode: true is equivalent to geometry_resolution: '2k'").
+#   - symmetry_mode is deprecated API-wide ("This parameter no longer affects
+#     output"), so it is no longer advertised as a parameter on ANY model. It
+#     still rides along in the shared request-body anchor, which is harmless:
+#     Meshy accepts and ignores it.
 # The surfaces are also aligned with fal's wrappers (fal-ai/meshy/v6/
 # image-to-3d and, since 2026-08, meshy/v7/image-to-3d under fal's partner
 # namespace) so users see the same knobs regardless of which provider serves
 # the model — minus the native-only params each fal wrapper doesn't expose
-# (confirmed against fal's OpenAPI, 2026-08): texture_prompt passes through
+# (confirmed against fal's OpenAPI, 2026-09-18): texture_prompt passes through
 # on both wrappers; v6's lacks texture_resolution/remove_lighting/
 # image_enhancement, v7's lacks texture_resolution/image_enhancement.
+# fal's v7 wrapper also caps geometry_resolution at standard/2k ("Meshy-7
+# supports standard and 2k") where the native API adds 4k.
 
 # Shared image-to-3D request body. Per-version overrides (e.g. should_remesh)
 # go on each model block below.
@@ -203,13 +219,17 @@ text_to_image:
     parameters: *meshy-t2i-params
 
   # --- GPT Image 2 ---
-  # Different architecture, and crucially a DIFFERENT aspect-ratio set:
-  # 1:1 / 3:2 / 2:3 only. It cannot reuse *meshy-t2i-params — doing so would
-  # advertise 16:9, 9:16, 4:3 and 3:4, which this model rejects. It is also the
-  # only Meshy text-to-image model that offers 2:3, the common tall-sprite ratio.
+  # Different architecture, and a DIFFERENT aspect-ratio set. It is now a
+  # strict SUPERSET of the nano-banana family's: Meshy documents
+  # "gpt-image-2, gpt-image-2-5-flare, gpt-image-2-5-sunburst: 1:1, 16:9,
+  # 9:16, 4:3, 3:4, 3:2, 2:3" against the nano-banana family's
+  # "1:1, 16:9, 9:16, 4:3, 3:4". The split from *meshy-t2i-params therefore
+  # stays — the sets still differ — but the direction flipped: gpt-image-2 is
+  # the one with extra ratios (3:2 and 2:3, the common wide/tall sprite
+  # ratios), not the restricted one.
   - id: 'meshy/gpt-image-2'
     name: 'GPT Image 2'
-    description: 'Meshy text-to-image — GPT Image 2 (9 credits, supports 2:3)'
+    description: 'Meshy text-to-image — GPT Image 2 (9 credits, supports 3:2 and 2:3)'
     endpoint: '/openapi/v1/text-to-image'
     method: POST
     request:
@@ -233,7 +253,7 @@ text_to_image:
         type: select
         allow_unset: true
         default: '1:1'
-        options: ['1:1', '3:2', '2:3']
+        options: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']
       - name: 'generate_multi_view'
         label: 'Multi-View'
         description: 'Generate 3 views of the subject instead of 1. Improves image-to-3D quality for some subjects. Requires Aspect Ratio to be cleared.'
@@ -252,22 +272,28 @@ text_to_image:
         default: false
 
 # =============================================================================
-# Image-to-3D (v5/v6 verified 2026-04-15, v7 verified 2026-08-10, t2 verified 2026-08-19)
+# Image-to-3D (v6 verified 2026-04-15, v7 verified 2026-08-10, t2 verified 2026-08-19; v6-lite / 7.1 / geometry_resolution per docs 2026-09-18)
 # =============================================================================
 image_to_3d:
   # --- Meshy v7 ---
-  # Newest generation (Meshy's `latest` alias resolves to meshy-7). Same task
-  # API as v6; the surface deltas vs v6 are:
-  #   + ultra_mode      — v7-only, higher-fidelity geometry
-  #   - remove_lighting — documented "Only supported when ai_model is meshy-6"
-  #   - symmetry_mode   — deprecated API-wide, not advertised on new models
+  # Newest generation. Pinned to `meshy-7.1`, not `meshy-7`: Meshy deprecated
+  # meshy-7 in favour of meshy-7.1, which has "the same parameters and credit
+  # cost as meshy-7" with higher geometry detail. (Meshy's `latest` alias also
+  # resolves to Meshy 7.1; we name the version explicitly so a future `latest`
+  # rollover can't silently change what users pay for.)
+  # Surface deltas vs v6:
+  #   + geometry_resolution — "Requires meshy-7.1 or latest". Replaces the
+  #     deprecated ultra_mode, which Meshy documents as equivalent:
+  #     "ultra_mode: true is equivalent to geometry_resolution: '2k'".
+  #   - remove_lighting — documented "supported only with meshy-6"
+  #   - symmetry_mode   — deprecated API-wide, no longer advertised anywhere
   #     (it still rides along in the request body via the shared anchor, which
   #     is harmless: Meshy accepts and ignores it)
   # Note: v7 produces no emission map when enable_pbr is on (v6 does, except
   # at 8k textures).
   - id: 'meshy/v7/image-to-3d'
     name: 'Meshy v7'
-    description: 'Meshy 7 — newest generation, supports Ultra mode'
+    description: 'Meshy 7.1 — newest generation, supports high-resolution geometry'
     is_default: true
     endpoint: '/openapi/v1/image-to-3d'
     method: POST
@@ -276,14 +302,14 @@ image_to_3d:
         <<: *meshy-request-headers
       body:
         <<: *meshy-i23d-body
-        ai_model: 'meshy-7'
-        # v7 defaults should_remesh=false (clean topology is native).
+        ai_model: 'meshy-7.1'
+        # Meshy: should_remesh is "false (Meshy 6 and Meshy 7 models)".
         should_remesh: false
-        # meshy-6-or-later knobs; values mirror Meshy's server-side defaults.
+        # Values mirror Meshy's server-side defaults.
         texture_resolution: '2k'
         image_enhancement: true
-        # v7-only.
-        ultra_mode: false
+        # meshy-7.1-only; supersedes the deprecated ultra_mode.
+        geometry_resolution: 'standard'
     response:
       response_type: polling
       polling:
@@ -324,12 +350,17 @@ image_to_3d:
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
-      # --- v7-only ---
-      - name: 'ultra_mode'
-        label: 'Ultra Mode'
-        description: 'Ultra generation — higher-fidelity geometry with finer surface detail.'
-        type: boolean
-        default: false
+      # --- meshy-7.1-only ---
+      # Meshy: "2k runs the Ultra pass at 2048³; 4k at 4096³" and it
+      # "Requires meshy-7.1 or latest". Supersedes ultra_mode, which Meshy
+      # deprecated: "ultra_mode: true is equivalent to geometry_resolution: 2k".
+      # fal's v7 wrapper only accepts standard/2k — see providers/fal-ai.yaml.
+      - name: 'geometry_resolution'
+        label: 'Geometry Resolution'
+        description: 'Ultra pass tier for geometry detail. 2k runs the Ultra pass at 2048³; 4k at 4096³. Higher tiers cost more.'
+        type: select
+        default: 'standard'
+        options: ['standard', '2k', '4k']
       # --- meshy-6-or-later production knobs ---
       - name: 'texture_resolution'
         label: 'Texture Resolution'
@@ -344,7 +375,7 @@ image_to_3d:
         default: true
       - name: 'texture_prompt'
         label: 'Texture Prompt'
-        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
         type: string
         widget: input
         default: null
@@ -386,7 +417,7 @@ image_to_3d:
     parameters:
       - name: 'target_polycount'
         label: 'Target Polycount'
-        description: 'Face count for the generated mesh — applies directly on Smart Topology, no remesh pass needed. Capped at 15,000 for meshy-t2 (per the API changelog; the parameter page does not state it — verified live).'
+        description: 'Face count for the generated mesh — applies directly on Smart Topology, no remesh pass needed. Meshy documents the meshy-t2 range as 100 to 15,000, default 4,000.'
         type: integer
         widget: input
         default: 4000
@@ -410,7 +441,7 @@ image_to_3d:
         options: ['', 'a-pose', 't-pose']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
-        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
         type: string
         widget: input
         default: null
@@ -472,27 +503,24 @@ image_to_3d:
         description: 'Generate metallic/roughness/normal maps. Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
-      - name: 'symmetry_mode'
-        label: 'Symmetry'
-        description: 'Controls symmetry during generation.'
-        type: select
-        default: 'auto'
-        options: ['off', 'auto', 'on']
       - name: 'pose_mode'
         label: 'Pose'
         description: 'Force a standard character pose. Leave blank for automatic.'
         type: select
         default: ''
         options: ['', 'a-pose', 't-pose']
-      # --- meshy-6+ production knobs ---
-      # texture_resolution and image_enhancement are meshy-6-or-later (4k/8k
-      # textures unavailable on meshy-5); remove_lighting is documented as
-      # meshy-6 ONLY, so neither v5 nor v7 exposes it. Defaults mirror Meshy's
-      # server-side defaults exactly, so sending them changes nothing until
-      # the user moves a control.
+      # --- meshy-6 production knobs ---
+      # texture_resolution has no model gate of its own — Meshy's only
+      # restriction is value-level: "The 4k and 8k options are unavailable
+      # with meshy-6-lite", which is why v6-lite omits the dropdown rather
+      # than offering 2k alone. image_enhancement is "only available with
+      # meshy-6, meshy-7.1, or latest". remove_lighting is "supported only
+      # with meshy-6", so neither v6-lite nor v7 exposes it. Defaults mirror
+      # Meshy's server-side defaults exactly, so sending them changes nothing
+      # until the user moves a control.
       - name: 'texture_resolution'
         label: 'Texture Resolution'
-        description: 'Base color texture size. 4K/8K cost more and are unavailable on Meshy v5.'
+        description: 'Base color texture size. Higher resolutions capture more surface detail; 4K/8K cost more.'
         type: select
         default: '2k'
         options: ['2k', '4k', '8k']
@@ -506,23 +534,24 @@ image_to_3d:
         description: 'Let Meshy pre-process the input image for better results. Turn off to preserve the original appearance exactly.'
         type: boolean
         default: true
-      # Not version-restricted — v5 declares this one too.
+      # Not version-restricted — every image-to-3D model declares this one.
       # Null default so the key is omitted entirely unless the user sets it;
       # Meshy documents no empty-string sentinel for this field.
       - name: 'texture_prompt'
         label: 'Texture Prompt'
-        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
         type: string
         widget: input
         default: null
 
-  # --- Meshy v5 ---
-  # Previous-generation model — roughly 4× cheaper on mesh generation
-  # (5 credits vs 20) and 2× cheaper fully textured (15 vs 30). Use this to
-  # stretch a Meshy subscription's credit pool for drafts or bulk work.
-  - id: 'meshy/v5/image-to-3d'
-    name: 'Meshy v5'
-    description: 'Meshy 5 — previous generation, lower credit cost'
+  # --- Meshy 6 Lite ---
+  # Budget tier. Replaces meshy-5, which Meshy retired on 2026-09-16; Meshy
+  # describes meshy-6-lite as the successor to meshy-5 with the same
+  # parameters and the same credit cost, so this block keeps the old v5
+  # surface verbatim.
+  - id: 'meshy/v6-lite/image-to-3d'
+    name: 'Meshy 6 Lite'
+    description: 'Meshy 6 Lite — budget tier, lower credit cost'
     endpoint: '/openapi/v1/image-to-3d'
     method: POST
     request:
@@ -530,18 +559,23 @@ image_to_3d:
         <<: *meshy-request-headers
       body:
         <<: *meshy-i23d-body
-        ai_model: 'meshy-5'
-        # v5 defaults should_remesh=true (needs the remesh pass for clean topology).
+        ai_model: 'meshy-6-lite'
+        # Meshy documents meshy-6-lite as the meshy-5 successor "with the
+        # same parameters", so it keeps meshy-5's remesh default. Sent
+        # explicitly, so the server-side default never applies.
         should_remesh: true
     response:
       response_type: polling
       polling:
         <<: *meshy-i23d-polling
     # NOTE: kept in sync with meshy-6 above except where Meshy's API differs.
-    # Deltas: should_remesh's default, and the absence of texture_resolution /
-    # remove_lighting / image_enhancement, which Meshy documents as
-    # meshy-6-or-latest only. Advertising them here would offer knobs this
-    # model rejects.
+    # Deltas: should_remesh's default (above), and the absence of
+    # texture_resolution / remove_lighting / image_enhancement:
+    #   - texture_resolution: "The 4k and 8k options are unavailable with
+    #     meshy-6-lite" — a 2k-only dropdown has nothing to choose, so the
+    #     knob is omitted and the body simply doesn't send it.
+    #   - image_enhancement: "only available with meshy-6, meshy-7.1, or latest".
+    #   - remove_lighting: "supported only with meshy-6".
     parameters:
       - name: 'topology'
         label: 'Topology'
@@ -572,12 +606,6 @@ image_to_3d:
         description: 'Generate metallic/roughness/normal maps. Ignored when Generate Textures is off. The in-app viewer renders flat textures more reliably; enable PBR if you plan to use the model in Blender/Unity/Unreal.'
         type: boolean
         default: false
-      - name: 'symmetry_mode'
-        label: 'Symmetry'
-        description: 'Controls symmetry during generation.'
-        type: select
-        default: 'auto'
-        options: ['off', 'auto', 'on']
       - name: 'pose_mode'
         label: 'Pose'
         description: 'Force a standard character pose. Leave blank for automatic.'
@@ -586,7 +614,7 @@ image_to_3d:
         options: ['', 'a-pose', 't-pose']
       - name: 'texture_prompt'
         label: 'Texture Prompt'
-        description: 'Text guidance for texturing, separate from the generation prompt (max 600 characters). Ignored when Generate Textures is off.'
+        description: 'Text guidance for texturing, separate from the generation prompt (max 800 characters). Ignored when Generate Textures is off.'
         type: string
         widget: input
         default: null

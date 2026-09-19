@@ -104,7 +104,7 @@ response:
     status_url_template: '/v1/jobs/${job_id}' # Optional: build the poll URL from initial response fields
     status_check_field: 'status' # Status field in poll response
     success_value: 'completed' # Value indicating success
-    failure_value: 'failed' # Value indicating failure (optional)
+    failure_value: 'failed' # Terminal failure status (optional); a list for several: ['failed', 'canceled']
     result_field: 'result.model_url' # Field containing result URL
     interval_ms: 2000 # Poll interval in milliseconds
     max_attempts: 60 # Max polling attempts

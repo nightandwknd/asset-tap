@@ -286,10 +286,10 @@ fn test_embedded_config_sync_flow() {
 /// be merged. This test is the drift-catcher: if someone adds a param to one
 /// copy without the other, CI fails.
 ///
-/// meshy-5 and meshy-7 are included because they share the same surface minus
-/// version-specific deltas that Meshy's docs spell out per `ai_model`; each
-/// delta is encoded below as a named constant so an unexplained divergence
-/// still fails.
+/// meshy-6-lite and meshy-7.1 are included because they share the same surface
+/// minus version-specific deltas that Meshy's docs spell out per `ai_model`;
+/// each delta is encoded below as a named constant so an unexplained
+/// divergence still fails.
 #[test]
 fn meshy_v6_parameter_surface_matches_across_providers() {
     use asset_tap_core::providers::config::ProviderConfig;
@@ -319,7 +319,7 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
 
     let fal_v6 = param_names(&fal, "fal-ai/meshy/v6/image-to-3d");
     let native_v6 = param_names(&meshy, "meshy/v6/image-to-3d");
-    let native_v5 = param_names(&meshy, "meshy/v5/image-to-3d");
+    let native_v6_lite = param_names(&meshy, "meshy/v6-lite/image-to-3d");
     let native_v7 = param_names(&meshy, "meshy/v7/image-to-3d");
 
     // Params the native Meshy API documents but fal's v6 wrapper schema
@@ -349,34 +349,47 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
          genuinely doesn't support them, add them to NATIVE_ONLY with a note."
     );
 
-    // Meshy documents texture_resolution 4k/8k, remove_lighting and
-    // image_enhancement as meshy-6-or-latest only, so v5 must expose strictly
-    // fewer knobs — by exactly that documented set.
+    // Meshy 6 Lite replaced the retired meshy-5 (Meshy: successor to meshy-5,
+    // same parameters, same credit cost), so it inherits v5's expectation:
+    // v6's surface minus the knobs Meshy gates away from it.
+    //   - texture_resolution: not model-gated as such, but "The 4k and 8k
+    //     options are unavailable with meshy-6-lite" leaves a 2k-only
+    //     dropdown, so the knob is omitted rather than shipped inert.
+    //   - image_enhancement: "only available with meshy-6, meshy-7.1, or latest".
+    //   - remove_lighting: "supported only with meshy-6".
     const V6_ONLY: &[&str] = &["texture_resolution", "remove_lighting", "image_enhancement"];
 
-    let expected_v5: BTreeSet<String> = native_v6
+    let expected_v6_lite: BTreeSet<String> = native_v6
         .iter()
         .filter(|name| !V6_ONLY.contains(&name.as_str()))
         .cloned()
         .collect();
     assert_eq!(
-        native_v5,
-        expected_v5,
-        "Meshy v5 should expose v6's surface minus the documented v6-only knobs \
-         ({V6_ONLY:?}). Mismatch: only-in-v5={:?}, missing-from-v5={:?}",
-        native_v5.difference(&expected_v5).collect::<Vec<_>>(),
-        expected_v5.difference(&native_v5).collect::<Vec<_>>()
+        native_v6_lite,
+        expected_v6_lite,
+        "Meshy 6 Lite should expose v6's surface minus the documented v6-only knobs \
+         ({V6_ONLY:?}). Mismatch: only-in-v6-lite={:?}, missing-from-v6-lite={:?}",
+        native_v6_lite
+            .difference(&expected_v6_lite)
+            .collect::<Vec<_>>(),
+        expected_v6_lite
+            .difference(&native_v6_lite)
+            .collect::<Vec<_>>()
     );
 
     // Meshy v7 (served natively and, since 2026-08, via fal's partner-
     // namespace wrapper `meshy/v7/image-to-3d`) is v6's surface plus/minus
     // the documented per-version deltas:
-    //   - remove_lighting: "Only supported when ai_model is meshy-6".
-    //   - symmetry_mode: deprecated API-wide ("no longer affects output");
-    //     kept on v5/v6 for continuity, not advertised on new models.
-    //   + ultra_mode: "Only supported when ai_model is meshy-7 (or latest)".
-    const NOT_IN_V7: &[&str] = &["remove_lighting", "symmetry_mode"];
-    const V7_ONLY: &[&str] = &["ultra_mode"];
+    //   - remove_lighting: "supported only with meshy-6".
+    //   + geometry_resolution: "Requires meshy-7.1 or latest". It supersedes
+    //     ultra_mode, which Meshy deprecated ("ultra_mode: true is equivalent
+    //     to geometry_resolution: '2k'"), so no model advertises ultra_mode.
+    // symmetry_mode is NOT listed here: Meshy deprecated it API-wide ("This
+    // parameter no longer affects output"), so it is no longer a declared
+    // parameter on any model — it only rides along inert in the shared
+    // request-body anchor. Nothing to subtract.
+    const NOT_IN_V7: &[&str] = &["remove_lighting"];
+    const V7_ONLY: &[&str] = &["geometry_resolution"];
 
     let expected_v7: BTreeSet<String> = native_v6
         .iter()
@@ -396,7 +409,15 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     // fal's v7 wrapper mirrors the native v7 surface, except two params fal's
     // published schema genuinely lacks (unlike v6, texture_prompt DOES pass
     // through on v7 — confirmed against fal's OpenAPI for
-    // `meshy/v7/image-to-3d`, 2026-08).
+    // `meshy/v7/image-to-3d`, 2026-09-18).
+    //
+    // geometry_resolution is on BOTH, with different option lists: fal's enum
+    // is ["standard", "2k"] ("Meshy-7 supports standard and 2k") where the
+    // native API also documents "4k". This test compares parameter NAMES
+    // only, deliberately — each provider must advertise exactly the values
+    // its own schema accepts, so option lists are allowed to diverge where
+    // the schemas do. `meshy_v7_geometry_resolution_options_follow_each_schema`
+    // below pins those two lists so neither drifts unnoticed.
     const V7_NATIVE_ONLY: &[&str] = &["texture_resolution", "image_enhancement"];
 
     let fal_v7 = param_names(&fal, "fal-ai/meshy/v7/image-to-3d");
@@ -421,8 +442,7 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
 
     // Smart Topology (meshy-t2) has its own surface: Meshy documents
     // topology / should_remesh (and save_pre_remeshed_model) as IGNORED for
-    // smart-topology tasks, and symmetry_mode is deprecated API-wide — so
-    // advertising any of them would offer dead knobs. Pin the exact surface
+    // smart-topology tasks — advertising them would offer dead knobs. Pin the exact surface
     // so an accidental copy-paste from the v5/v6/v7 lists fails loudly.
     let native_t2 = param_names(&meshy, "meshy/t2/image-to-3d");
     let expected_t2: BTreeSet<String> = [
@@ -438,8 +458,62 @@ fn meshy_v6_parameter_surface_matches_across_providers() {
     assert_eq!(
         native_t2, expected_t2,
         "Smart Topology's surface changed. If Meshy's docs added a knob, extend \
-         the expected list; never advertise topology/should_remesh/symmetry_mode \
-         (ignored or deprecated for smart-topology)."
+         the expected list; never advertise topology/should_remesh \
+         (ignored for smart-topology)."
+    );
+}
+
+/// `meshy_v6_parameter_surface_matches_across_providers` compares parameter
+/// NAMES, which is right: each provider must advertise exactly the values its
+/// own schema accepts. geometry_resolution is the case where those diverge —
+/// Meshy's native API documents standard/2k/4k ("2k runs the Ultra pass at
+/// 2048³; 4k at 4096³"), while fal's wrapper enum is ["standard", "2k"]
+/// ("Geometry resolution. Meshy-7 supports standard and 2k"). Pin both so the
+/// divergence stays the verified one and neither list drifts silently.
+#[test]
+fn meshy_v7_geometry_resolution_options_follow_each_schema() {
+    use asset_tap_core::providers::config::ProviderConfig;
+
+    fn options(yaml_path: &str, model_id: &str, param: &str) -> Vec<String> {
+        let full =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../{}", yaml_path));
+        let config = ProviderConfig::from_yaml_file(&full)
+            .unwrap_or_else(|e| panic!("loading {}: {}", full.display(), e));
+        config
+            .image_to_3d
+            .iter()
+            .find(|m| m.id == model_id)
+            .unwrap_or_else(|| panic!("model {} not found", model_id))
+            .parameters
+            .iter()
+            .find(|p| p.name == param)
+            .unwrap_or_else(|| panic!("{} has no {} parameter", model_id, param))
+            .options
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|v| v.as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    assert_eq!(
+        options(
+            "providers/meshy.yaml",
+            "meshy/v7/image-to-3d",
+            "geometry_resolution"
+        ),
+        vec!["standard", "2k", "4k"],
+        "Native Meshy documents geometry_resolution standard/2k/4k on meshy-7.1."
+    );
+    assert_eq!(
+        options(
+            "providers/fal-ai.yaml",
+            "fal-ai/meshy/v7/image-to-3d",
+            "geometry_resolution"
+        ),
+        vec!["standard", "2k"],
+        "fal's v7 schema enum is [standard, 2k] — do not copy the native 4k in \
+         until fal's OpenAPI advertises it."
     );
 }
 

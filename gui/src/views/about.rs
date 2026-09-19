@@ -1,7 +1,7 @@
 //! About modal dialog.
 
 use crate::style::RichTextExt;
-use asset_tap_core::constants::files::APP_DISPLAY_NAME;
+use asset_tap_core::constants::files::{APP_CATEGORY, APP_DISPLAY_NAME, APP_HERO};
 use chrono::Datelike;
 use eframe::egui;
 
@@ -68,9 +68,15 @@ impl AboutModal {
                     ui.add_space(8.0);
 
                     ui.label(
-                        egui::RichText::new("AI-powered text-to-3D model generation")
+                        egui::RichText::new(APP_CATEGORY)
                             .italics()
                             .color(egui::Color32::from_rgb(150, 150, 150)),
+                    );
+                    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new(APP_HERO)
+                            .small()
+                            .color(egui::Color32::from_rgb(130, 130, 130)),
                     );
 
                     ui.add_space(16.0);

@@ -3,7 +3,9 @@
 
 # Asset Tap
 
-**Agent-native asset pipeline: prompt in, engine-ready bundle out**
+**From prompt, image, or mesh to a rigged bundle.**
+
+Your machine, your providers, the whole asset lifecycle.
 
 [![Release](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml/badge.svg)](https://github.com/nightandwknd/asset-tap/actions/workflows/release.yaml)
 [![Version](https://img.shields.io/github/v/release/nightandwknd/asset-tap?label=version)](https://github.com/nightandwknd/asset-tap/releases/latest)
@@ -13,7 +15,7 @@
 
 </div>
 
-Asset Tap turns a text prompt into a game-ready asset: image, 3D model, and textures in one bundle, optionally rigged and animated. Drive it from the CLI, the desktop app, or any MCP-capable agent, on your own provider keys.
+Asset Tap turns a prompt, an image, or a mesh into a game-ready asset: concept art, a textured GLB, humanoid rigging with animation clips, all in one bundle. Desktop app, CLI, and MCP server. Open source, with generation routed to your chosen provider.
 
 ## Install
 
@@ -217,10 +219,10 @@ output/
 | **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro, high quality 3D generation     |
 | **Meshy v7**       | fal.ai   | Meshy 7 through fal, pay-per-call billing                  |
 | **Meshy v6**       | fal.ai   | Meshy 6 through fal, pay-per-call billing                  |
-| **Meshy v7**       | Meshy    | Meshy 7, newest generation, supports Ultra mode            |
+| **Meshy v7**       | Meshy    | Meshy 7.1, newest generation, high-resolution geometry     |
 | **Smart Topology** | Meshy    | Meshy T2, clean topology and game-ready face counts        |
 | **Meshy v6**       | Meshy    | Meshy 6, production-ready 3D with PBR textures             |
-| **Meshy v5**       | Meshy    | Previous generation, lower credit cost                     |
+| **Meshy 6 Lite**   | Meshy    | Budget tier, lower credit cost                             |
 
 Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 
