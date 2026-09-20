@@ -1298,7 +1298,81 @@
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">t</span><span class="z-l-2 z-d-6"> humanoid</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a brave knight with a glowing sword</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Inspect a template&#39;s syntax and preview</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-inspect-template</span><span class="z-l-2 z-d-6"> humanoid</span></span></code></pre><h2 id="scripts-and-non-interactive-use">Scripts and Non-Interactive Use<a class="zola-anchor" href="#scripts-and-non-interactive-use" aria-label="Anchor link for: scripts-and-non-interactive-use">
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-inspect-template</span><span class="z-l-2 z-d-6"> humanoid</span></span></code></pre><h2 id="image-only-runs-and-image-shape">Image-Only Runs and Image Shape<a class="zola-anchor" href="#image-only-runs-and-image-shape" aria-label="Anchor link for: image-only-runs-and-image-shape">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p><code>--image-only</code> stops the pipeline after text-to-image: you get a bundle with an
+<code>image.png</code> and no 3D model. Nothing sets the image's shape for you, so the
+model picks its own -- the default image model (<code>fal-ai/nano-banana-2</code>) often
+returns a wide 1408x768, which is the wrong shape for a texture and wasteful for
+a sprite. Pass the shape yourself.</p>
+<p>The nano-banana family takes <code>aspect_ratio</code> on both providers:
+<code>fal-ai/nano-banana-2</code> (the default), <code>fal-ai/nano-banana</code>,
+<code>fal-ai/nano-banana-pro</code>, and Meshy's <code>meshy/nano-banana</code>,
+<code>meshy/nano-banana-2</code>, <code>meshy/nano-banana-pro</code>, <code>meshy/gpt-image-2</code>. The flux
+models (<code>fal-ai/flux-2</code>, <code>fal-ai/flux-2-pro</code>) have no <code>aspect_ratio</code> -- they
+take <code>image_size</code> from a preset list instead.</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=1:1</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> aspect_ratio=3:4</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer idle pose</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> flux takes a preset instead of a ratio</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-model</span><span class="z-l-2 z-d-6"> fal-ai/flux-2</span><span class="z-l-1 z-d-4"> \</span></span>
+<span class="giallo-l"><span class="z-l-1 z-d-4">  -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> image_size=square_hd</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">mossy cobblestone</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
+<p>On Meshy's text-to-image models, <code>aspect_ratio</code> is mutually exclusive with
+Multi-View -- clear it with <code>--param aspect_ratio=</code> if you turn
+<code>generate_multi_view</code> on, or the request is rejected.</p>
+<h2 id="installing-the-artifact-into-your-project-install">Installing the Artifact Into Your Project (<code>--install</code>)<a class="zola-anchor" href="#installing-the-artifact-into-your-project-install" aria-label="Anchor link for: installing-the-artifact-into-your-project-install">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>A run always writes a full bundle. <code>--install PATH</code> additionally copies the
+run's <strong>primary artifact</strong> where your project wants it -- <code>model.glb</code>, or
+<code>image.png</code> under <code>--image-only</code>:</p>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Exact destination file (parent directories are created)</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Assets/Models/crate.glb</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a wooden crate</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Anything that isn&#39;t a .glb/.png file path is a directory -- existing, a</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> trailing slash, or simply no extension -- and receives</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> &lt;--name, else the bundle folder name&gt;.&lt;ext&gt;</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-name</span><span class="z-l-2 z-d-6"> crate</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Assets/Models/</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a wooden crate</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Image-only runs install the PNG</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-only</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">y</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-install</span><span class="z-l-2 z-d-6"> Sprites/goblin.png</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a goblin archer</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
+<p>An extension that doesn't match what the run produces (<code>.glb</code> under
+<code>--image-only</code>, <code>.png</code> without it) is a usage error: exit code 2, raised before
+any generation starts, so a mistyped path never costs an API call. An existing
+file at the destination is overwritten.</p>
+<p><code>--install</code> works with <code>--json</code> and changes nothing on the wire: the <code>result</code>
+event is unchanged (you passed the path, so you already know it), and the
+copy is logged on stderr like every other human-facing message.</p>
+<h2 id="rate-limits-and-concurrency">Rate Limits and Concurrency<a class="zola-anchor" href="#rate-limits-and-concurrency" aria-label="Anchor link for: rate-limits-and-concurrency">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h2>
+<p>Providers rate-limit per API key, not per machine, so several <code>asset-tap</code>
+processes sharing one key share one budget. While a job is running, Asset Tap
+polls the provider for status; a 429 or a 5xx on one of those polls is treated
+as transient and retried with exponential backoff -- 2 seconds, doubling each
+time to a 30-second cap, giving up after 5 consecutive failures (a
+non-429 4xx, such as a bad key, fails immediately instead of burning the
+retry budget). Retries are surfaced as progress updates, so a <code>--json</code>
+consumer sees them rather than a silent stall.</p>
+<p>That covers a blip, not a sustained overload: if you are batching, the fix is
+to submit fewer jobs at once. Meshy publishes no documented safe parallelism
+for its generation endpoints, so run Meshy jobs sequentially -- one prompt at a
+time -- rather than fanning out and relying on the retry loop to absorb the
+rejections.</p>
+<h2 id="scripts-and-non-interactive-use">Scripts and Non-Interactive Use<a class="zola-anchor" href="#scripts-and-non-interactive-use" aria-label="Anchor link for: scripts-and-non-interactive-use">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1461,6 +1535,7 @@ pack provides is a clear local error rather than a silently empty animation.</p>
 <tr><td><code>--template</code></td><td><code>-t</code></td><td>Use a prompt template</td></tr>
 <tr><td><code>--output</code></td><td><code>-o</code></td><td>Output directory for generated assets</td></tr>
 <tr><td><code>--name</code></td><td><code>-n</code></td><td>Name the generated bundle (or an existing one with <code>--export-bundle</code>)</td></tr>
+<tr><td><code>--install</code></td><td></td><td>Copy the finished artifact to a path (file or directory)</td></tr>
 <tr><td><code>--list</code></td><td></td><td>List available models and templates</td></tr>
 <tr><td><code>--list-providers</code></td><td></td><td>List available providers and their models</td></tr>
 <tr><td><code>--inspect-template</code></td><td></td><td>Inspect a template's syntax and preview</td></tr>
@@ -1669,6 +1744,30 @@ pack provides is a clear local error rather than a silently empty animation.</p>
       
       <a href="https://assettap.dev/docs/guides/cli-usage/#templates">
         Templates
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="https://assettap.dev/docs/guides/cli-usage/#image-only-runs-and-image-shape">
+        Image-Only Runs and Image Shape
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="https://assettap.dev/docs/guides/cli-usage/#installing-the-artifact-into-your-project-install">
+        Installing the Artifact Into Your Project (--install)
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-2">
+      
+      <a href="https://assettap.dev/docs/guides/cli-usage/#rate-limits-and-concurrency">
+        Rate Limits and Concurrency
       </a>
       
     </li>
