@@ -2,6 +2,59 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.6 — 2026-09-20
+
+### Features
+
+- --install into your project, Meshy auto-sizing and decimation, and settings that grey themselves out ([#92](https://github.com/nightandwknd/asset-tap/pull/92))
+
+  --install PATH copies the finished artifact out of the bundle and into
+  your project -- model.glb, or image.png under --image-only:
+
+  asset-tap -y --install Assets/Models/crate.glb "a wooden crate"
+  asset-tap -y --name crate --install Assets/Models/ "a wooden crate"
+
+  A .glb/.png path is the exact destination and its parent directories are
+  created; a path with no extension, or an existing directory, receives
+  <--name, else the bundle folder>.<ext>. Any other extension is rejected
+  before generation starts, so a typo never costs an API call. The bundle
+  is still written; this is a copy. With --json nothing changes on the
+  wire: the result event is the same and the copy is noted on stderr. The
+  MCP generate tool takes the same `install` field.
+
+  New on Meshy's image-to-3D models: Auto Size estimates the object's
+  real-world height with AI vision and scales the model to match, and
+  Origin then decides whether the model sits on the ground or is centred
+  (Meshy 6, 6 Lite, 7 and Smart Topology). Adaptive Decimation reduces the
+  mesh to a quality tier -- ultra, high, medium, low -- instead of an exact
+  face count (Meshy 6, 6 Lite and 7).
+
+  Settings that depend on another setting now follow it. Origin is greyed
+  out until Auto Size is on. Adaptive Decimation is greyed out until Remesh
+  is on, and once you pick a tier it takes over from Target Polycount.
+  Turning on Multi-View clears Aspect Ratio, which Meshy rejects alongside
+  it. A greyed-out setting is left out of the request entirely, so you get
+  Meshy's own default rather than a value it would ignore, and the bundle
+  records what was actually sent. From the command line, asking for one of
+  these directly is refused before anything is generated:
+
+  --param origin_at=center requires auto_size=true (currently false)
+  --param aspect_ratio=16:9 conflicts with generate_multi_view=true; clear one
+
+  Provider YAML gains `requires:` and `conflicts_with:` to declare these
+  relationships, and `--list --json` reports them so external tools can
+  grey out the same controls (machine interface 1.2).
+
+  --help is now grouped by job (2D, 3D, tooling) and gained a CONCURRENCY
+  note: provider rate limits are per API key, a 429 while polling is
+  retried with backoff, and Meshy jobs should run one at a time.
+
+  Bundle export and --install share one filename sanitizer, which now
+  keeps non-ASCII letters (an export named "café" is café.zip, not
+  caf_.zip). Config and settings writes stage under a per-writer temp
+  name, so two concurrent writers can no longer rename each other's
+  half-written file into place.
+
 ## v26.9.5 — 2026-09-19
 
 ### ⚠ Breaking Changes
