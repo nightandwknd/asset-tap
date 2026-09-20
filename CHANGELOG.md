@@ -2,6 +2,22 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.7 — 2026-09-20
+
+### Bug Fixes
+
+- **gui:** the viewer and Library settle down ([#93](https://github.com/nightandwknd/asset-tap/pull/93))
+
+  Previewing a clip and closing the Animation panel left the model frozen
+  in the clip's last frame, and reopening the panel showed a skeleton
+  still standing in that pose. Both return to rest now, and playing a clip
+  again works as before.
+
+  Opening the Library flashed a red outline over every thumbnail while
+  they loaded, in development builds. Cards and their spinners now keep a
+  stable identity as thumbnails arrive and as you filter, so hover and
+  selection stay on the card you are pointing at.
+
 ## v26.9.6 — 2026-09-20
 
 ### Features
