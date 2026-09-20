@@ -120,7 +120,7 @@ Inspect (default): Grid / Axes / Reset. No fit, clips, or bake.
   → Bind (first time: generate weights)
   → click a clip to play (no write) → tick a set → Bake
   → already fitted: clip list; Rig refine keeps weights
-  → author closes Animate: inspect again; no write
+  → author closes Animate: mesh returns to rest; inspect again; no write
 ```
 
 - **Preserve the asset.** Bind adds or updates the rig without rebuilding

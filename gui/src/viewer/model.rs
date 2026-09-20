@@ -212,6 +212,11 @@ pub struct ModelViewer {
     play_time: f32,
     pub show_bones: bool,
     pose_dirty: bool,
+    /// Hold the mesh at its rest pose regardless of `play_time`. Set when the
+    /// author closes the Animation panel mid-clip: Inspect must show the model
+    /// as it is on disk, not frozen in the last frame of the last preview.
+    /// Cleared by anything that asks for animation again.
+    rest_pose: bool,
     pose_unique: Vec<[f32; 3]>,
     pose_expanded: Vec<[f32; 3]>,
     cached_bones: Option<HelperObject>,
@@ -268,6 +273,7 @@ impl ModelViewer {
             play_time: 0.0,
             show_bones: false,
             pose_dirty: false,
+            rest_pose: false,
             pose_unique: Vec::new(),
             pose_expanded: Vec::new(),
             cached_bones: None,
@@ -338,6 +344,7 @@ impl ModelViewer {
         self.cpu_meshes.clear();
         self.clip = None;
         self.playing = false;
+        self.rest_pose = false;
         self.cached_grid = None;
         self.cached_axes = None;
         self.cached_bones = None;
@@ -603,6 +610,7 @@ impl ModelViewer {
             self.cpu_meshes.clear();
             self.clip = None;
             self.playing = false;
+            self.rest_pose = false;
             self.start_async_load(path);
         }
     }
@@ -623,8 +631,32 @@ impl ModelViewer {
     pub fn set_playing(&mut self, playing: bool) {
         self.playing = playing && self.has_clip();
         if self.playing {
+            self.rest_pose = false;
             self.pose_dirty = true;
         }
+    }
+
+    /// Drop the mesh back to its rest pose and stop playback. Closing the
+    /// Animation panel without baking must not leave Inspect showing the last
+    /// frame of the last preview. The clip is kept — reopening the panel
+    /// re-reads the file anyway, and holding it avoids a blank frame.
+    /// Time to sample the bone overlay at, or `None` for the rest pose.
+    ///
+    /// Bones are cached separately from the mesh, so this has to reach the
+    /// same verdict `apply_pose` does or the skeleton and the mesh disagree:
+    /// reopening Animate after a preview used to draw bones still standing in
+    /// the clip's last frame over a mesh that had returned to rest. Rig is
+    /// excluded because markers drive the skeleton there.
+    fn bone_sample_time(&self) -> Option<f32> {
+        (self.place.is_none() && !self.rest_pose).then_some(self.play_time)
+    }
+
+    pub fn show_rest_pose(&mut self) {
+        self.playing = false;
+        self.play_time = 0.0;
+        self.rest_pose = true;
+        self.pose_dirty = true;
+        self.cached_bones = None;
     }
 
     pub fn toggle_playing(&mut self) {
@@ -634,6 +666,7 @@ impl ModelViewer {
     pub fn seek(&mut self, time: f32) {
         self.play_time = time.max(0.0);
         self.playing = false;
+        self.rest_pose = false;
         self.pose_dirty = true;
         self.cached_bones = None;
     }
@@ -641,6 +674,7 @@ impl ModelViewer {
     pub fn set_clip(&mut self, clip: asset_tap_core::SkinnedClip) {
         self.play_time = 0.0;
         self.playing = clip.has_animation();
+        self.rest_pose = false;
         self.clip = Some(clip);
         self.pose_dirty = true;
         self.cached_bones = None;
@@ -735,6 +769,9 @@ impl ModelViewer {
         };
         self.playing = false;
         self.play_time = 0.0;
+        // Rig holds the mesh at rest by way of `place`; leaving the flag set
+        // would outlive `exit_place` and mute the next preview.
+        self.rest_pose = false;
         self.pose_dirty = true;
         let rest_locals = self
             .clip
@@ -1161,7 +1198,7 @@ impl ModelViewer {
             return;
         };
         // Rig is overlay only. The mesh stays at rest. Bind writes the path.
-        if self.place.is_some() {
+        if self.place.is_some() || self.rest_pose {
             clip.sample_positions_rest_into(&mut self.pose_unique);
         } else {
             clip.sample_positions_into(self.play_time, &mut self.pose_unique);
@@ -1346,6 +1383,9 @@ impl ModelViewer {
             }
         }
 
+        // Read before the offscreen target takes a mutable borrow of `self`.
+        let bone_sample_time = self.bone_sample_time();
+
         // Ensure offscreen targets exist at the right size
         self.ensure_offscreen(&context, width, height);
         let offscreen = self.offscreen.as_mut().unwrap();
@@ -1447,7 +1487,7 @@ impl ModelViewer {
             && let Some(clip) = self.clip.clone()
         {
             if self.cached_bones.is_none() {
-                let t = self.place.is_none().then_some(self.play_time);
+                let t = bone_sample_time;
                 self.cached_bones = Some(Self::bone_helper(&context, &clip, t));
             }
             if let Some(ref bones) = self.cached_bones {
@@ -2108,5 +2148,89 @@ mod marker_color_tests {
             }
         };
         assert_eq!(dominant(base), dominant(picked));
+    }
+}
+
+#[cfg(test)]
+mod rest_pose_tests {
+    use super::*;
+
+    // `ModelViewer::new()` allocates no GPU resources, so the pose flags can be
+    // exercised without a `Context`. `apply_pose` itself takes one and samples
+    // into GPU buffers, so it is left to the manual check.
+
+    #[test]
+    fn closing_animate_returns_the_mesh_to_rest() {
+        let mut v = ModelViewer::new();
+        v.playing = true;
+        v.play_time = 1.25;
+        v.show_rest_pose();
+        assert!(v.rest_pose, "Inspect must show the model as it is on disk");
+        assert!(!v.playing);
+        assert_eq!(v.play_time, 0.0);
+        assert!(v.pose_dirty, "the held frame must be resampled");
+    }
+
+    /// The bone overlay samples the same pose as the mesh.
+    ///
+    /// Bones are cached separately from the mesh and were sampled at
+    /// `play_time` regardless of rest pose, so reopening Animate after a
+    /// preview drew a skeleton still standing in the clip's last frame over a
+    /// mesh that had correctly returned to rest. `None` is the rest sample;
+    /// this pins the choice both branches make.
+    #[test]
+    fn bones_follow_the_mesh_into_rest() {
+        let mut v = ModelViewer::new();
+        v.play_time = 1.25;
+
+        let sample_time =
+            |v: &ModelViewer| (v.place.is_none() && !v.rest_pose).then_some(v.play_time);
+
+        assert_eq!(
+            sample_time(&v),
+            Some(1.25),
+            "a previewing viewer draws bones at the played frame"
+        );
+
+        v.show_rest_pose();
+        assert_eq!(
+            v.bone_sample_time(),
+            None,
+            "in rest pose the bones must sample rest, like the mesh"
+        );
+        assert!(
+            v.cached_bones.is_none(),
+            "the held skeleton must be dropped so it is rebuilt at rest"
+        );
+    }
+
+    #[test]
+    fn asking_to_play_again_leaves_rest() {
+        let mut v = ModelViewer::new();
+        v.show_rest_pose();
+        // No clip loaded, so playback cannot start — but the request must not
+        // silently clear the flag either, or a dead play button would unfreeze.
+        v.set_playing(true);
+        assert!(v.rest_pose);
+        assert!(!v.playing);
+    }
+
+    #[test]
+    fn seeking_leaves_rest() {
+        let mut v = ModelViewer::new();
+        v.show_rest_pose();
+        v.seek(0.5);
+        assert!(!v.rest_pose, "a scrub is a request for that frame");
+        assert!(v.pose_dirty);
+    }
+
+    #[test]
+    fn set_show_bones_does_not_disturb_the_rest_pose() {
+        // Closing the panel hides bones right after asking for rest; the two
+        // must not fight.
+        let mut v = ModelViewer::new();
+        v.show_rest_pose();
+        v.set_show_bones(false);
+        assert!(v.rest_pose);
     }
 }
