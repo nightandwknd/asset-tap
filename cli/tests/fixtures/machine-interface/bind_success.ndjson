@@ -1,2 +1,2 @@
-{"event":"start","interface":"1.1","generator":"asset-tap/26.8.19"}
+{"event":"start","interface":"1.2","generator":"asset-tap/26.8.19"}
 {"event":"result","status":"success","model":"/abs/path/output/2026-07-06_101500/model.glb","joints":53,"vertices":317489,"clips":["Walk_Loop","Sword_Attack"],"duration_ms":412}

@@ -391,6 +391,7 @@ dependencies = [
  "asset-tap-core",
  "clap",
  "dotenvy",
+ "indexmap",
  "rmcp",
  "rpassword",
  "schemars",

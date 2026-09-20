@@ -87,7 +87,7 @@
     "mismatch": [
       "should_remesh.default"
     ],
-    "note": "Rigging/animation duplicate our own bind + clip pipeline; enable_safety_checker is a provider-side policy toggle we don't expose; is_a_t_pose is deprecated in favour of pose_mode, which we do expose; texture_image_url needs a second image we don't have; model_type is deferred to planned conditional-parameter support (its values gate which other knobs apply, which our flat parameter model can't express yet). should_remesh.default differs because we send the key explicitly, so fal's default never applies."
+    "note": "Rigging/animation duplicate our own bind + clip pipeline; enable_safety_checker is a provider-side policy toggle we don't expose; is_a_t_pose is deprecated in favour of pose_mode, which we do expose; texture_image_url needs a second image we don't have; model_type is not exposed because our catalog already models Smart Topology as its own model id (meshy/t2/image-to-3d) with the surface Meshy documents for it, and the other value, lowpoly, is deprecated in favour of it — a model_type dropdown would just be a second, worse way to pick a model. should_remesh.default differs because we send the key explicitly, so fal's default never applies."
   },
   "fal-ai/meshy/v7/image-to-3d": {
     "unexposed": [
@@ -106,6 +106,6 @@
       "should_remesh.default",
       "geometry_resolution.default"
     ],
-    "note": "Same rationale as the v6 wrapper. symmetry_mode is additionally listed here because v7 sends no body key for it (Meshy deprecated it API-wide: 'This parameter no longer affects output'), where the v6 body still carries it inert. ultra_mode is deprecated in fal's own schema ('Deprecated: use geometry_resolution=2k') and superseded by geometry_resolution, which we do expose. model_type is deferred to planned conditional-parameter support. should_remesh.default and geometry_resolution.default differ because we send both keys explicitly, so fal's defaults (true, and none at all) never apply."
+    "note": "Same rationale as the v6 wrapper. symmetry_mode is additionally listed here because v7 sends no body key for it (Meshy deprecated it API-wide: 'This parameter no longer affects output'), where the v6 body still carries it inert. ultra_mode is deprecated in fal's own schema ('Deprecated: use geometry_resolution=2k') and superseded by geometry_resolution, which we do expose. model_type is not exposed for the same reason as on the v6 wrapper: Smart Topology is its own model id (meshy/t2/image-to-3d) and lowpoly is deprecated. should_remesh.default and geometry_resolution.default differ because we send both keys explicitly, so fal's defaults (true, and none at all) never apply."
   }
 }

@@ -97,6 +97,18 @@ Rules an agent should follow:
   second generation. Check for an existing bundle first if you want to
   reuse. `--name` sets the bundle's `name` in `bundle.json` (needed later
   for `--export-bundle`); it does not change the directory name.
+- **`--install PATH`** copies the finished artifact out of the bundle and into
+  your tree: `model.glb`, or `image.png` under `--image-only`. A `.glb`/`.png`
+  path is the exact destination (parents created); a directory gets
+  `<--name, else the bundle folder>.<ext>`. An extension that contradicts the
+  run is exit 2 _before_ anything is generated. It adds nothing to the wire —
+  the `result` event is unchanged and the copy is logged on stderr.
+- **Rate limits**: providers limit per API key, so parallel runs sharing a key
+  share one budget. A 429/5xx while polling is retried with exponential
+  backoff (2s doubling to a 30s cap, up to 5 consecutive failures) and shows
+  up as `progress` events with `status: "retrying"`; other 4xx fail fast.
+  Meshy documents no safe parallelism, so run its jobs sequentially instead of
+  fanning out.
 - **Long-running**: a generation takes tens of seconds to a few minutes.
   Stream the NDJSON rather than waiting silently; `progress` events include
   queue position, retries, and download bytes.

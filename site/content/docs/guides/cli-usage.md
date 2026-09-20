@@ -129,6 +129,79 @@ asset-tap -t humanoid "a brave knight with a glowing sword"
 asset-tap --inspect-template humanoid
 ```
 
+## Image-Only Runs and Image Shape
+
+`--image-only` stops the pipeline after text-to-image: you get a bundle with an
+`image.png` and no 3D model. Nothing sets the image's shape for you, so the
+model picks its own -- the default image model (`fal-ai/nano-banana-2`) often
+returns a wide 1408x768, which is the wrong shape for a texture and wasteful for
+a sprite. Pass the shape yourself.
+
+The nano-banana family takes `aspect_ratio` on both providers:
+`fal-ai/nano-banana-2` (the default), `fal-ai/nano-banana`,
+`fal-ai/nano-banana-pro`, and Meshy's `meshy/nano-banana`,
+`meshy/nano-banana-2`, `meshy/nano-banana-pro`, `meshy/gpt-image-2`. The flux
+models (`fal-ai/flux-2`, `fal-ai/flux-2-pro`) have no `aspect_ratio` -- they
+take `image_size` from a preset list instead.
+
+```bash
+asset-tap --image-only -y --param aspect_ratio=1:1 "mossy cobblestone"
+asset-tap --image-only -y --param aspect_ratio=3:4 "a goblin archer idle pose"
+
+# flux takes a preset instead of a ratio
+asset-tap --image-only -y --image-model fal-ai/flux-2 \
+  --param image_size=square_hd "mossy cobblestone"
+```
+
+On Meshy's text-to-image models, `aspect_ratio` is mutually exclusive with
+Multi-View -- clear it with `--param aspect_ratio=` if you turn
+`generate_multi_view` on, or the request is rejected.
+
+## Installing the Artifact Into Your Project (`--install`)
+
+A run always writes a full bundle. `--install PATH` additionally copies the
+run's **primary artifact** where your project wants it -- `model.glb`, or
+`image.png` under `--image-only`:
+
+```bash
+# Exact destination file (parent directories are created)
+asset-tap -y --install Assets/Models/crate.glb "a wooden crate"
+
+# Anything that isn't a .glb/.png file path is a directory -- existing, a
+# trailing slash, or simply no extension -- and receives
+# <--name, else the bundle folder name>.<ext>
+asset-tap -y --name crate --install Assets/Models/ "a wooden crate"
+
+# Image-only runs install the PNG
+asset-tap --image-only -y --install Sprites/goblin.png "a goblin archer"
+```
+
+An extension that doesn't match what the run produces (`.glb` under
+`--image-only`, `.png` without it) is a usage error: exit code 2, raised before
+any generation starts, so a mistyped path never costs an API call. An existing
+file at the destination is overwritten.
+
+`--install` works with `--json` and changes nothing on the wire: the `result`
+event is unchanged (you passed the path, so you already know it), and the
+copy is logged on stderr like every other human-facing message.
+
+## Rate Limits and Concurrency
+
+Providers rate-limit per API key, not per machine, so several `asset-tap`
+processes sharing one key share one budget. While a job is running, Asset Tap
+polls the provider for status; a 429 or a 5xx on one of those polls is treated
+as transient and retried with exponential backoff -- 2 seconds, doubling each
+time to a 30-second cap, giving up after 5 consecutive failures (a
+non-429 4xx, such as a bad key, fails immediately instead of burning the
+retry budget). Retries are surfaced as progress updates, so a `--json`
+consumer sees them rather than a silent stall.
+
+That covers a blip, not a sustained overload: if you are batching, the fix is
+to submit fewer jobs at once. Meshy publishes no documented safe parallelism
+for its generation endpoints, so run Meshy jobs sequentially -- one prompt at a
+time -- rather than fanning out and relying on the retry loop to absorb the
+rejections.
+
 ## Scripts and Non-Interactive Use
 
 The CLI is already script-friendly out of the box; no special flag needed. If stdin isn't a terminal (piped, redirected, or running in CI), the CLI will not try to read a prompt interactively. Just pass your prompt as an argument:
@@ -295,6 +368,7 @@ pack provides is a clear local error rather than a silently empty animation.
 | `--template`         | `-t`  | Use a prompt template                                                 |
 | `--output`           | `-o`  | Output directory for generated assets                                 |
 | `--name`             | `-n`  | Name the generated bundle (or an existing one with `--export-bundle`) |
+| `--install`          |       | Copy the finished artifact to a path (file or directory)              |
 | `--list`             |       | List available models and templates                                   |
 | `--list-providers`   |       | List available providers and their models                             |
 | `--inspect-template` |       | Inspect a template's syntax and preview                               |

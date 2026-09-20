@@ -1088,6 +1088,18 @@ fn merge_param_overrides(
         };
         effective.insert(param.name.clone(), value);
     }
+
+    // A parameter the request dropped (its `requires` unmet, or a
+    // `conflicts_with` sibling switched on) never reached the provider, so
+    // recording it here would misdescribe the run. Same removal the request
+    // body gets, for the same reason.
+    let explicit: std::collections::HashSet<String> = overrides.keys().cloned().collect();
+    if let Ok(dropped) = crate::providers::evaluate_conditions(param_defs, &effective, &explicit) {
+        for drop in dropped {
+            effective.remove(&drop.param);
+        }
+    }
+
     effective
 }
 
@@ -1131,6 +1143,8 @@ mod tests {
                 options: None,
                 widget: None,
                 allow_unset: false,
+                requires: Default::default(),
+                conflicts_with: Default::default(),
             },
             ParameterDef {
                 name: "topology".into(),
@@ -1147,6 +1161,8 @@ mod tests {
                 ]),
                 widget: None,
                 allow_unset: false,
+                requires: Default::default(),
+                conflicts_with: Default::default(),
             },
         ];
 
@@ -1206,6 +1222,8 @@ mod tests {
             options: None,
             widget: None,
             allow_unset: false,
+            requires: Default::default(),
+            conflicts_with: Default::default(),
         }];
 
         // User cleared the input (null override). The request body stripped

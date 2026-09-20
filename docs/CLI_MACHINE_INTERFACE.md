@@ -37,10 +37,27 @@ The `interface` field (in the `start` event and in catalog documents) is a
   **tolerate** a MINOR higher than the one they were built against, and must
   **ignore unknown fields** on known events/documents regardless of MINOR.
 
-Current version: `"1.1"`. Single-sourced from `machine::INTERFACE_VERSION`;
+Current version: `"1.2"`. Single-sourced from `machine::INTERFACE_VERSION`;
 every golden fixture that carries `interface` states it verbatim, and the test
 suite asserts exact equality (not just MAJOR), so a wire change without a bump
 fails in this repo before it reaches a consumer.
+
+### 1.2 (from 1.1) — additive; consumers built against 1.1 keep working
+
+- Catalog parameters gained two optional objects, `requires` and
+  `conflicts_with`, describing when a parameter applies. Each maps a sibling
+  parameter's name to the value that triggers the condition; a `null` value
+  means "any value" (the sibling just has to be set). Both are omitted when
+  the parameter is unconditional, so a 1.1 consumer sees no change on any
+  model that has none.
+- A `--param` (or MCP `params` entry) whose `requires` isn't satisfied, or
+  whose `conflicts_with` fires, is a **usage error**: exit 2, before the
+  `start` event, like an out-of-range value. A parameter left at its default
+  in the same situation is silently dropped from the request instead, so the
+  provider applies its own default — its key is then also absent from the
+  bundle's recorded parameters.
+- A consumer building a form should grey out a parameter whose condition the
+  current values don't meet, rather than send it and take the exit 2.
 
 ### 1.1 (from 1.0) — additive; consumers built against 1.0 keep working
 
@@ -245,7 +262,9 @@ Exit codes apply in `--json` mode and (where feasible) in human mode, with one d
 
 - `modality`: `text_to_image` | `image_to_3d`.
 - Catalog `parameters` are per-model. A given run only accepts the parameters of the models it will actually use — under `--image-only` no image-to-3D parameter is valid, and with `--image` no text-to-image parameter is. Passing one that doesn't apply is a usage error (exit 2) whose message lists the parameters that do.
-- `parameters` mirrors the provider-YAML parameter definitions: `name`, `label`, `description`, `type` (`float`|`integer`|`boolean`|`string`|`select`), `default`, `min`, `max`, `step`, `options`, `widget` (`slider`|`input`). Optional fields omitted when unset.
+- `parameters` mirrors the provider-YAML parameter definitions: `name`, `label`, `description`, `type` (`float`|`integer`|`boolean`|`string`|`select`), `default`, `min`, `max`, `step`, `options`, `widget` (`slider`|`input`), `requires`, `conflicts_with`. Optional fields omitted when unset.
+- `requires` / `conflicts_with` (objects, since 1.2) state when a parameter applies, mapping a sibling parameter's name to the value that triggers the condition. `requires` needs **every** listed sibling to hold its value; `conflicts_with` fires when **any** does. A `null` value means "any value" — the sibling merely has to be set. For example Meshy's `origin_at` carries `{"auto_size": true}` under `requires`, its `target_polycount` carries `{"decimation_mode": null}` under `conflicts_with`, and `aspect_ratio` carries `{"generate_multi_view": true}`. Declaring a conflict on one side covers both: the pair is mutually exclusive whichever one you set.
+- Conditions are enforced the same way bounds are: setting a parameter whose condition isn't met is a usage error (exit 2, before `start`) naming both parameters and the sibling's current value. A parameter you did **not** set is instead dropped from the request when its condition isn't met, and is then absent from the bundle's recorded parameters — so a consumer should read what a run actually sent from the bundle rather than assuming every catalog parameter was transmitted.
 - The catalog's constraints are enforced, not advisory: a `--param` outside a numeric parameter's `min`/`max`, or a `select` value not in its `options`, is a usage error (exit 2, before `start`) naming the parameter, the value and the bound. An empty value (`--param seed=`) means "unset" and is always accepted.
 - `description` (string): human-readable provider description (shared with the human `--list-providers` output — both render from one catalog).
 - `configured` (bool): whether the provider's API key is present — lets a consumer build its form _and_ its preflight warnings from one call. Key material itself must never appear in output.
@@ -401,6 +420,22 @@ and exit codes — they can't read the repo. The binary must be self-describing:
   **single JSON document** (array / object), not an NDJSON `start`/`result`
   stream. `clip install` rejects `--json` outright (exit 2): it writes a pack
   and has no wire result to report.
+- **`--install PATH`** (artifact hand-off): copies the run's primary artifact —
+  `model.glb`, or `image.png` under `--image-only` — to PATH once the run
+  succeeds, on top of the normal bundle. It adds **nothing to the wire**: the
+  `result` event is byte-identical to a run without it (the consumer passed the
+  path, so it already knows the destination), and the confirmation goes to
+  stderr with every other human message. A destination extension that
+  contradicts the stages the run will execute is a usage error (exit 2, before
+  `start`), consistent with `--param` validation: a mistyped path must not cost
+  a paid generation.
+- **Rate limits**: providers limit per API key, so parallel `asset-tap`
+  processes sharing a key share one budget. A 429 or 5xx on a status poll is
+  retried with exponential backoff (2s, doubling to a 30s cap, up to 5
+  consecutive failures) and surfaced as `progress` events with
+  `status: "retrying"`; any other 4xx fails fast. Consumers batching work
+  should serialize rather than lean on the retry loop — Meshy documents no safe
+  parallelism for its generation endpoints.
 - Existing strengths to preserve: `--list --json` as the self-describing capability
   catalog, and per-flag one-line help with behavioral notes (e.g. "implies --yes").
 

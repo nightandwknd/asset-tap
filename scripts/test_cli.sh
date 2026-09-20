@@ -428,6 +428,34 @@ run_test "Meshy v6 rejects v7-only geometry_resolution" \
 run_test "Meshy v7 rejects v6-only remove_lighting" \
     "$CLI --mock -y -p meshy --3d-model meshy/v7/image-to-3d --param remove_lighting=false 'test'" 2
 
+# Conditional parameters: Meshy ignores decimation_mode outside a remesh pass,
+# ignores origin_at without auto_size, and rejects aspect_ratio alongside
+# Multi-View. Asking for one anyway is a usage error (exit 2) before the run
+# starts, not a failure after a paid stage.
+run_test "Meshy v6 rejects decimation_mode without should_remesh" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param decimation_mode=2 'test'" 2
+
+run_test "Meshy v6 accepts decimation_mode with should_remesh" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param should_remesh=true --param decimation_mode=2 'test'" 0
+
+run_test "Meshy v6 rejects origin_at without auto_size" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param origin_at=center 'test'" 2
+
+run_test "Meshy v6 accepts origin_at with auto_size" \
+    "$CLI --mock -y -p meshy --3d-model meshy/v6/image-to-3d --param auto_size=true --param origin_at=center 'test'" 0
+
+run_test "Meshy Smart Topology accepts auto_size (not remesh-gated)" \
+    "$CLI --mock -y -p meshy --3d-model meshy/t2/image-to-3d --param auto_size=true 'test'" 0
+
+run_test "Meshy Smart Topology rejects remesh-gated decimation_mode" \
+    "$CLI --mock -y -p meshy --3d-model meshy/t2/image-to-3d --param decimation_mode=2 'test'" 2
+
+run_test "Meshy rejects aspect_ratio alongside Multi-View" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-2 --param generate_multi_view=true --param aspect_ratio=16:9 'test'" 2
+
+run_test "Meshy accepts Multi-View alone (aspect_ratio dropped)" \
+    "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-2 --param generate_multi_view=true 'test'" 0
+
 run_test "fal nano-banana-pro accepts seed" \
     "$CLI --mock -y --image-only --image-model fal-ai/nano-banana-pro --param seed=42 'test'" 0
 
@@ -797,6 +825,79 @@ else
     FAILED=$((FAILED + 1))
 fi
 echo "" | tee -a "$LOG_FILE"
+
+echo "=== 10d. --INSTALL ===" | tee -a "$LOG_FILE"
+
+# --install copies the run's primary artifact next to the bundle: model.glb
+# normally, image.png under --image-only. The bundle is still written as usual.
+INSTALL_ROOT="$TEST_OUTPUT/install"
+rm -rf "$INSTALL_ROOT"
+mkdir -p "$INSTALL_ROOT"
+
+# Exact file destination (parent dirs created on the way).
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: --install to an explicit .glb path${NC}" | tee -a "$LOG_FILE"
+set +e
+$CLI --mock -y -o "$INSTALL_ROOT/run1" --install "$INSTALL_ROOT/nested/crate.glb" "install test" \
+    < /dev/null >> "$LOG_FILE" 2>&1
+INSTALL_EXIT=$?
+set -e
+if [ $INSTALL_EXIT -eq 0 ] && [ -s "$INSTALL_ROOT/nested/crate.glb" ]; then
+    test_pass
+else
+    test_fail "exit=$INSTALL_EXIT, file missing or empty"
+fi
+
+# Directory destination: the file is named from --name.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: --install into a directory derives the name from --name${NC}" | tee -a "$LOG_FILE"
+mkdir -p "$INSTALL_ROOT/dir"
+set +e
+$CLI --mock -y -o "$INSTALL_ROOT/run2" --name "My Robot" --install "$INSTALL_ROOT/dir" "install dir test" \
+    < /dev/null >> "$LOG_FILE" 2>&1
+INSTALL_DIR_EXIT=$?
+set -e
+if [ $INSTALL_DIR_EXIT -eq 0 ] && [ -s "$INSTALL_ROOT/dir/My Robot.glb" ]; then
+    test_pass
+else
+    ls -la "$INSTALL_ROOT/dir" >> "$LOG_FILE" 2>&1
+    test_fail "exit=$INSTALL_DIR_EXIT, 'My Robot.glb' missing or empty"
+fi
+
+# --image-only writes image.png, so a .glb destination is a usage error — and
+# it's caught before anything runs (exit 2, nothing generated).
+run_test "--install .glb with --image-only is a usage error" \
+    "$CLI --mock -y --image-only -o '$INSTALL_ROOT/run3' --install '$INSTALL_ROOT/x.glb' 'mismatch test'" 2
+
+run_test "--install .png without --image-only is a usage error" \
+    "$CLI --mock -y -o '$INSTALL_ROOT/run4' --install '$INSTALL_ROOT/x.png' 'mismatch test'" 2
+
+# --image-only + .png is the matching pair.
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: --install .png with --image-only${NC}" | tee -a "$LOG_FILE"
+set +e
+$CLI --mock -y --image-only -o "$INSTALL_ROOT/run5" --install "$INSTALL_ROOT/sprite.png" "sprite test" \
+    < /dev/null >> "$LOG_FILE" 2>&1
+INSTALL_PNG_EXIT=$?
+set -e
+if [ $INSTALL_PNG_EXIT -eq 0 ] && [ -s "$INSTALL_ROOT/sprite.png" ]; then
+    test_pass
+else
+    test_fail "exit=$INSTALL_PNG_EXIT, sprite.png missing or empty"
+fi
+
+# --install is wire-silent: a --json run with it emits the same start/result
+# stream as one without, and the copy is reported on stderr.
+assert_json_stream "--install leaves the --json wire format unchanged" \
+    "--install '$INSTALL_ROOT/wire.glb' 'json install test'" 0 success
+
+TOTAL=$((TOTAL + 1))
+echo -e "${BLUE}TEST $TOTAL: --json --install still copies the artifact${NC}" | tee -a "$LOG_FILE"
+if [ -s "$INSTALL_ROOT/wire.glb" ]; then
+    test_pass
+else
+    test_fail "wire.glb missing or empty"
+fi
 
 echo "=== 11. ADDITIONAL EDGE CASES ===" | tee -a "$LOG_FILE"
 
@@ -1224,6 +1325,26 @@ assert_bundle_json "Bundle: image + 3D overrides both captured" \
 assert_bundle_json "Bundle: cleared param (--param face_count=) falls back to YAML default" \
     "--3d-model fal-ai/hunyuan-3d/v3.1/pro/image-to-3d --param face_count= 'test'" \
     '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).face_count == 500000'
+
+# --- Conditional parameters: an inapplicable knob is absent from the bundle ---
+# A dropped parameter never reached the provider, so recording it would
+# misdescribe the run.
+
+assert_bundle_json "Bundle: origin_at absent by default (auto_size off)" \
+    "-p meshy --3d-model meshy/v6/image-to-3d 'test'" \
+    '((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | has("origin_at") | not) and (.pipeline.steps[] | select(.modality == "image_to_3d") | .params).auto_size == false'
+
+assert_bundle_json "Bundle: origin_at present once auto_size is on" \
+    "-p meshy --3d-model meshy/v6/image-to-3d --param auto_size=true --param origin_at=center 'test'" \
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).origin_at == "center"'
+
+assert_bundle_json "Bundle: decimation_mode supersedes target_polycount" \
+    "-p meshy --3d-model meshy/v6/image-to-3d --param should_remesh=true --param decimation_mode=2 'test'" \
+    '(.pipeline.steps[] | select(.modality == "image_to_3d") | .params).decimation_mode == 2 and ((.pipeline.steps[] | select(.modality == "image_to_3d") | .params) | has("target_polycount") | not)'
+
+assert_bundle_json "Bundle: Multi-View drops the default aspect_ratio" \
+    "--image-only -p meshy --image-model meshy/nano-banana-2 --param generate_multi_view=true 'test'" \
+    '((.pipeline.steps[] | select(.modality == "text_to_image") | .params) | has("aspect_ratio") | not) and (.pipeline.steps[] | select(.modality == "text_to_image") | .params).generate_multi_view == true'
 
 # --- Meshy v6 parity check: same overrides produce identical bundle shape ---
 # Skipped because Meshy provider is hidden in mock mode. Parity is enforced

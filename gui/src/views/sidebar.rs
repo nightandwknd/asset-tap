@@ -1090,8 +1090,19 @@ fn render_parameter_panel(
         .id_salt(id)
         .default_open(false)
         .show(ui, |ui| {
+            // Conditions are evaluated against the whole panel's current
+            // state, so flipping Auto Size greys Origin in or out on the same
+            // frame. The value map holds exactly what the user set, which is
+            // also what core treats as explicit.
+            let effective = effective_values(parameters, values);
+            let explicit: std::collections::HashSet<String> = values.keys().cloned().collect();
+            let blocked: std::collections::HashMap<String, String> =
+                asset_tap_core::providers::evaluate_conditions(parameters, &effective, &explicit)
+                    .map(|dropped| dropped.into_iter().map(|d| (d.param, d.because)).collect())
+                    .unwrap_or_default();
+
             for param in parameters {
-                changed |= render_parameter_widget(ui, param, values);
+                changed |= render_parameter_widget(ui, param, values, blocked.get(&param.name));
             }
 
             ui.add_space(4.0);
@@ -1251,13 +1262,35 @@ fn render_numeric_input(
     changed
 }
 
+/// YAML defaults with the user's stored overrides layered on — the values a
+/// parameter's `requires`/`conflicts_with` are judged against.
+fn effective_values(
+    parameters: &[asset_tap_core::providers::ParameterDef],
+    values: &std::collections::HashMap<String, serde_json::Value>,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    parameters
+        .iter()
+        .map(|p| {
+            let value = values.get(&p.name).cloned().unwrap_or(p.default.clone());
+            (p.name.clone(), value)
+        })
+        .collect()
+}
+
 /// Render a single parameter widget based on its type.
+///
+/// `blocked` carries the reason this parameter doesn't currently apply (its
+/// `requires` is unmet, or a `conflicts_with` sibling is on). Such a widget is
+/// greyed out with the reason on hover, and core drops the key from the
+/// request either way — leaving it live would let you set a value the provider
+/// ignores or rejects.
 ///
 /// Returns true if the value was changed.
 fn render_parameter_widget(
     ui: &mut egui::Ui,
     param: &asset_tap_core::providers::ParameterDef,
     values: &mut std::collections::HashMap<String, serde_json::Value>,
+    blocked: Option<&String>,
 ) -> bool {
     use asset_tap_core::providers::ParameterType;
 
@@ -1265,6 +1298,21 @@ fn render_parameter_widget(
 
     use asset_tap_core::providers::ParameterWidget;
     let use_input = param.widget == Some(ParameterWidget::Input);
+
+    if let Some(reason) = blocked {
+        // Show the widget so the knob doesn't vanish and reappear, but inert:
+        // `add_enabled_ui` swallows the interaction, so nothing below can
+        // write a value that wouldn't be sent.
+        ui.add_enabled_ui(false, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(&param.label);
+                ui.label(egui::RichText::new("—").weak());
+            });
+        })
+        .response
+        .on_hover_text(reason);
+        return false;
+    }
 
     ui.horizontal(|ui| match param.param_type {
         ParameterType::Float if use_input => {
@@ -1512,6 +1560,8 @@ mod tests {
             options: Some(options),
             widget: None,
             allow_unset,
+            requires: Default::default(),
+            conflicts_with: Default::default(),
         }
     }
 
@@ -1552,6 +1602,53 @@ mod tests {
         assert_ne!(
             select_value_for_label(&param, UNSET_LABEL),
             serde_json::Value::Null
+        );
+    }
+
+    /// The panel greys out a knob whose condition isn't met, so the user can
+    /// see Origin exists without being able to set a value Meshy would ignore.
+    #[test]
+    fn widget_is_blocked_when_requires_is_unmet() {
+        let mut origin = select_def(
+            false,
+            vec![serde_json::json!("bottom"), serde_json::json!("center")],
+        );
+        origin.name = "origin_at".into();
+        origin.default = serde_json::json!("bottom");
+        origin
+            .requires
+            .insert("auto_size".into(), serde_json::json!(true));
+
+        let mut auto_size = select_def(false, vec![]);
+        auto_size.name = "auto_size".into();
+        auto_size.param_type = asset_tap_core::providers::ParameterType::Boolean;
+        auto_size.default = serde_json::json!(false);
+
+        let defs = vec![auto_size, origin];
+
+        // Auto Size off (the default): Origin is dropped, so the panel blocks it.
+        let values = std::collections::HashMap::new();
+        let effective = effective_values(&defs, &values);
+        let blocked = asset_tap_core::providers::evaluate_conditions(
+            &defs,
+            &effective,
+            &std::collections::HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            blocked.iter().map(|d| d.param.as_str()).collect::<Vec<_>>(),
+            vec!["origin_at"]
+        );
+
+        // Ticking Auto Size releases it on the same frame.
+        let mut values = std::collections::HashMap::new();
+        values.insert("auto_size".to_string(), serde_json::json!(true));
+        let effective = effective_values(&defs, &values);
+        let explicit: std::collections::HashSet<String> = values.keys().cloned().collect();
+        assert!(
+            asset_tap_core::providers::evaluate_conditions(&defs, &effective, &explicit)
+                .unwrap()
+                .is_empty()
         );
     }
 

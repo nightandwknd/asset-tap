@@ -373,10 +373,29 @@ parameters:
 | `options`              | yes for `select` | select                 | Allowed values (strings or numbers)               |
 | `widget`               | no               | float, integer, string | `slider` (default) or `input`                     |
 | `allow_unset`          | no               | select                 | Adds an `(unset)` entry that clears to null       |
+| `requires`             | no               | all                    | Sibling values this parameter needs to apply      |
+| `conflicts_with`       | no               | all                    | Sibling values that make this parameter invalid   |
 
 **Null means "unset".** A `null` default, a cleared `input` widget, or `--param name=` on the CLI all drop the key from the request so the provider applies its own default. A literal null is never sent.
 
-**`allow_unset` for mutually exclusive parameters.** A dropdown can only write one of its `options`, so set `allow_unset: true` when a parameter must sometimes be absent, for example when the provider rejects it alongside another parameter.
+**`allow_unset` to ask for the provider's default.** A dropdown can only write one of its `options`, so set `allow_unset: true` when a parameter must sometimes be absent.
+
+**Conditional parameters.** Some knobs only apply in combination with another — Meshy ignores `origin_at` unless `auto_size` is on, and rejects `aspect_ratio` alongside `generate_multi_view`. Say so and the app enforces it everywhere:
+
+```yaml
+- name: 'origin_at'
+  type: select
+  requires: { auto_size: true }
+  default: 'bottom'
+  options: ['bottom', 'center']
+- name: 'aspect_ratio'
+  type: select
+  conflicts_with: { generate_multi_view: true }
+  default: '1:1'
+  options: ['1:1', '16:9']
+```
+
+`requires` needs every listed sibling to hold its value; `conflicts_with` fires when any does. A listed `null` means "set to anything". Declaring a conflict on one side covers both. When the condition isn't met, a value you set is refused up front (`--param` exits 2, the GUI greys the control out) and a value left at its default is simply dropped from the request.
 
 ### Variable Interpolation
 

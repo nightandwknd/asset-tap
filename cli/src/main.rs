@@ -47,9 +47,23 @@ mod mcp;
 /// only shown in builds that have the flag: an agent reading release `--help`
 /// must never be pointed at an argument the binary rejects.
 const AFTER_HELP: &str = concat!(
-    "EXAMPLES:\n",
+    "EXAMPLES — 2D (image only):\n",
+    "  asset-tap --image-only --param aspect_ratio=1:1 \"cobblestone\"\n",
+    "                                               square image, no 3D stage\n",
+    "  asset-tap --image-only --install sprites/idle.png \"a goblin archer\"\n",
+    "                                               copied where you want it\n",
+    "  asset-tap --image-only --image-model meshy/gpt-image-2 --param aspect_ratio=3:2 \"a banner\"\n",
+    "                                               pick the image model and its knobs\n",
+    "\n",
+    "EXAMPLES — 3D:\n",
     "  asset-tap \"a stylized sci-fi crate\"          prompt to GLB\n",
     "  asset-tap --image ref.png                    image-to-3D from an existing image\n",
+    "  asset-tap \"a crate\" --install models/crate.glb\n",
+    "                                               also copy the GLB into your project\n",
+    "  asset-tap --rig --clip walk -y \"a knight\"    generate, bind, apply walk\n",
+    "  asset-tap bind --mesh model.glb --clip walk  bind an existing mesh\n",
+    "\n",
+    "EXAMPLES — tooling:\n",
     "  asset-tap \"a crate\" --json -o ./out          programmatic use: parse NDJSON events\n",
     "  asset-tap --list --json                      machine-readable model/template catalog\n",
     "  asset-tap auth list --json                   which providers have a key (preflight)\n",
@@ -58,8 +72,11 @@ const AFTER_HELP: &str = concat!(
     "  asset-tap demo download                      fetch the showcase demo bundle\n",
     "  asset-tap clip download                      fetch the free Standard clip packs\n",
     "  asset-tap clip install --from DIR            install a Quaternius zip you already have\n",
-    "  asset-tap --rig --clip walk -y \"a knight\"    generate, bind, apply walk\n",
-    "  asset-tap bind --mesh model.glb --clip walk  bind an existing mesh\n",
+    "\n",
+    "CONCURRENCY:\n",
+    "  Providers rate-limit per API key. A 429 (or 5xx) while polling is retried with\n",
+    "  exponential backoff (2s doubling to a 30s cap, up to 5 consecutive failures);\n",
+    "  Meshy documents no safe parallelism, so run its jobs one at a time.\n",
     "\n",
     "AUTHENTICATION:\n",
     "  Provider keys resolve from stored settings first, then environment variables\n",
@@ -158,6 +175,23 @@ struct Cli {
     /// Set a custom name for the generated bundle (or name an existing bundle with --export-bundle)
     #[arg(short = 'n', long, value_name = "NAME")]
     name: Option<String>,
+
+    /// Copy the run's primary artifact to PATH when it finishes
+    /// (`model.glb`, or `image.png` under --image-only).
+    ///
+    /// A PATH ending in `.glb`/`.png` is the exact destination file (parent
+    /// directories are created). Anything else — an existing directory, a
+    /// trailing separator, or no extension at all — is a directory and
+    /// receives `<--name, else the bundle folder>.<ext>`. An extension that
+    /// doesn't match the artifact this run produces is a usage error, raised
+    /// before generation starts. The bundle itself is still written as
+    /// normal; this is a copy.
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["convert_webp", "export_bundle", "inspect_template"]
+    )]
+    install: Option<PathBuf>,
 
     /// Export a bundle directory as a zip archive (requires --name if bundle is unnamed)
     #[arg(long, value_name = "BUNDLE_DIR")]
@@ -619,6 +653,9 @@ async fn async_main(cli: Cli) -> anyhow::Result<ExitCode> {
     // a failed run a consumer might retry.
     let params = resolve_param_overrides(&cli, &registry)?;
 
+    // `--install` path shape is a usage error too: check it before `start`.
+    validate_install_path(&cli)?;
+
     if cli.json {
         // --json is non-interactive: a prompt (or --image) must come from the
         // args. This is a usage error, so it exits 2 before the start event.
@@ -864,6 +901,10 @@ async fn run_generation(
             Err(e) => tracing::warn!("Failed to load bundle for naming: {}", e),
         }
     }
+
+    // Copy the primary artifact to `--install PATH`. Not a wire event: the
+    // caller supplied the path, so it already knows where the file landed.
+    install_primary_artifact(cli, &output)?;
 
     // Print summary (human mode only — --json reports via the result event,
     // embedded hosts via the tool result)
@@ -1295,10 +1336,218 @@ fn route_params(
         }
     }
 
+    check_conditions(&active.image, &image_params)?;
+    check_conditions(&active.model_3d, &model_3d_params)?;
+
     Ok(ParamOverrides {
         image: image_params,
         model_3d: model_3d_params,
     })
+}
+
+/// Reject `--param` combinations the model declares as impossible, and note
+/// the defaults that get dropped as a result.
+///
+/// A knob whose `requires` isn't met (or whose `conflicts_with` fires) was
+/// mistyped, not merely unlucky — Meshy ignores `origin_at` without
+/// `auto_size`, and rejects `aspect_ratio` alongside Multi-View outright. So
+/// it exits 2 before the run starts rather than failing after a paid stage.
+/// Parameters left at their YAML default are simply dropped; core does the
+/// dropping, we just tell the user which knobs went quiet.
+fn check_conditions(
+    stage: &StageModel,
+    params: &HashMap<String, serde_json::Value>,
+) -> anyhow::Result<()> {
+    let Some(model) = stage.model() else {
+        return Ok(());
+    };
+    if model.parameters.is_empty() {
+        return Ok(());
+    }
+
+    let mut effective: HashMap<String, serde_json::Value> = model
+        .parameters
+        .iter()
+        .map(|p| (p.name.clone(), p.default.clone()))
+        .collect();
+    for (key, value) in params {
+        effective.insert(key.clone(), value.clone());
+    }
+    let explicit: std::collections::HashSet<String> = params.keys().cloned().collect();
+
+    match asset_tap_core::providers::evaluate_conditions(&model.parameters, &effective, &explicit) {
+        Ok(dropped) => {
+            for drop in dropped {
+                // Reached only when the user passed `--param`, so a dropped
+                // knob is a consequence of something they just typed and worth
+                // saying out loud. stderr keeps `--json` stdout clean.
+                tracing::info!("{} not sent: {}", drop.param, drop.because);
+                eprintln!("  ℹ️  {} not sent: {}", drop.param, drop.because);
+            }
+            Ok(())
+        }
+        Err(violation) => Err(usage_error(format!(
+            "--param {}={} {}",
+            violation.param,
+            params
+                .get(&violation.param)
+                .map(json_scalar_to_string)
+                .unwrap_or_default(),
+            violation.detail
+        ))),
+    }
+}
+
+/// The file extension of the artifact a run produces: `png` under
+/// `--image-only`, `glb` otherwise.
+fn primary_artifact_ext(image_only: bool) -> &'static str {
+    // Derived, not spelled: the standard filenames are the contract, and this
+    // must follow if one of them ever changes.
+    let standard = if image_only {
+        asset_tap_core::constants::files::bundle::IMAGE
+    } else {
+        asset_tap_core::constants::files::bundle::MODEL_GLB
+    };
+    std::path::Path::new(standard)
+        .extension()
+        .and_then(|e| e.to_str())
+        .expect("standard bundle filenames have extensions")
+}
+
+/// Resolve `--install PATH` to the exact file the primary artifact is copied to.
+///
+/// - A PATH ending in `.png`/`.glb` is the destination file verbatim.
+/// - An existing directory, or a PATH ending in a separator, receives
+///   `<stem>.<ext>` where `stem` is `--name` when given, else the bundle
+///   directory's own name (filled in later by the caller).
+/// - Any other extension is a usage error: silently writing a `.glb` to a path
+///   the caller spelled `.png` would corrupt whatever pipeline consumes it.
+///
+/// `bundle_dir_name` is the basename of the run's output directory; it is only
+/// consulted for the directory form.
+fn resolve_install_path(
+    install: &std::path::Path,
+    image_only: bool,
+    name: Option<&str>,
+    bundle_dir_name: &str,
+) -> anyhow::Result<PathBuf> {
+    let expected = primary_artifact_ext(image_only);
+    let raw = install.to_string_lossy();
+    let looks_like_dir = raw.ends_with('/') || raw.ends_with(std::path::MAIN_SEPARATOR);
+
+    if !looks_like_dir
+        && !install.is_dir()
+        && let Some(ext) = install.extension().and_then(|e| e.to_str())
+    {
+        let ext = ext.to_ascii_lowercase();
+        if ext == expected {
+            return Ok(install.to_path_buf());
+        }
+        if ext == "png" || ext == "glb" {
+            let (mode, produced) = if image_only {
+                ("--image-only", "image.png")
+            } else {
+                ("a full run", "model.glb")
+            };
+            return Err(usage_error(format!(
+                "--install path '{}' ends in .{ext}, but {mode} produces {produced}. \
+                 Use a .{expected} path, or a directory.",
+                install.display()
+            )));
+        }
+        return Err(usage_error(format!(
+            "--install path '{}' must end in .{expected} (the artifact this run produces) \
+             or name a directory.",
+            install.display()
+        )));
+    }
+
+    // Directory form: derive the file name from --name, else the bundle folder.
+    let stem = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or(bundle_dir_name);
+    let stem = asset_tap_core::constants::files::safe_filename_stem(stem);
+    Ok(install.join(format!("{stem}.{expected}")))
+}
+
+/// Validate `--install` before any work starts, so a bad path is a usage error
+/// (exit 2, before the `start` event) instead of a surprise after a paid run.
+fn validate_install_path(cli: &Cli) -> anyhow::Result<()> {
+    if let Some(ref path) = cli.install {
+        resolve_install_path(path, cli.image_only, cli.name.as_deref(), "bundle")?;
+    }
+    Ok(())
+}
+
+/// Copy the run's primary artifact to `--install PATH`.
+///
+/// Wire-silent by design: `--json` consumers passed the path, so the `result`
+/// event is unchanged and the confirmation goes to stderr like every other
+/// human message.
+fn install_primary_artifact(
+    cli: &Cli,
+    output: &asset_tap_core::PipelineOutput,
+) -> anyhow::Result<()> {
+    let Some(ref install) = cli.install else {
+        return Ok(());
+    };
+
+    let bundle_dir_name = output
+        .output_dir
+        .as_deref()
+        .and_then(|d| d.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "asset".to_string());
+
+    let dest = resolve_install_path(
+        install,
+        cli.image_only,
+        cli.name.as_deref(),
+        &bundle_dir_name,
+    )?;
+
+    let source = if cli.image_only {
+        output.image_path.as_deref()
+    } else {
+        output.model_path.as_deref()
+    };
+    // Every failure below is a local filesystem problem, so it carries the
+    // `io` kind (exit 7) rather than falling through to `unknown` (exit 1,
+    // which a consumer reads as a retryable internal fault).
+    let io_error = |message: String| {
+        anyhow::Error::new(machine::KindedError {
+            kind: machine::KIND_IO_ERROR,
+            message,
+        })
+    };
+
+    let Some(source) = source else {
+        return Err(io_error(format!(
+            "--install: the run produced no {}",
+            if cli.image_only { "image" } else { "model" }
+        )));
+    };
+
+    if let Some(parent) = dest.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            io_error(format!(
+                "--install: could not create {}: {e}",
+                parent.display()
+            ))
+        })?;
+    }
+    std::fs::copy(source, &dest).map_err(|e| {
+        io_error(format!(
+            "--install: could not copy {} to {}: {e}",
+            source.display(),
+            dest.display()
+        ))
+    })?;
+    eprintln!("  📦 Installed: {}", dest.display());
+    Ok(())
 }
 
 /// Build a usage error (exit 2, no run events).
@@ -2453,6 +2702,120 @@ fn print_summary(output: &asset_tap_core::PipelineOutput) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn install_path_with_matching_extension_is_used_verbatim() {
+        let glb = resolve_install_path(
+            std::path::Path::new("models/crate.glb"),
+            false,
+            None,
+            "2026-01-01_120000",
+        )
+        .expect("glb for a 3D run");
+        assert_eq!(glb, PathBuf::from("models/crate.glb"));
+
+        let png = resolve_install_path(
+            std::path::Path::new("sprites/idle.PNG"),
+            true,
+            None,
+            "2026-01-01_120000",
+        )
+        .expect("png for an image-only run");
+        assert_eq!(png, PathBuf::from("sprites/idle.PNG"));
+    }
+
+    /// The wrong extension is the whole point of the check: writing GLB bytes
+    /// to a path the caller spelled `.png` would corrupt whatever consumes it.
+    #[test]
+    fn install_path_extension_mismatch_is_a_usage_error() {
+        for (path, image_only) in [
+            ("out/a.glb", true),
+            ("out/a.png", false),
+            ("out/a.fbx", false),
+        ] {
+            let err = resolve_install_path(std::path::Path::new(path), image_only, None, "bundle")
+                .expect_err("{path} should be rejected");
+            assert!(
+                machine::find_usage_error(&err).is_some(),
+                "{path}: expected a usage error, got {err:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn install_directory_derives_the_file_name() {
+        // Trailing separator: a directory even if it doesn't exist yet.
+        let derived = resolve_install_path(
+            std::path::Path::new("out/assets/"),
+            false,
+            None,
+            "2026-01-01_120000",
+        )
+        .expect("directory form");
+        assert_eq!(derived, PathBuf::from("out/assets/2026-01-01_120000.glb"));
+
+        // --name wins over the bundle folder.
+        let named = resolve_install_path(
+            std::path::Path::new("out/assets/"),
+            true,
+            Some("My Robot"),
+            "2026-01-01_120000",
+        )
+        .expect("named directory form");
+        assert_eq!(named, PathBuf::from("out/assets/My Robot.png"));
+
+        // An existing directory with no trailing separator is still a directory.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let into =
+            resolve_install_path(dir.path(), false, Some("crate"), "bundle").expect("existing dir");
+        assert_eq!(into, dir.path().join("crate.glb"));
+    }
+
+    /// An extensionless PATH that doesn't exist yet is the directory form:
+    /// `--install out/today` writes `out/today/<name>.glb`. Guessing it was
+    /// meant as a file would mean writing a GLB with no extension.
+    #[test]
+    fn install_extensionless_path_is_a_directory() {
+        let out = resolve_install_path(
+            std::path::Path::new("out/today"),
+            false,
+            None,
+            "2026-01-01_120000",
+        )
+        .expect("extensionless");
+        assert_eq!(out, PathBuf::from("out/today/2026-01-01_120000.glb"));
+    }
+
+    /// A bundle name is free text; it must not be able to steer the copy out
+    /// of the directory the user named.
+    #[test]
+    fn install_name_is_sanitized_into_a_file_name() {
+        let out = resolve_install_path(
+            std::path::Path::new("out/"),
+            false,
+            Some("../../etc/passwd"),
+            "bundle",
+        )
+        .expect("sanitized");
+        assert_eq!(out, PathBuf::from("out/_.._etc_passwd.glb"));
+    }
+
+    #[test]
+    fn install_conflicts_with_the_non_run_flags() {
+        for other in [
+            "--convert-webp",
+            "--export-bundle=some/dir",
+            "--inspect-template=prop",
+        ] {
+            assert!(
+                Cli::try_parse_from(["asset-tap", "--install", "out.glb", other]).is_err(),
+                "{other} should conflict with --install"
+            );
+        }
+        // --json is not a conflict: --install is wire-silent.
+        Cli::try_parse_from(["asset-tap", "--json", "--install", "out.glb", "a crate"])
+            .expect("--install combines with --json");
+    }
+
     /// `bind --pack DIR` was renamed to `--clip-pack` (the root flag's name);
     /// the old spelling stays as a hidden alias so existing scripts keep
     /// working.
@@ -2505,6 +2868,8 @@ mod tests {
             options,
             widget: None,
             allow_unset: false,
+            requires: Default::default(),
+            conflicts_with: Default::default(),
         }
     }
 

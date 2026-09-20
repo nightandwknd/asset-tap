@@ -260,6 +260,91 @@ async fn generate_in_mock_mode_streams_progress_and_returns_an_inspectable_bundl
     svc.cancel().await.unwrap();
 }
 
+/// `install` reaches the same pre-flight the CLI runs before `start`, so a
+/// path whose extension can't be what the run produces is a usage error here
+/// too — not a surprise after a paid generation.
+#[tokio::test]
+async fn install_with_the_wrong_extension_is_a_usage_error() {
+    let (svc, _h) = spawn(false).await;
+    let r = svc
+        .call_tool(
+            CallToolRequestParams::new("generate").with_arguments(args(serde_json::json!({
+                "prompt": "a mug",
+                "image_only": true,
+                "install": "/tmp/asset-tap-mcp-install-test.glb",
+            }))),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    let sc = r.structured_content.unwrap();
+    assert_eq!(sc["kind"].as_str(), Some("usage"));
+    let message = sc["message"].as_str().unwrap();
+    assert!(message.contains("--install"), "{message}");
+    assert!(message.contains(".png"), "{message}");
+    svc.cancel().await.unwrap();
+}
+
+/// A `params` entry whose condition the model declares as unmet is the same
+/// usage error the CLI raises for `--param`, because MCP goes through
+/// `resolve_param_overrides` too — the host gets told before anything is paid
+/// for, rather than after Meshy rejects the request.
+#[tokio::test]
+async fn conditional_param_violation_is_a_usage_error() {
+    // Mock mode: the check must fire before any provider key is consulted,
+    // and CI has no Meshy key, so a real-mode spawn would report
+    // `missing_api_key` first and never reach the condition.
+    let (svc, _h) = spawn(true).await;
+    let r = svc
+        .call_tool(
+            CallToolRequestParams::new("generate").with_arguments(args(serde_json::json!({
+                "prompt": "a mug",
+                "model_3d": "meshy/v6/image-to-3d",
+                // origin_at only applies with auto_size on, which is off here.
+                "params": { "origin_at": "center" },
+            }))),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.is_error, Some(true));
+    let sc = r.structured_content.unwrap();
+    assert_eq!(sc["kind"].as_str(), Some("usage"));
+    let message = sc["message"].as_str().unwrap();
+    assert!(message.contains("origin_at"), "{message}");
+    assert!(message.contains("auto_size"), "{message}");
+    svc.cancel().await.unwrap();
+}
+
+/// The happy path: `install` is mapped to `--install` and the primary
+/// artifact lands at the exact path the caller named, alongside the bundle.
+#[cfg(feature = "mock")]
+#[tokio::test]
+async fn install_copies_the_primary_artifact_to_the_named_path() {
+    let (svc, _h) = spawn(true).await;
+    let out = tempfile::tempdir().unwrap();
+    let installed = out.path().join("concept.png");
+
+    let r = svc
+        .call_tool(
+            CallToolRequestParams::new("generate").with_arguments(args(serde_json::json!({
+                "prompt": "a low-poly mug",
+                "image_only": true,
+                "output_dir": out.path().to_string_lossy(),
+                "install": installed.to_string_lossy(),
+            }))),
+        )
+        .await
+        .unwrap();
+    assert_ne!(r.is_error, Some(true), "{:?}", r.structured_content);
+    let sc = r.structured_content.expect("structured");
+    assert_eq!(sc["status"].as_str(), Some("success"));
+    assert!(installed.is_file(), "{} not written", installed.display());
+    // The bundle is still written in full; --install is a copy, not a move.
+    let bundle_dir = sc["bundle_dir"].as_str().expect("bundle_dir");
+    assert!(std::path::Path::new(bundle_dir).join("image.png").exists());
+    svc.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn clip_download_returns_the_cli_document() {
     let clips = tempfile::tempdir().unwrap();

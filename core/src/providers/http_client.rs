@@ -258,10 +258,64 @@ pub(crate) fn apply_param_overrides(
         }
     }
 
+    // Drop parameters whose `requires`/`conflicts_with` isn't satisfied, so a
+    // knob that doesn't apply is omitted rather than sent into a request the
+    // provider ignores — or rejects. An explicitly-set one is already a usage
+    // error by this point (the CLI checks before the run starts), so anything
+    // reaching here is a YAML default we're better off not sending.
+    let dropped = super::conditions::evaluate_conditions(
+        parameter_defs,
+        &effective_values(body, params, parameter_defs),
+        &params
+            .map(|p| p.keys().cloned().collect())
+            .unwrap_or_default(),
+    );
+    match dropped {
+        Ok(drops) => {
+            if let Some(obj) = body.as_object_mut() {
+                for drop in drops {
+                    tracing::info!(
+                        "Dropping parameter '{}' for model '{}': {}",
+                        drop.param,
+                        model_id,
+                        drop.because
+                    );
+                    obj.remove(&drop.param);
+                }
+            }
+        }
+        Err(violation) => {
+            // Shouldn't happen: callers validate before the run. Log rather
+            // than fail a paid stage over it, and leave the body alone.
+            tracing::warn!("Parameter condition violated for model '{model_id}': {violation}");
+        }
+    }
+
     // Strip any remaining nulls (template defaults like `seed: null`).
     if let Some(obj) = body.as_object_mut() {
         obj.retain(|_, v| !v.is_null());
     }
+}
+
+/// The values conditions are evaluated against: what the body currently holds
+/// for each declared parameter, falling back to the override map (multipart
+/// models have no JSON body) and then the YAML default.
+fn effective_values(
+    body: &serde_json::Value,
+    params: Option<&HashMap<String, serde_json::Value>>,
+    parameter_defs: &[super::config::ParameterDef],
+) -> HashMap<String, serde_json::Value> {
+    parameter_defs
+        .iter()
+        .map(|def| {
+            let value = body
+                .get(&def.name)
+                .or_else(|| params.and_then(|p| p.get(&def.name)))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            (def.name.clone(), value)
+        })
+        .collect()
 }
 
 /// Generic HTTP client that executes provider configurations.
@@ -1820,6 +1874,8 @@ mod tests {
             options: None,
             widget: None,
             allow_unset: false,
+            requires: Default::default(),
+            conflicts_with: Default::default(),
         }
     }
 

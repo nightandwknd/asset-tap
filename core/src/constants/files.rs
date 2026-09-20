@@ -72,6 +72,37 @@ pub fn is_image_path(path: &std::path::Path) -> bool {
         .is_some_and(|e| IMAGE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
+/// Make a user-supplied name safe to use as a file name stem.
+///
+/// Path separators, the characters Windows rejects (`: * ? " < > |`), NUL and
+/// other control characters become `_`; surrounding whitespace and leading or
+/// trailing dots are trimmed; an empty result becomes `asset`.
+///
+/// **Unicode letters are kept.** The rule is deliberately permissive: an
+/// earlier alphanumeric-only filter in the GUI export path mangled non-ASCII
+/// bundle names into rows of underscores. Everything modern filesystems accept
+/// is allowed through; only what would traverse a directory or be rejected
+/// outright is replaced.
+///
+/// Single source for `--install`'s directory form (CLI) and the export zip
+/// name (GUI), so the two front doors cannot drift.
+pub fn safe_filename_stem(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
+    if cleaned.is_empty() {
+        "asset".to_string()
+    } else {
+        cleaned
+    }
+}
+
 /// Configuration files
 pub mod config {
     /// Main settings file
@@ -142,5 +173,38 @@ mod tests {
         for no in ["m.glb", "z.zip", "bundle.json", "noext"] {
             assert!(!is_image_path(Path::new(no)), "{no}");
         }
+    }
+
+    /// The CLI's `--install` directory form leans on this: a bundle name is
+    /// free text and must not be able to steer the copy out of the directory
+    /// the user named.
+    #[test]
+    fn safe_filename_stem_neutralizes_separators_and_reserved_chars() {
+        assert_eq!(safe_filename_stem("../../etc/passwd"), "_.._etc_passwd");
+        assert_eq!(safe_filename_stem("a\\b"), "a_b");
+        assert_eq!(safe_filename_stem("a:b*c?d\"e<f>g|h"), "a_b_c_d_e_f_g_h");
+        assert_eq!(safe_filename_stem("tab\there"), "tab_here");
+    }
+
+    #[test]
+    fn safe_filename_stem_falls_back_when_nothing_is_left() {
+        assert_eq!(safe_filename_stem("   "), "asset");
+        assert_eq!(safe_filename_stem(""), "asset");
+        assert_eq!(safe_filename_stem("..."), "asset");
+    }
+
+    /// Ordinary names, including the GUI export path's spaces and dashes,
+    /// survive untouched.
+    #[test]
+    fn safe_filename_stem_keeps_ordinary_names() {
+        assert_eq!(safe_filename_stem("My Robot-01_v2"), "My Robot-01_v2");
+        assert_eq!(safe_filename_stem("  padded  "), "padded");
+    }
+
+    /// The GUI's old alphanumeric-only filter turned these into underscores.
+    #[test]
+    fn safe_filename_stem_keeps_unicode_letters() {
+        assert_eq!(safe_filename_stem("剣士"), "剣士");
+        assert_eq!(safe_filename_stem("café"), "café");
     }
 }
