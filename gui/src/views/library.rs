@@ -724,6 +724,13 @@ impl LibraryBrowser {
                                         has_loading = true;
                                     }
 
+                                    // No `push_id` scope here: a child `Ui`
+                                    // takes the parent's full available width,
+                                    // which stops `horizontal_wrapped` from
+                                    // wrapping and lays every card out in one
+                                    // row. The card pins its own id from the
+                                    // item path instead — see
+                                    // `render_library_item_cached`.
                                     let response = render_library_item_cached(
                                         ui,
                                         item,
@@ -836,7 +843,18 @@ fn render_library_item_cached(
     // Taller to fit full filename with wrap
     let item_size = egui::vec2(140.0, 175.0);
 
-    let (rect, response) = ui.allocate_exact_size(item_size, egui::Sense::click());
+    // Take the space, then interact under an id derived from the item's path.
+    //
+    // `allocate_exact_size` alone would use `next_auto_id_salt`, a per-`Ui`
+    // ordinal egui documents as holding only "as long as new widgets aren't
+    // added or removed" — and both happen here, since the loading branch
+    // below adds a child `Ui` the loaded branch does not, and filtering drops
+    // cards outright. The card would then keep its rect while its id moved to
+    // a neighbour's, which egui reports as "changed id between passes" and
+    // which also mis-routes hover, click and focus state mid-load.
+    let id = ui.id().with(&item.path);
+    let (rect, _) = ui.allocate_exact_size(item_size, egui::Sense::hover());
+    let response = ui.interact(rect, id, egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
         let visuals = if is_selected {
@@ -883,7 +901,27 @@ fn render_library_item_cached(
                     // Show loading placeholder with spinner
                     ui.painter()
                         .rect_filled(thumb_rect, 4, egui::Color32::from_rgb(45, 45, 50));
-                    let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(thumb_rect));
+                    // Id the spinner's child `Ui` from the item path. Without
+                    // it the child takes an auto id from the parent's counter,
+                    // and so do the scope and spinner inside it — three ids
+                    // per loading card. Each thumbnail that lands drops one
+                    // loading branch and renumbers every spinner after it, so
+                    // those cards keep their rect while their ids shift onto a
+                    // neighbour's, which is what `warn_if_rect_changes_id`
+                    // paints as a red outline over each thumbnail in debug
+                    // builds until the last thumbnail arrives.
+                    //
+                    // `id_salt` is not enough: it combines with the parent's
+                    // id, and the parent is the card, which sits in the
+                    // wrapped row whose own counter shifts. `UiBuilder::id`
+                    // sets `global_scope`, so the id is absolute and does not
+                    // move with the parent. Paths are unique within a library
+                    // listing, which is that flag's precondition.
+                    let mut child_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id(egui::Id::new(("library_spinner", &item.path)))
+                            .max_rect(thumb_rect),
+                    );
                     child_ui.centered_and_justified(|ui| {
                         ui.spinner();
                     });
@@ -1030,4 +1068,164 @@ fn render_library_item_cached(
         );
         ui.label(egui::RichText::new(format!("Size: {}", item.formatted_size())).secondary());
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AssetType, LibraryItem, render_library_item_cached};
+    use eframe::egui;
+    use std::path::PathBuf;
+
+    fn item(name: &str) -> LibraryItem {
+        LibraryItem {
+            path: PathBuf::from(format!("/tmp/library/{name}.png")),
+            name: format!("{name}.png"),
+            timestamp: "2026-01-01_000000".to_string(),
+            size: 1024,
+            asset_type: AssetType::Images,
+            custom_name: None,
+            prompt: None,
+            model_name: None,
+        }
+    }
+
+    /// Wide enough for three 140px cards plus spacing, not four.
+    const GRID_TEST_WIDTH: f32 = 470.0;
+
+    /// Collects egui's `log::warn!` output so a test can assert on it.
+    ///
+    /// `warn_if_rect_changes_id` — the check behind the red outline in debug
+    /// builds — reports through `log`, not through anything egui paints, so
+    /// inspecting the frame's shapes cannot see it.
+    struct WarnSink;
+
+    static WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    impl log::Log for WarnSink {
+        fn enabled(&self, m: &log::Metadata<'_>) -> bool {
+            m.level() <= log::Level::Warn
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            if self.enabled(record.metadata()) {
+                WARNINGS.lock().unwrap().push(record.args().to_string());
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    /// Install the sink once per test binary and return the warnings emitted
+    /// while `body` runs.
+    fn warnings_during(body: impl FnOnce()) -> Vec<String> {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            log::set_boxed_logger(Box::new(WarnSink)).ok();
+            log::set_max_level(log::LevelFilter::Warn);
+        });
+        WARNINGS.lock().unwrap().clear();
+        body();
+        WARNINGS.lock().unwrap().clone()
+    }
+
+    /// Render the grid once and report each card's `(path, id, rect)`.
+    ///
+    /// `loading` decides which items take the spinner branch, which is the
+    /// branch that adds an extra child `Ui`.
+    fn grid_pass(
+        ctx: &egui::Context,
+        items: &[LibraryItem],
+        loading: &[bool],
+    ) -> Vec<(PathBuf, egui::Id, egui::Rect)> {
+        let mut seen = Vec::new();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            seen.clear();
+            // Bound the row so wrapping is observable: cards are 140px wide,
+            // and `run_ui` would otherwise hand the closure an effectively
+            // unbounded surface that fits any number of them on one line.
+            ui.set_max_width(GRID_TEST_WIDTH);
+            // Mirror the real call site exactly: a wrapped row, cards
+            // allocated straight into it with no intervening scope. A scope
+            // here would take the row's full width and defeat the wrap, which
+            // is the regression this harness has to be able to see. `run_ui`
+            // may run the closure more than once (sizing pass), hence the
+            // `clear()` above.
+            ui.horizontal_wrapped(|ui| {
+                for (item, &is_loading) in items.iter().zip(loading) {
+                    let response = render_library_item_cached(ui, item, false, None, is_loading);
+                    seen.push((item.path.clone(), response.id, response.rect));
+                }
+            });
+        });
+        seen
+    }
+
+    /// Thumbnails landing one at a time must not renumber the widgets of the
+    /// cards still loading.
+    ///
+    /// Each loading card builds a child `Ui` for its spinner. Left unnamed
+    /// that child, its centring scope and the spinner all take auto ids from
+    /// the parent counter, so every thumbnail that lands drops one branch and
+    /// shifts the ids of every spinner after it while their rects stay put.
+    /// egui reports that through `log::warn!` as "changed id between passes",
+    /// and paints a red outline over each affected thumbnail in debug builds
+    /// until the last one arrives.
+    ///
+    /// A single pass cannot show it: the check compares consecutive passes on
+    /// one `Context`, which is why this walks the whole streaming sequence.
+    #[test]
+    fn spinner_ids_hold_while_thumbnails_stream_in() {
+        let items: Vec<LibraryItem> = (0..6).map(|i| item(&format!("card{i}"))).collect();
+
+        let warnings = warnings_during(|| {
+            let ctx = egui::Context::default();
+            // Pass N has the first N thumbnails loaded and the rest spinning.
+            for loaded in 0..=items.len() {
+                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    ui.set_max_width(GRID_TEST_WIDTH);
+                    ui.horizontal_wrapped(|ui| {
+                        for (i, it) in items.iter().enumerate() {
+                            let _ = render_library_item_cached(ui, it, false, None, i >= loaded);
+                        }
+                    });
+                });
+            }
+        });
+
+        let id_churn: Vec<&String> = warnings
+            .iter()
+            .filter(|w| w.contains("changed id between passes"))
+            .collect();
+        assert!(
+            id_churn.is_empty(),
+            "egui flagged widget ids shifting as thumbnails loaded: {id_churn:#?}"
+        );
+    }
+
+    /// Cards must wrap onto multiple rows.
+    ///
+    /// Guards the layout against the id fix: wrapping a card in a `push_id`
+    /// scope pins its id but hands the child `Ui` the row's full width, so
+    /// `horizontal_wrapped` never wraps and the whole library renders as one
+    /// long row. The id tests below pass either way, so they cannot see it.
+    #[test]
+    fn library_cards_wrap_onto_multiple_rows() {
+        let ctx = egui::Context::default();
+        let items: Vec<LibraryItem> = (0..8).map(|i| item(&format!("card{i}"))).collect();
+        let loading = vec![false; items.len()];
+
+        let laid_out = grid_pass(&ctx, &items, &loading);
+        assert_eq!(laid_out.len(), items.len());
+
+        let rows: std::collections::BTreeSet<i64> = laid_out
+            .iter()
+            .map(|(_, _, rect)| rect.top().round() as i64)
+            .collect();
+        assert!(
+            rows.len() > 1,
+            "all {} cards landed on one row ({}px wide each, {} distinct tops) \
+             — horizontal_wrapped is not wrapping",
+            laid_out.len(),
+            laid_out.first().map(|(_, _, r)| r.width()).unwrap_or(0.0),
+            rows.len()
+        );
+    }
 }

@@ -2756,13 +2756,15 @@ impl App {
         self.workbench_seq += 1;
     }
 
-    /// Inspect is the default. Closing the Animation panel stops playback
-    /// and hides bones; it does not write the asset.
+    /// Inspect is the default. Closing the Animation panel stops playback,
+    /// returns the mesh to its rest pose, and hides bones; it does not write
+    /// the asset. Without the rest pose, Inspect would keep showing the model
+    /// frozen in the last frame of the last previewed clip.
     pub fn close_animate_panel(&mut self) {
         self.workbench_animate = false;
         let mut viewer = self.model_viewer.lock().unwrap();
         self.workbench_show_bones = viewer.show_bones;
-        viewer.set_playing(false);
+        viewer.show_rest_pose();
         viewer.set_show_bones(false);
     }
 

@@ -456,6 +456,7 @@ dependencies = [
  "glow",
  "gltf",
  "image",
+ "log",
  "open",
  "rfd",
  "serde_json",

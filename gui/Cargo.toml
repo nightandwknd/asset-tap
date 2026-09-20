@@ -102,6 +102,9 @@ winit = { version = "0.30.13", default-features = false, features = ["wayland-dl
 normal = ["winit"]
 
 [dev-dependencies]
+# egui reports id instability through `log::warn!`, not through anything it
+# paints, so a test can only see it by installing a `log` sink.
+log = "0.4"
 tempfile = "3.8"
 
 [target.'cfg(windows)'.build-dependencies]
