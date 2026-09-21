@@ -2,6 +2,26 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.8 — 2026-09-21
+
+### Features
+
+- t-pose humanoid prompts, complete model tables ([#95](https://github.com/nightandwknd/asset-tap/pull/95))
+
+  The humanoid template now reliably produces T-posed characters across
+  every text-to-image model, so generated figures rig and animate
+  correctly instead of binding at an offset. The animation guide explains
+  what the rig needs from a pose and what to do when a character comes
+  out A-posed.
+
+  The README lists every model Asset Tap offers, including two Meshy
+  text-to-image models that were missing, with each provider's default
+  marked. Documentation pages open with the sidebar expanded.
+
+### Chores
+
+- **deps:** bump the rust-dependencies group with 2 updates ([#94](https://github.com/nightandwknd/asset-tap/pull/94))
+
 ## v26.9.7 — 2026-09-20
 
 ### Bug Fixes
