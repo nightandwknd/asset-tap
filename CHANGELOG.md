@@ -6,7 +6,7 @@ All notable changes to Asset Tap are documented here.
 
 ### Bug Fixes
 
-- **gui:** the viewer and Library settle down ([#93](https://github.com/nightandwknd/asset-tap/pull/93))
+- **gui:** clips return to rest on close, and Library thumbnails stop flickering ([#93](https://github.com/nightandwknd/asset-tap/pull/93))
 
   Previewing a clip and closing the Animation panel left the model frozen
   in the clip's last frame, and reopening the panel showed a skeleton
@@ -82,7 +82,7 @@ All notable changes to Asset Tap are documented here.
   On merge, skip preview-removal. Publish keeps open previews in the same
   commit so GitHub Pages only builds once.
 
-- review pass over rig, drops, bundle v2, and the machine interface ([#89](https://github.com/nightandwknd/asset-tap/pull/89))
+- bake keeps clips a pack cannot supply, malformed glTF errors instead of panicking, and drops are never swallowed ([#89](https://github.com/nightandwknd/asset-tap/pull/89))
 
   Bake wrote only the clips an installed pack could supply but counted
   every ticked one, so with a pack missing it cleared the model. Re-Bind

@@ -210,26 +210,30 @@ output/
 
 | Model               | Provider | Description                                                     |
 | ------------------- | -------- | --------------------------------------------------------------- |
-| **Nano Banana 2**   | fal.ai   | Gemini 3.1 Flash Image, reasoning-guided generation _(default)_ |
 | **Nano Banana**     | fal.ai   | Google Imagen 3-based, fast and affordable                      |
+| **Nano Banana 2**   | fal.ai   | Gemini 3.1 Flash Image, reasoning-guided generation _(default)_ |
 | **Nano Banana Pro** | fal.ai   | Premium Imagen 3, higher quality with aspect ratio control      |
 | **FLUX.2 Dev**      | fal.ai   | Open-source FLUX.2 with tunable guidance and steps              |
 | **FLUX.2 Pro**      | fal.ai   | Premium FLUX.2, best quality and zero-config                    |
-| **Nano Banana**     | Meshy    | Meshy's standard text-to-image tier                             |
+| **Nano Banana**     | Meshy    | Meshy's standard text-to-image tier _(default)_                 |
+| **Nano Banana 2**   | Meshy    | Meshy's mid text-to-image tier                                  |
 | **Nano Banana Pro** | Meshy    | Meshy's higher-quality text-to-image tier                       |
+| **GPT Image 2**     | Meshy    | The only Meshy model offering 3:2 and 2:3 aspect ratios         |
 
 ### Image-to-3D
 
-| Model              | Provider | Description                                                |
-| ------------------ | -------- | ---------------------------------------------------------- |
-| **TRELLIS 2**      | fal.ai   | Native 3D generative model, fast and versatile _(default)_ |
-| **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro, high quality 3D generation     |
-| **Meshy v7**       | fal.ai   | Meshy 7 through fal, pay-per-call billing                  |
-| **Meshy v6**       | fal.ai   | Meshy 6 through fal, pay-per-call billing                  |
-| **Meshy v7**       | Meshy    | Meshy 7.1, newest generation, high-resolution geometry     |
-| **Smart Topology** | Meshy    | Meshy T2, clean topology and game-ready face counts        |
-| **Meshy v6**       | Meshy    | Meshy 6, production-ready 3D with PBR textures             |
-| **Meshy 6 Lite**   | Meshy    | Budget tier, lower credit cost                             |
+| Model              | Provider | Description                                                        |
+| ------------------ | -------- | ------------------------------------------------------------------ |
+| **TRELLIS 2**      | fal.ai   | Native 3D generative model, fast and versatile _(default)_         |
+| **Hunyuan3D Pro**  | fal.ai   | Tencent Hunyuan3D v3.1 Pro, high quality 3D generation             |
+| **Meshy v6**       | fal.ai   | Meshy 6 through fal, pay-per-call billing                          |
+| **Meshy v7**       | fal.ai   | Meshy 7 through fal, pay-per-call billing                          |
+| **Meshy 6 Lite**   | Meshy    | Budget tier, lower credit cost                                     |
+| **Meshy v6**       | Meshy    | Meshy 6, production-ready 3D with PBR textures                     |
+| **Meshy v7**       | Meshy    | Meshy 7.1, newest generation, high-resolution geometry _(default)_ |
+| **Smart Topology** | Meshy    | Meshy T2, clean topology and game-ready face counts                |
+
+_(default)_ marks each provider's own default model.
 
 Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 

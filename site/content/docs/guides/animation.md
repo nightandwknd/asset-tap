@@ -29,9 +29,22 @@ One model carries N animations, the way Mixamo and Meshy work, rather than
 one export per clip. Bake is declarative: the file ends up with exactly the
 clips you named or ticked. Unticking (or omitting) a clip removes it.
 
+## Why T-pose
+
 Use the [humanoid](@/docs/guides/cli-usage.md#templates) template when you
-want a figure the auto-fit can read: T-pose, arms the widest points, a gap
-between each arm and the torso and between the legs.
+want a figure the auto-fit can read. It asks for the pose first and the
+character second, because the pose is what the rig is measured against.
+
+The shipped skeleton's rest pose is a true T-pose, so a rigged mesh and
+the clip library agree and clips apply at zero offset. Auto-fit also
+reads T-pose proportions — a T-pose is about as wide as it is tall — to
+place the skeleton. An A-posed mesh narrows that span enough to throw the
+fit off entirely, not just soften it.
+
+**Prompting for it is not a guarantee.** Lead with the pose, keep the arms
+clear of the torso and the legs apart, and avoid coats, capes and long
+hair that close those gaps. If a character comes out A-posed, regenerate
+it rather than rigging it.
 
 ## Desktop app
 

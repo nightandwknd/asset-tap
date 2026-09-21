@@ -1,6 +1,6 @@
 (function () {
   const groups = Array.from(document.querySelectorAll("[data-docs-nav-group]"));
-  const storageKey = "devlab-docs-nav-state-v1";
+  const storageKey = "devlab-docs-nav-state-v2";
 
   function getStoredState() {
     try {
@@ -75,7 +75,7 @@
       return;
     }
 
-    setGroupOpen(group, isOpenFromServer || state[groupKey] === true);
+    setGroupOpen(group, isOpenFromServer || state[groupKey] !== false);
 
     toggle.addEventListener("click", function () {
       const isOpen = toggle.getAttribute("aria-expanded") !== "true";
