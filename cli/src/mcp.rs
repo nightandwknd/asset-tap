@@ -27,7 +27,7 @@
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Implementation, ProgressNotificationParam, ServerCapabilities, ServerInfo,
+    CallToolResult, Implementation, ProgressNotificationParam, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{
@@ -527,8 +527,8 @@ fn collect_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<St
 
 #[tool_handler]
 impl ServerHandler for AssetTapServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(SERVER_NAME, env!("CARGO_PKG_VERSION")))
             .with_instructions(INSTRUCTIONS)
     }
