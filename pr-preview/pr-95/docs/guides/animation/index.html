@@ -1207,34 +1207,17 @@ clips you named or ticked. Unticking (or omitting) a clip removes it.</p>
 </a>
 </h2>
 <p>Use the <a href="/pr-preview/pr-95/docs/guides/cli-usage/#templates">humanoid</a> template when you
-want a figure the auto-fit can read. It asks for a T-pose first and the
+want a figure the auto-fit can read. It asks for the pose first and the
 character second, because the pose is what the rig is measured against.</p>
-<p>The skeleton Asset Tap ships is derived from the Quaternius rest pose, and
-that pose is a true T-pose: the shoulder-to-hand vector measures 0.00
-degrees off horizontal, not approximately horizontal. So your mesh's bind
-pose and the clip library's rest pose are the same pose, and a baked clip
-applies at zero offset. Bind an A-posed mesh and every clip inherits a
-constant shoulder rotation it never corrects for — the arms come out
-wrong, and no clip you pick fixes it.</p>
-<p>Auto-fit assumes T-pose proportions too. It picks the up axis knowing a
-T-pose is within a few percent as wide as it is tall, and scales the
-skeleton on whichever of height or width binds first. An A-pose pulls the
-arm span in to roughly three quarters of that, which is enough to flip the
-up axis — at which point the fitter goes looking for a head partway along
-the arm span and reports that it cannot find one. A-pose does not soften
-the fit, it can break it.</p>
-<p>This is the same pose the wider ecosystem settled on. VRM 1.0 requires it
-normatively and defines it geometrically ("the arms must be extended in
-parallel to the X axis, which is also parallel to the ground"), and Unity
-calls T-pose "the required pose for the character to be in, in order to
-make an Avatar". Asset Tap's 52 joints use VRM 1.0 bone names, so this is
-the same vocabulary rather than a coincidence.</p>
-<p><strong>Prompting for it is not a guarantee.</strong> No image model holds a T-pose on
-demand; the A-pose prior is strong and leaks back in. What helps: lead
-with the pose, keep the arms clear of the torso and the legs apart, and
-avoid coats, capes and long hair that close those gaps. If a character
-comes out A-posed, regenerate it rather than rigging it — the fit is
-cheaper to re-roll than to repair.</p>
+<p>The shipped skeleton's rest pose is a true T-pose, so a rigged mesh and
+the clip library agree and clips apply at zero offset. Auto-fit also
+reads T-pose proportions — a T-pose is about as wide as it is tall — to
+place the skeleton. An A-posed mesh narrows that span enough to throw the
+fit off entirely, not just soften it.</p>
+<p><strong>Prompting for it is not a guarantee.</strong> Lead with the pose, keep the arms
+clear of the torso and the legs apart, and avoid coats, capes and long
+hair that close those gaps. If a character comes out A-posed, regenerate
+it rather than rigging it.</p>
 <h2 id="desktop-app">Desktop app<a class="zola-anchor" href="#desktop-app" aria-label="Anchor link for: desktop-app">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
