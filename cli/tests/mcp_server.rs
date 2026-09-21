@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rmcp::ClientHandler;
-use rmcp::model::{CallToolRequestParams, ClientInfo, ProgressNotificationParam};
+use rmcp::model::{CallToolRequestParams, ClientConfig, ProgressNotificationParam};
 use rmcp::service::{NotificationContext, RoleClient, RunningService, ServiceExt};
 use rmcp::transport::TokioChildProcess;
 use serde_json::{Map, Value};
@@ -23,8 +23,8 @@ struct CountingClient {
 }
 
 impl ClientHandler for CountingClient {
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
+    fn get_info(&self) -> ClientConfig {
+        ClientConfig::default()
     }
     async fn on_progress(
         &self,
