@@ -429,7 +429,7 @@
 {% if subsection.pages or subsection.subsections %}
 {% set subsection_toggle_label = toggle_label | replace(from="{title}", to=subsection.title) %}
 <li
-  class="docs-nav-group{% if is_active_branch %} is-active-branch{% endif %}"
+  class="docs-nav-group is-open{% if is_active_branch %} is-active-branch{% endif %}"
   data-docs-nav-group="{{ subsection.permalink }}"
   {% if is_active_branch %}data-docs-nav-active-branch{% endif %}
 >
@@ -447,7 +447,7 @@
       type="button"
       aria-label="{{ subsection_toggle_label }}"
       aria-controls="{{ subsection_id_prefix }}-children"
-      aria-expanded="{% if is_active_branch %}true{% else %}false{% endif %}"
+      aria-expanded="true"
       data-docs-nav-toggle
       hidden
     >

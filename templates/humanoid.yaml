@@ -1,8 +1,8 @@
 id: 'humanoid'
 name: 'Humanoid Character'
-description: 'T-pose the auto-fit can read: separated limbs, hands the widest points.'
+description: 'T-pose the auto-fit can read: arms level and locked, gaps at the arms and legs.'
 category: 'character'
-template: 'A full-body character reference, front view, square frame: ${description}. Strict T-pose: arms straight out at shoulder height, elbows locked, palms down, fingers slightly apart. Fingertips are the widest points and the top of the head is the highest; the figure fills the frame fingertip-to-fingertip and head-to-feet. Clear space between each arm and the torso, and a clear gap between the legs. Legs straight, feet flat and forward at shoulder width. Clothing, hair, coats, and capes follow the body and leave those gaps open. Weapons and gear stay against the body or on the back, below the head and inside the arm span. One complete figure, centered, even lighting, no cast shadows, plain flat background.'
+template: 'A figure in a T-pose: arms extended straight out to both sides, horizontal, parallel to the ground, level with the shoulders, elbows locked straight, palms facing down, fingers together. Legs straight with a clear gap between them, feet flat and forward. Standing upright, facing forward. ${description}. Clothing, hair and capes follow the body and leave the gaps between arms and torso open. Weapons and gear stay against the body, inside the arm span. One complete figure, full body head to feet, centered, even lighting, no cast shadows, plain flat background.'
 variables:
   - name: 'description'
     description: 'Character description (style, clothing, features)'

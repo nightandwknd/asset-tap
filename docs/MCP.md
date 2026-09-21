@@ -1,4 +1,4 @@
-# asset-tap as an MCP server
+# Asset Tap as an MCP server
 
 `asset-tap mcp` serves the [Model Context Protocol](https://modelcontextprotocol.io)
 over stdio. It is a **thin front door**: every tool maps 1:1 onto something the

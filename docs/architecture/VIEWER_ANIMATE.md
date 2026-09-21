@@ -47,6 +47,22 @@ pack's own bone names are a lookup at the edges (`BoneScheme`). The rest
 pose is embedded as parent-local TRS, so **Rig and Bind work with nothing
 downloaded** — a pack adds animations, never bones.
 
+**That rest pose is a true T-pose, and everything assumes it.** The
+shoulder-to-hand vector measures `(0.547, 0.0, ~0)` — 0.00 degrees off
+horizontal. It comes from the Universal Animation Library's own rest
+pose, so a bound mesh and the clip library share one rest and clips
+apply at zero rotational offset; an A-posed mesh binds at a constant
+offset against every clip.
+
+The fit assumes those proportions outright: `landmarks.rs` picks the up
+axis knowing "a T-pose has an arm span within a few percent of its
+height", and `export.rs` scales on width. An A-pose narrows the span to
+roughly 0.75x — the shrink `landmarks.rs` guards against — and a wrong
+up axis sends the fitter hunting for a head partway along the arm span.
+This is why `templates/humanoid.yaml` leads with the pose. Keep the
+reasoning here; [the animation guide](../../site/content/docs/guides/animation.md)
+carries only what a user needs.
+
 VRM rather than a pack's scheme: Quaternius renamed the Universal
 Animation Library's rig from Blender Rigify (`DEF-hips`, `DEF-spine.001`)
 to the Unreal convention (`pelvis`, `spine_01`) with the rest geometry
