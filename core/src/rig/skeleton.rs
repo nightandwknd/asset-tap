@@ -253,7 +253,7 @@ pub fn canonicalize(arm: &mut Armature) -> Option<BoneScheme> {
 }
 
 /// Place hips/feet by root scale+translate, then snap named bones to landmarks.
-pub fn fit(arm: &mut Armature, lm: &Landmarks) {
+pub fn fit(arm: &mut Armature, lm: &Landmarks, positions: &[Vec3]) {
     let hips_name = first_present(arm, &[HumanBone::Hips.as_str()]);
     let foot_l = first_present(arm, &[HumanBone::LeftFoot.as_str()]);
     let foot_r = first_present(arm, &[HumanBone::RightFoot.as_str()]);
@@ -288,9 +288,10 @@ pub fn fit(arm: &mut Armature, lm: &Landmarks) {
     }
 
     arm.set_world_head(&hips_name, lm.hips);
-    // Do not teleport `head`. The 78–88% landmark is the head *volume*
-    // centroid (beard/hair), which sat below `neck` and folded the bone
-    // back on itself. After root scale the pack neck→head chain is enough.
+    // Torso and clavicles need their own mesh placement. Keeping their
+    // reference translations puts clavicles near the chin and in front of
+    // the body even when the upper arms themselves have been fitted.
+    super::body_fit::fit_torso(arm, positions, lm);
     if let Some(n) = first_present(arm, &[HumanBone::LeftUpperArm.as_str()]) {
         arm.set_world_head(&n, lm.shoulder_l);
         if let Some(hand) = first_present(arm, &[HumanBone::LeftHand.as_str()]) {
@@ -315,11 +316,15 @@ pub fn fit(arm: &mut Armature, lm: &Landmarks) {
     if let Some(n) = foot_r {
         arm.set_world_head(&n, lm.ankle_r);
     }
+    // `toe_tip_*`, not `toe_*`: the latter is the centroid of the whole
+    // lowest-5% band — heel, arch and toes averaged — which parks the toe joint
+    // mid-foot, directly under the ankle, where it drives nothing when the foot
+    // rolls. `toe_tip_*` is the leading quartile, the ball of the foot.
     if let Some(n) = first_present(arm, &[HumanBone::LeftToes.as_str()]) {
-        arm.set_world_head(&n, lm.toe_l);
+        arm.set_world_head(&n, lm.toe_tip_l);
     }
     if let Some(n) = first_present(arm, &[HumanBone::RightToes.as_str()]) {
-        arm.set_world_head(&n, lm.toe_r);
+        arm.set_world_head(&n, lm.toe_tip_r);
     }
 }
 

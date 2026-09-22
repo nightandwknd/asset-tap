@@ -1246,7 +1246,18 @@ impl ModelViewer {
             let Some(gm) = self.gpu_objects.get_mut(i) else {
                 continue;
             };
-            if let Err(e) = gm.geometry.set_positions(&self.pose_upload) {
+            // `set_positions_partially`, not `set_positions`: three-d 0.19's
+            // `Mesh::vertex_count()` returns `indices.vertex_count()`, which on
+            // an *indexed* mesh is the element count, not the vertex count.
+            // `set_positions` demands `positions.len() == vertex_count()`, so on
+            // every indexed GLB it rejects a correct upload — this mesh has
+            // 406,938 vertices and 2,259,318 indices — and we fell through to a
+            // full `Mesh::new` per primitive per frame, the exact cost this path
+            // exists to avoid. The partial form checks `offset + len >
+            // vertex_count()` instead, which the inflated count satisfies, and
+            // both end in the same `positions.fill*`. Revisit if three-d fixes
+            // `vertex_count`.
+            if let Err(e) = gm.geometry.set_positions_partially(0, &self.pose_upload) {
                 // Count mismatch: fall back to a rebuild rather than a
                 // frozen mesh. Not expected; `n` was checked above.
                 tracing::warn!("pose upload failed, rebuilding mesh: {e}");

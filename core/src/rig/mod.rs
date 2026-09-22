@@ -8,6 +8,7 @@
 //!   → landmarks (optional) → fit + weight → apply clip (optional) → model.glb
 //! ```
 
+mod body_fit;
 pub mod canon;
 mod export;
 mod fetch;
@@ -43,7 +44,7 @@ pub struct BindOptions {
     pub clips: Vec<String>,
     /// Override pack directory (otherwise [`resolve_pack`]).
     pub pack_dir: Option<PathBuf>,
-    /// Fit and weight only — write a skinned T-pose, no animation.
+    /// Fit and weight only — preserve the input pose, no animation.
     pub fit_only: bool,
     /// Re-fit even when the mesh already carries a rig, discarding its pose.
     pub refit: bool,
@@ -117,7 +118,7 @@ pub fn bind_mesh(
     export::bind_and_write(mesh_glb, &clips, out_glb)
 }
 
-/// Fit + weight a T-pose mesh. No animation is written.
+/// Fit + weight a standing A- or T-pose mesh. No animation is written.
 pub fn fit_mesh(
     mesh_glb: &Path,
     out_glb: &Path,
@@ -904,19 +905,23 @@ mod tests {
     /// A standing figure the landmark fit can read: torso, head, arms, legs.
     fn humanoid_glb() -> Vec<u8> {
         let mut v: Vec<Vec3> = Vec::new();
+        let mut surfaces = Vec::new();
         let ring = |v: &mut Vec<Vec3>, y: f32, r: f32| {
             for i in 0..16 {
                 let a = i as f32 * std::f32::consts::TAU / 16.0;
                 v.push(Vec3::new(r * a.cos(), y, 0.6 * r * a.sin()));
             }
         };
+        surfaces.push((v.len(), 24, 16));
         for i in 0..24 {
             ring(&mut v, 0.2 + i as f32 * 0.058, 0.12);
         }
+        surfaces.push((v.len(), 8, 16));
         for i in 0..8 {
             ring(&mut v, 1.56 + i as f32 * 0.03, 0.09);
         }
         for s in [-1.0f32, 1.0] {
+            surfaces.push((v.len(), 14, 6));
             for i in 0..14 {
                 let x = s * (0.13 + i as f32 * 0.045);
                 for k in 0..6 {
@@ -924,6 +929,7 @@ mod tests {
                     v.push(Vec3::new(x, 1.4 + 0.05 * a.cos(), 0.05 * a.sin()));
                 }
             }
+            surfaces.push((v.len(), 16, 6));
             for i in 0..16 {
                 let y = i as f32 * 0.0125;
                 for k in 0..6 {
@@ -932,11 +938,28 @@ mod tests {
                 }
             }
         }
-        mesh_glb(&v)
+        // Connect each stack of rings into a closed surface. Sequential point
+        // triples made disconnected ring caps, falsely classifying the middle
+        // of the torso as outside once the fitter placed joints there.
+        let mut indices = Vec::new();
+        for (start, rings, sides) in surfaces {
+            for r in 0..rings - 1 {
+                for k in 0..sides {
+                    let a = start + r * sides + k;
+                    let b = start + r * sides + (k + 1) % sides;
+                    indices.extend([a, b, a + sides, b, b + sides, a + sides].map(|i| i as u32));
+                }
+            }
+            for base in [start, start + (rings - 1) * sides] {
+                for k in 1..sides - 1 {
+                    indices.extend([base, base + k, base + k + 1].map(|i| i as u32));
+                }
+            }
+        }
+        mesh_glb(&v, &indices)
     }
 
-    /// Points as a GLB: one primitive, triangles fanned so the fit has faces.
-    fn mesh_glb(v: &[Vec3]) -> Vec<u8> {
+    fn mesh_glb(v: &[Vec3], idx: &[u32]) -> Vec<u8> {
         let mut bin: Vec<u8> = Vec::new();
         let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
         for p in v {
@@ -947,9 +970,8 @@ mod tests {
             }
         }
         let pos_len = bin.len();
-        let idx: Vec<u32> = (0..v.len() as u32).collect();
         let idx_off = bin.len();
-        for i in &idx {
+        for i in idx {
             bin.extend_from_slice(&i.to_le_bytes());
         }
         let idx_len = bin.len() - idx_off;

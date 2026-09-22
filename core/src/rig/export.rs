@@ -294,10 +294,12 @@ fn load_mesh_inputs(
 fn pose_armature(mesh_glb: &Path) -> Result<(Armature, FittedPose), BindError> {
     let (mesh_doc, mesh_buffers, source) = load_mesh_inputs(mesh_glb)?;
     let baked = bake_mesh(&mesh_doc, &mesh_buffers)?;
-    let landmarks = mesh_landmarks(&baked.positions_flat()).map_err(BindError::Failed)?;
+    let positions = baked.positions_flat();
+    let mut landmarks = mesh_landmarks(&positions).map_err(BindError::Failed)?;
+    super::body_fit::refine_arms(&positions, &mut landmarks);
     let mut arm = canon::armature();
     let rest_before = arm.clone();
-    skeleton::fit(&mut arm, &landmarks);
+    skeleton::fit(&mut arm, &landmarks, &positions);
     // Auto-fit must hand back a pose Bind will accept. Landmarks are centroids
     // of bands, so a sleeve or a pauldron can put a shoulder outside the body,
     // and Bind then refuses the fit the author just asked for.

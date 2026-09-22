@@ -29,22 +29,22 @@ One model carries N animations, the way Mixamo and Meshy work, rather than
 one export per clip. Bake is declarative: the file ends up with exactly the
 clips you named or ticked. Unticking (or omitting) a clip removes it.
 
-## Why T-pose
+## A-pose and T-pose
 
-Use the [humanoid](@/docs/guides/cli-usage.md#templates) template when you
-want a figure the auto-fit can read. It asks for the pose first and the
-character second, because the pose is what the rig is measured against.
+Auto-fit supports standing humanoids with arms extended horizontally (T-pose)
+or angled down and clear of the torso (A-pose). The
+[humanoid](@/docs/guides/cli-usage.md#templates) template still requests T-pose
+because the limbs are easier to distinguish.
 
-The shipped skeleton's rest pose is a true T-pose, so a rigged mesh and
-the clip library agree and clips apply at zero offset. Auto-fit also
-reads T-pose proportions — a T-pose is about as wide as it is tall — to
-place the skeleton. An A-posed mesh narrows that span enough to throw the
-fit off entirely, not just soften it.
+The embedded skeleton and Quaternius clips use a T-pose reference. Auto-fit
+arranges that skeleton to the input mesh; Bind preserves the mesh's resting
+pose, and animation moves it from there. You do not need to regenerate a
+character merely because its arms are lowered.
 
-**Prompting for it is not a guarantee.** Lead with the pose, keep the arms
-clear of the torso and the legs apart, and avoid coats, capes and long
-hair that close those gaps. If a character comes out A-posed, regenerate
-it rather than rigging it.
+Keep arms clear of the torso and legs apart. Coats, capes, long hair, bent
+elbows, or hands touching the body can make the estimate ambiguous. Review
+shoulders, elbows, wrists, neck, and hips from the front and side before
+binding, and adjust markers where needed.
 
 ## Desktop app
 
@@ -80,7 +80,7 @@ asset-tap bind --mesh model.glb --clip walk
 # Several clips on one model
 asset-tap bind --mesh model.glb --clip walk --clip Sword_Attack --clip Idle_Loop
 
-# Skinned T-pose, no animation
+# Skinned input pose, no animation
 asset-tap bind --mesh model.glb --fit-only
 ```
 

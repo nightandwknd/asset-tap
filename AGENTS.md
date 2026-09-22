@@ -56,9 +56,9 @@ Rules an agent should follow:
   Bevy, Unity, Unreal, and every web target. There is no FBX stage and no
   Blender dependency; `--fbx`, `--no-fbx`, `--convert-fbx` and `--convert-only`
   are usage errors (exit 2), not silently-ignored flags.
-- **Humanoid rig and animation:** `--rig --clip walk` after a
-  T-pose mesh (`-t humanoid`) is fit + bind + bake in one flag.
-  `asset-tap bind --mesh model.glb --fit-only` writes a skinned T-pose;
+- **Humanoid rig and animation:** `--rig --clip walk` after a standing
+  A- or T-posed mesh (`-t humanoid`) is fit + bind + bake in one flag.
+  `asset-tap bind --mesh model.glb --fit-only` writes a skinned input pose;
   `--clip walk` bakes that clip. **`--clip` repeats on both paths** (`bind`
   and the root `--rig`) — one model carries N animations, as Mixamo and Meshy
   do, rather than one export per clip.
