@@ -1199,25 +1199,25 @@ rigging needs nothing downloaded. Packs only add clips.</p>
 <p>One model carries N animations, the way Mixamo and Meshy work, rather than
 one export per clip. Bake is declarative: the file ends up with exactly the
 clips you named or ticked. Unticking (or omitting) a clip removes it.</p>
-<h2 id="why-t-pose">Why T-pose<a class="zola-anchor" href="#why-t-pose" aria-label="Anchor link for: why-t-pose">
+<h2 id="a-pose-and-t-pose">A-pose and T-pose<a class="zola-anchor" href="#a-pose-and-t-pose" aria-label="Anchor link for: a-pose-and-t-pose">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
   </span>
 </a>
 </h2>
-<p>Use the <a href="https://assettap.dev/docs/guides/cli-usage/#templates">humanoid</a> template when you
-want a figure the auto-fit can read. It asks for the pose first and the
-character second, because the pose is what the rig is measured against.</p>
-<p>The shipped skeleton's rest pose is a true T-pose, so a rigged mesh and
-the clip library agree and clips apply at zero offset. Auto-fit also
-reads T-pose proportions — a T-pose is about as wide as it is tall — to
-place the skeleton. An A-posed mesh narrows that span enough to throw the
-fit off entirely, not just soften it.</p>
-<p><strong>Prompting for it is not a guarantee.</strong> Lead with the pose, keep the arms
-clear of the torso and the legs apart, and avoid coats, capes and long
-hair that close those gaps. If a character comes out A-posed, regenerate
-it rather than rigging it.</p>
+<p>Auto-fit supports standing humanoids with arms extended horizontally (T-pose)
+or angled down and clear of the torso (A-pose). The
+<a href="https://assettap.dev/docs/guides/cli-usage/#templates">humanoid</a> template still requests T-pose
+because the limbs are easier to distinguish.</p>
+<p>The embedded skeleton and Quaternius clips use a T-pose reference. Auto-fit
+arranges that skeleton to the input mesh; Bind preserves the mesh's resting
+pose, and animation moves it from there. You do not need to regenerate a
+character merely because its arms are lowered.</p>
+<p>Keep arms clear of the torso and legs apart. Coats, capes, long hair, bent
+elbows, or hands touching the body can make the estimate ambiguous. Review
+shoulders, elbows, wrists, neck, and hips from the front and side before
+binding, and adjust markers where needed.</p>
 <h2 id="desktop-app">Desktop app<a class="zola-anchor" href="#desktop-app" aria-label="Anchor link for: desktop-app">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1260,7 +1260,7 @@ Switching clips does not rewrite <code>model.glb</code> until Bake.</p>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Several clips on one model</span></span>
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> walk</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Sword_Attack</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-clip</span><span class="z-l-2 z-d-6"> Idle_Loop</span></span>
 <span class="giallo-l"></span>
-<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Skinned T-pose, no animation</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Skinned input pose, no animation</span></span>
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-2 z-d-6"> bind</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-mesh</span><span class="z-l-2 z-d-6"> model.glb</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-fit-only</span></span></code></pre>
 <p><code>--clip</code> repeats on both <code>--rig</code> and <code>bind</code>. Re-running <code>bind</code> on an
 already-rigged mesh keeps its skeleton and weights, so adding a clip cannot
@@ -1475,8 +1475,8 @@ dropped, and baking again restores them once the pack is back. See
     
     <li class="docs-toc-item docs-toc-level-2">
       
-      <a href="https://assettap.dev/docs/guides/animation/#why-t-pose">
-        Why T-pose
+      <a href="https://assettap.dev/docs/guides/animation/#a-pose-and-t-pose">
+        A-pose and T-pose
       </a>
       
     </li>
