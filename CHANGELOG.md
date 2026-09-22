@@ -2,6 +2,26 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.9.9 — 2026-09-22
+
+### Bug Fixes
+
+- **rig:** the spine, clavicles and toes land on the body ([#96](https://github.com/nightandwknd/asset-tap/pull/96))
+
+  Auto-fit placed the spine and chest on the front surface of a character
+  rather than inside it, and the clavicles could sit forward of the body at
+  chin height. The skeleton now reads each joint's depth from the torso's
+  own front and back surfaces, so it lands between them on A-posed and
+  T-posed characters alike.
+
+  Toe joints sat under the ankle instead of reaching the toes, so a foot
+  never rolled. They now land at the ball of the foot, whichever way a
+  character faces.
+
+  The 3D viewer rebuilt the entire mesh on every frame of clip playback,
+  filling the log with warnings. Playback updates only the vertex positions
+  it needs to.
+
 ## v26.9.8 — 2026-09-21
 
 ### Features
