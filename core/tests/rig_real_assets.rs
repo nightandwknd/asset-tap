@@ -443,3 +443,195 @@ fn adding_a_clip_keeps_a_hand_arranged_pose() {
         "{name}: --refit should return to the auto-fit"
     );
 }
+
+/// Where a named joint's head sits in the fitted rest pose.
+fn rest_heads(model: &Path) -> std::collections::HashMap<String, glam::Vec3> {
+    let markers = seed_bind_markers(model).expect("seed markers");
+    markers
+        .into_iter()
+        .map(|m| (m.name, glam::Vec3::from(m.world)))
+        .collect()
+}
+
+/// Every mesh vertex of a GLB, in world space.
+fn world_positions(path: &Path) -> Vec<glam::Vec3> {
+    let bytes = std::fs::read(path).expect("read glb");
+    let gltf = gltf::Gltf::from_slice_without_validation(&bytes).expect("parse glb");
+    let blob = gltf.blob.as_deref().expect("embedded buffer");
+    let mut worlds = vec![glam::Mat4::IDENTITY; gltf.nodes().count()];
+    fn visit(node: gltf::Node<'_>, parent: glam::Mat4, worlds: &mut [glam::Mat4]) {
+        let world = parent * glam::Mat4::from_cols_array_2d(&node.transform().matrix());
+        worlds[node.index()] = world;
+        for child in node.children() {
+            visit(child, world, worlds);
+        }
+    }
+    for scene in gltf.scenes() {
+        for node in scene.nodes() {
+            visit(node, glam::Mat4::IDENTITY, &mut worlds);
+        }
+    }
+    let mut out = Vec::new();
+    for mesh in gltf.meshes() {
+        let world = gltf
+            .nodes()
+            .find(|n| n.mesh().is_some_and(|m| m.index() == mesh.index()))
+            .map(|n| worlds[n.index()])
+            .unwrap_or(glam::Mat4::IDENTITY);
+        for prim in mesh.primitives() {
+            let reader = prim.reader(|_| Some(blob));
+            if let Some(points) = reader.read_positions() {
+                out.extend(points.map(|p| world.transform_point3(glam::Vec3::from_array(p))));
+            }
+        }
+    }
+    out
+}
+
+/// Torso joints must sit *between* the two skins, not on one of them.
+///
+/// The depth estimator reads a lateral slice that is bimodal — back skin,
+/// hollow, front skin — and unevenly sampled, because detailing and garment
+/// fronts tessellate the chest while the back stays coarse. Taking an inner
+/// quantile of that put `chest` at 0.87 of the depth extent on a real A-posed
+/// character. `torso_depth_survives_a_front_heavy_mesh` guards the estimator on
+/// a synthetic body; this is the same contract against real generated meshes.
+#[test]
+fn fitted_torso_joints_sit_inside_the_body() {
+    let Some(fixtures) = fixtures_or_skip("fitted_torso_joints_sit_inside_the_body") else {
+        return;
+    };
+
+    let mut checked = 0;
+    for src in fixtures {
+        let name = src.file_name().unwrap().to_string_lossy().into_owned();
+        let points = world_positions(&src);
+        let Some(up) = asset_tap_core::rig::mesh_landmarks(&points)
+            .ok()
+            .map(|lm| lm.up)
+        else {
+            eprintln!("{name}: no landmarks; skipping");
+            continue;
+        };
+        let side = if up == 0 { 1 } else { 0 };
+        let depth = 3 - up - side;
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for p in &points {
+            lo = lo.min(p[depth]);
+            hi = hi.max(p[depth]);
+        }
+        if hi - lo < 1e-6 {
+            continue;
+        }
+        let heads = rest_heads(&src);
+        for joint in ["spine", "chest", "upperChest", "neck", "head"] {
+            let Some(h) = heads.get(joint) else { continue };
+            let frac = (h[depth] - lo) / (hi - lo);
+            assert!(
+                (0.5 - TORSO_DEPTH_TOLERANCE..=0.5 + TORSO_DEPTH_TOLERANCE).contains(&frac),
+                "{name}: {joint} at {frac:.2} of the depth extent — on a skin, not between them"
+            );
+        }
+        // Clavicles are mirrored, so a depth disagreement between them means
+        // the estimator followed vertex density rather than the two surfaces.
+        if let (Some(l), Some(r)) = (heads.get("leftShoulder"), heads.get("rightShoulder")) {
+            let spread = (l[depth] - r[depth]).abs() / (hi - lo);
+            assert!(
+                spread < CLAVICLE_DEPTH_SPREAD,
+                "{name}: clavicles disagree on depth by {spread:.3} of the extent"
+            );
+        }
+        checked += 1;
+    }
+    assert!(
+        checked > 0,
+        "no fixture yielded landmarks; the torso fit went unchecked"
+    );
+}
+
+/// How far from mid-depth a torso joint may sit, as a fraction of the mesh's
+/// depth extent. Generous: this catches a joint pinned to the front or back
+/// skin (~0.9 / ~0.1), not ordinary anatomical lean.
+const TORSO_DEPTH_TOLERANCE: f32 = 0.25;
+
+/// Mirrored clavicles should agree on depth to within this fraction.
+///
+/// Ten of the eleven characters measured sit at or below 0.010 — the estimator
+/// is symmetric when the mesh is. The outlier reaches 0.116 because the mesh
+/// itself is not: at clavicle height one shoulder carries 174 vertices spanning
+/// 0.29 of the depth while the other has 60 spanning 0.20, so each side reads a
+/// genuinely different surface. This bound passes that and still catches a
+/// systematic left/right divergence.
+const CLAVICLE_DEPTH_SPREAD: f32 = 0.15;
+
+/// The toe joint belongs at the ball of the foot, ahead of the ankle.
+///
+/// It used to be the centroid of the whole lowest-5% band — heel, arch and toes
+/// averaged — which parks it under the ankle where it drives nothing when the
+/// foot rolls. The forward *direction* is read from the mesh: `fwd` is only an
+/// axis, and a GLB may face either way down it.
+#[test]
+fn fitted_toes_lead_the_ankle() {
+    let Some(fixtures) = fixtures_or_skip("fitted_toes_lead_the_ankle") else {
+        return;
+    };
+
+    let mut checked = 0;
+    for src in fixtures {
+        let name = src.file_name().unwrap().to_string_lossy().into_owned();
+        let points = world_positions(&src);
+        let Ok(lm) = asset_tap_core::rig::mesh_landmarks(&points) else {
+            eprintln!("{name}: no landmarks; skipping");
+            continue;
+        };
+        let up = lm.up;
+        let side = if up == 0 { 1 } else { 0 };
+        let depth = 3 - up - side;
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for p in &points {
+            lo = lo.min(p[up]);
+            hi = hi.max(p[up]);
+        }
+        let height = hi - lo;
+        if height < 1e-6 {
+            continue;
+        }
+        // Only a standing figure has a toe to find: a bust or a mesh wider than
+        // it is tall is out of scope for the fitter, not a failure of it.
+        let mut span = 0.0f32;
+        for p in &points {
+            span = span.max((p[side] - lm.hips[side]).abs());
+        }
+        if span * 2.0 / height > 1.4 {
+            eprintln!(
+                "{name}: not a standing figure (span/height {:.2}); skipping",
+                span * 2.0 / height
+            );
+            continue;
+        }
+        let heads = rest_heads(&src);
+        for (toes, foot) in [("leftToes", "leftFoot"), ("rightToes", "rightFoot")] {
+            let (Some(t), Some(f)) = (heads.get(toes), heads.get(foot)) else {
+                continue;
+            };
+            // Signed along the mesh's own forward, whichever way that points.
+            let lead = (t[depth] - f[depth]).abs() / height;
+            assert!(
+                lead > MIN_TOE_LEAD,
+                "{name}: {toes} only {lead:.3} of height from the ankle — still under it"
+            );
+            assert!(t[up] <= f[up] + 1e-3, "{name}: {toes} sits above the ankle");
+            checked += 1;
+        }
+    }
+    // Every fixture skipping would pass this test having verified nothing.
+    assert!(
+        checked > 0,
+        "no fixture was a standing figure; the toe fit went unchecked"
+    );
+}
+
+/// A toe joint must clear the ankle by at least this fraction of body height.
+/// Measured across nine standing characters the real figure is 0.065–0.098; a
+/// toe left at the whole-foot centroid lands well under this.
+const MIN_TOE_LEAD: f32 = 0.03;

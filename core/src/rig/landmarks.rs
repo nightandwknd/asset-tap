@@ -138,14 +138,39 @@ pub fn mesh_landmarks(positions: &[Vec3]) -> Result<Landmarks, String> {
     let toes_r = band(0.00, 0.05, &|p| p[side] < -0.08 * side_span);
     let toe_l = centroid(&toes_l).unwrap_or(ankle_l);
     let toe_r = centroid(&toes_r).unwrap_or(ankle_r);
-    let tip = |toes: &[Vec3], mid: Vec3| {
+    // Which way the toes point. `fwd` is only an *axis* — `3 - up - side` says
+    // nothing about its sign, and a GLB may face either way down it. Take the
+    // end of the foot furthest from the ankle: that is the toe, the heel being
+    // the near one. Assuming -fwd put the "tip" in the heel on a +z-facing
+    // character, which is the wrong end of the foot by its whole length.
+    let toe_dir = |toes: &[Vec3], ankle: Vec3| {
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for p in toes {
+            lo = lo.min(p[fwd]);
+            hi = hi.max(p[fwd]);
+        }
+        if (hi - ankle[fwd]).abs() >= (lo - ankle[fwd]).abs() {
+            1.0
+        } else {
+            -1.0
+        }
+    };
+    // The ball of the foot, not the front edge: the toe joint is where the toes
+    // bend. Taking the leading quartile's centroid lands there rather than on
+    // the fingertip-equivalent tip.
+    let tip = |toes: &[Vec3], mid: Vec3, ankle: Vec3| {
         if toes.is_empty() {
             return mid;
         }
-        let mut ys: Vec<f32> = toes.iter().map(|p| p[fwd]).collect();
+        let sign = toe_dir(toes, ankle);
+        let mut ys: Vec<f32> = toes.iter().map(|p| sign * p[fwd]).collect();
         ys.sort_by(f32::total_cmp);
-        let cut = ys[ys.len() / 4];
-        let front: Vec<Vec3> = toes.iter().copied().filter(|p| p[fwd] <= cut).collect();
+        let cut = ys[ys.len() * 3 / 4];
+        let front: Vec<Vec3> = toes
+            .iter()
+            .copied()
+            .filter(|p| sign * p[fwd] >= cut)
+            .collect();
         centroid(&front).unwrap_or(mid)
     };
 
@@ -162,8 +187,8 @@ pub fn mesh_landmarks(positions: &[Vec3]) -> Result<Landmarks, String> {
         ankle_r,
         toe_l,
         toe_r,
-        toe_tip_l: tip(&toes_l, toe_l),
-        toe_tip_r: tip(&toes_r, toe_r),
+        toe_tip_l: tip(&toes_l, toe_l, ankle_l),
+        toe_tip_r: tip(&toes_r, toe_r, ankle_r),
         up,
     })
 }
@@ -278,6 +303,67 @@ mod tests {
             vs.push(Vec3::new(xsign * 0.12, 0.02, -0.08));
         }
         vs
+    }
+
+    /// A standing figure whose feet point along `sign * z`, so the same body
+    /// can be read facing either way down the forward axis.
+    fn figure_facing(sign: f32) -> Vec<Vec3> {
+        let mut vs = Vec::new();
+        for y in 0..24 {
+            let h = 0.2 + y as f32 * 0.058;
+            for i in 0..16 {
+                let a = i as f32 * std::f32::consts::TAU / 16.0;
+                vs.push(Vec3::new(0.12 * a.cos(), h, 0.08 * a.sin()));
+            }
+        }
+        for y in 0..8 {
+            let h = 1.60 + y as f32 * 0.03;
+            for i in 0..12 {
+                let a = i as f32 * std::f32::consts::TAU / 12.0;
+                vs.push(Vec3::new(0.08 * a.cos(), h, 0.08 * a.sin()));
+            }
+        }
+        for xsign in [-1.0f32, 1.0] {
+            for i in 0..12 {
+                vs.push(Vec3::new(xsign * (0.15 + i as f32 * 0.03), 1.40, 0.0));
+            }
+            for y in 0..14 {
+                vs.push(Vec3::new(xsign * 0.12, y as f32 * 0.045, 0.0));
+            }
+            // Foot: heel just behind the ankle, toes well in front of it.
+            for i in 0..12 {
+                let z = sign * (-0.05 + i as f32 * 0.02);
+                vs.push(Vec3::new(xsign * 0.12, 0.01, z));
+                vs.push(Vec3::new(xsign * 0.09, 0.01, z));
+                vs.push(Vec3::new(xsign * 0.15, 0.01, z));
+            }
+        }
+        vs
+    }
+
+    /// `fwd` is an axis, not a direction. Reading the toes as the -fwd end put
+    /// the joint in the heel on any mesh that faces +fwd.
+    #[test]
+    fn toe_tips_lead_the_ankle_whichever_way_the_mesh_faces() {
+        for sign in [1.0f32, -1.0] {
+            let lm = mesh_landmarks(&figure_facing(sign)).expect("landmarks");
+            for (tip, ankle, side) in [
+                (lm.toe_tip_l, lm.ankle_l, "left"),
+                (lm.toe_tip_r, lm.ankle_r, "right"),
+            ] {
+                let lead = sign * (tip[2] - ankle[2]);
+                assert!(
+                    lead > 0.0,
+                    "sign {sign}: {side} toe tip fell behind the ankle (lead {lead})"
+                );
+                // Ahead of the ankle, but short of the frontmost vertex: the
+                // ball of the foot, not the tip of the shoe.
+                assert!(
+                    lead < 0.19,
+                    "sign {sign}: {side} toe tip overshot the foot (lead {lead})"
+                );
+            }
+        }
     }
 
     #[test]

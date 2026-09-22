@@ -47,21 +47,40 @@ pack's own bone names are a lookup at the edges (`BoneScheme`). The rest
 pose is embedded as parent-local TRS, so **Rig and Bind work with nothing
 downloaded** — a pack adds animations, never bones.
 
-**That rest pose is a true T-pose, and everything assumes it.** The
-shoulder-to-hand vector measures `(0.547, 0.0, ~0)` — 0.00 degrees off
-horizontal. It comes from the Universal Animation Library's own rest
-pose, so a bound mesh and the clip library share one rest and clips
-apply at zero rotational offset; an A-posed mesh binds at a constant
-offset against every clip.
+**The reference rest pose remains a true T-pose.** Auto-fit supports standing
+A- and T-posed meshes without replacing the canonical skeleton. The initial
+landmarks establish the body scale and lower body. `body_fit.rs` estimates
+arm direction from lateral surface slices, locates wrists inward from the
+fingertips, and places the torso and clavicles against local mesh depth.
+Clavicles must not inherit the reference skeleton's forward offset: that
+placed them at chin height and in front of the mesh on an A-posed character.
+An arm profile outside the supported standing-pose range retains the existing
+band estimate rather than replacing it with an unfitted reference arm.
 
-The fit assumes those proportions outright: `landmarks.rs` picks the up
-axis knowing "a T-pose has an arm span within a few percent of its
-height", and `export.rs` scales on width. An A-pose narrows the span to
-roughly 0.75x — the shrink `landmarks.rs` guards against — and a wrong
-up axis sends the fitter hunting for a head partway along the arm span.
-This is why `templates/humanoid.yaml` leads with the pose. Keep the
-reasoning here; [the animation guide](../../site/content/docs/guides/animation.md)
-carries only what a user needs.
+**Take that depth from the slice's extrema, never an inner quantile.** A
+torso slice is bimodal — a back skin and a front skin with the body's hollow
+between them — and the two are rarely sampled evenly, because detailing and
+garment fronts tessellate the chest while the back stays coarse. Where the
+front carries ~90% of the slice, a 0.1 quantile falls _inside the front
+cluster_ and the quantile midpoint lands on the front skin; that put `chest`
+at 0.87 of the depth extent on an A-posed character while `spine` (below the
+armpit) and `neck` (above the shoulder) stayed correct. The outermost samples
+are the two surfaces by construction, whatever the density between them.
+`torso_depth_survives_a_front_heavy_mesh` is the guard.
+
+The fitted rest follows the input pose. Inverse bind matrices preserve that
+mesh at rest; the pack's rotation tracks can then move an A-posed bind into
+the library's T-pose. Do not add the fitted arm declination to those absolute
+rotation tracks: that would preserve an unwanted angular offset. Translation
+keys still retarget to the fitted proportions, and pack scale tracks are
+removed. Validate both rest preservation and the animated arm direction.
+
+The width-limited skeleton shown when Rig first opens is only a starting
+layout. Auto-fit uses the mesh geometry and is shared by the GUI and CLI.
+T-pose remains the generated template's preferred input; lowered arms with
+clear separation from the torso are supported too. Bent or occluded limbs
+can need manual correction. See the
+[animation guide](../../site/content/docs/guides/animation.md).
 
 VRM rather than a pack's scheme: Quaternius renamed the Universal
 Animation Library's rig from Blender Rigify (`DEF-hips`, `DEF-spine.001`)
