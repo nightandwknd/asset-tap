@@ -2,6 +2,26 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.10.1 — 2026-10-04
+
+### Bug Fixes
+
+- **gui:** the 3D view stays out of the console, and dropdowns fit their lists ([#98](https://github.com/nightandwknd/asset-tap/pull/98))
+
+  Dragging the console up no longer leaves the 3D view painted over it.
+  The view shrinks to the space left, and the buttons below it stay in
+  reach.
+
+  The model, provider, template, history and parameter dropdowns size to
+  their list again. A dropdown that had opened on a shorter list kept that
+  height and scrolled through the rest.
+
+### Chores
+
+- **deps:** bump the rust-dependencies group with 2 updates ([#97](https://github.com/nightandwknd/asset-tap/pull/97))
+
+- **deps:** bump the rust-dependencies group with 2 updates ([#99](https://github.com/nightandwknd/asset-tap/pull/99))
+
 ## v26.9.9 — 2026-09-22
 
 ### Bug Fixes
