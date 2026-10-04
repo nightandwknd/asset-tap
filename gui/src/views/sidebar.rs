@@ -44,7 +44,9 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
         let template_row = ui.add_enabled_ui(!has_existing_image, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Template:");
-                egui::ComboBox::from_id_salt("template_selector")
+                // Salted with the list length so egui drops the cached popup size when
+                // the list changes, as `bundle_info`'s bundle selector does.
+                egui::ComboBox::from_id_salt(("template_selector", app.available_templates.len()))
                     .selected_text(app.template.as_deref().unwrap_or("None"))
                     .show_ui(ui, |ui| {
                         if ui
@@ -156,54 +158,57 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                 };
 
                 ui.label(egui::RichText::new("History:").size(12.0).weak());
-                egui::ComboBox::from_id_salt("prompt_history")
-                    .selected_text(history_text)
-                    .width(ui.available_width() - 10.0)
-                    .show_ui(ui, |ui| {
-                        if app.app_state.prompt_history.is_empty() {
-                            ui.label(
-                                egui::RichText::new("Generate something to build history")
-                                    .weak()
-                                    .italics(),
-                            );
-                        } else {
-                            for entry in app.app_state.prompt_history.iter() {
-                                // Truncate long prompts for display
-                                let display_prompt = if entry.prompt.chars().count() > 50 {
-                                    let truncated: String = entry.prompt.chars().take(47).collect();
-                                    format!("{truncated}...")
-                                } else {
-                                    entry.prompt.clone()
-                                };
+                egui::ComboBox::from_id_salt((
+                    "prompt_history",
+                    app.app_state.prompt_history.len(),
+                ))
+                .selected_text(history_text)
+                .width(ui.available_width() - 10.0)
+                .show_ui(ui, |ui| {
+                    if app.app_state.prompt_history.is_empty() {
+                        ui.label(
+                            egui::RichText::new("Generate something to build history")
+                                .weak()
+                                .italics(),
+                        );
+                    } else {
+                        for entry in app.app_state.prompt_history.iter() {
+                            // Truncate long prompts for display
+                            let display_prompt = if entry.prompt.chars().count() > 50 {
+                                let truncated: String = entry.prompt.chars().take(47).collect();
+                                format!("{truncated}...")
+                            } else {
+                                entry.prompt.clone()
+                            };
 
-                                // Add template indicator if present
-                                let display = if let Some(ref template) = entry.template {
-                                    format!("{} [{}]", display_prompt, template)
-                                } else {
-                                    display_prompt
-                                };
+                            // Add template indicator if present
+                            let display = if let Some(ref template) = entry.template {
+                                format!("{} [{}]", display_prompt, template)
+                            } else {
+                                display_prompt
+                            };
 
-                                if ui.add(egui::Button::selectable(false, display)).clicked() {
-                                    app.prompt = entry.prompt.clone();
-                                    app.template = entry.template.clone();
-                                }
-                            }
-
-                            // Clear history option
-                            if !app.app_state.prompt_history.is_empty() {
-                                ui.separator();
-                                if ui
-                                    .add(egui::Button::selectable(
-                                        false,
-                                        format!("{} Clear history", icons::X),
-                                    ))
-                                    .clicked()
-                                {
-                                    app.show_clear_history_confirmation = true;
-                                }
+                            if ui.add(egui::Button::selectable(false, display)).clicked() {
+                                app.prompt = entry.prompt.clone();
+                                app.template = entry.template.clone();
                             }
                         }
-                    });
+
+                        // Clear history option
+                        if !app.app_state.prompt_history.is_empty() {
+                            ui.separator();
+                            if ui
+                                .add(egui::Button::selectable(
+                                    false,
+                                    format!("{} Clear history", icons::X),
+                                ))
+                                .clicked()
+                            {
+                                app.show_clear_history_confirmation = true;
+                            }
+                        }
+                    }
+                });
             });
         });
 
@@ -541,23 +546,26 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         .unwrap_or(&app.image_provider);
 
                     ui.label("Provider:");
-                    egui::ComboBox::from_id_salt("image_provider_selector")
-                        .selected_text(current_image_provider)
-                        .show_ui(ui, |ui| {
-                            for provider in &image_provider_list {
-                                let provider_id = provider.id();
-                                if ui
-                                    .add(egui::Button::selectable(
-                                        app.image_provider == provider_id,
-                                        provider.name(),
-                                    ))
-                                    .on_hover_text(provider.metadata().description.clone())
-                                    .clicked()
-                                {
-                                    app.image_provider = provider_id.to_string();
-                                }
+                    egui::ComboBox::from_id_salt((
+                        "image_provider_selector",
+                        image_provider_list.len(),
+                    ))
+                    .selected_text(current_image_provider)
+                    .show_ui(ui, |ui| {
+                        for provider in &image_provider_list {
+                            let provider_id = provider.id();
+                            if ui
+                                .add(egui::Button::selectable(
+                                    app.image_provider == provider_id,
+                                    provider.name(),
+                                ))
+                                .on_hover_text(provider.metadata().description.clone())
+                                .clicked()
+                            {
+                                app.image_provider = provider_id.to_string();
                             }
-                        });
+                        }
+                    });
                     ui.end_row();
 
                     // Image model selector
@@ -576,7 +584,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                             image_models.iter().find(|m| m.id == app.image_model);
 
                         ui.label("Model:");
-                        egui::ComboBox::from_id_salt("image_model_selector")
+                        egui::ComboBox::from_id_salt(("image_model_selector", image_models.len()))
                             .selected_text(
                                 current_image_model
                                     .map(|m| format_model_display_name(&m.name, &m.id))
@@ -670,23 +678,26 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                         .unwrap_or(&app.model_3d_provider);
 
                     ui.label("Provider:");
-                    egui::ComboBox::from_id_salt("3d_provider_selector")
-                        .selected_text(current_3d_provider)
-                        .show_ui(ui, |ui| {
-                            for provider in &model_3d_provider_list {
-                                let provider_id = provider.id();
-                                if ui
-                                    .add(egui::Button::selectable(
-                                        app.model_3d_provider == provider_id,
-                                        provider.name(),
-                                    ))
-                                    .on_hover_text(provider.metadata().description.clone())
-                                    .clicked()
-                                {
-                                    app.model_3d_provider = provider_id.to_string();
-                                }
+                    egui::ComboBox::from_id_salt((
+                        "3d_provider_selector",
+                        model_3d_provider_list.len(),
+                    ))
+                    .selected_text(current_3d_provider)
+                    .show_ui(ui, |ui| {
+                        for provider in &model_3d_provider_list {
+                            let provider_id = provider.id();
+                            if ui
+                                .add(egui::Button::selectable(
+                                    app.model_3d_provider == provider_id,
+                                    provider.name(),
+                                ))
+                                .on_hover_text(provider.metadata().description.clone())
+                                .clicked()
+                            {
+                                app.model_3d_provider = provider_id.to_string();
                             }
-                        });
+                        }
+                    });
                     ui.end_row();
 
                     // 3D model selector
@@ -707,7 +718,7 @@ pub fn render(app: &mut App, ui: &mut egui::Ui) {
                             model_3d_models.iter().find(|m| m.id == app.model_3d);
 
                         ui.label("Model:");
-                        egui::ComboBox::from_id_salt("3d_model_selector")
+                        egui::ComboBox::from_id_salt(("3d_model_selector", model_3d_models.len()))
                             .selected_text(
                                 current_3d_model
                                     .map(|m| format_model_display_name(&m.name, &m.id))
@@ -1432,7 +1443,10 @@ fn render_parameter_widget(
             let mut selected_str = current_str.clone();
 
             ui.label(&param.label);
-            let combo = egui::ComboBox::from_id_salt(&param.name).selected_text(&selected_str);
+            let item_count =
+                param.options.as_ref().map_or(0, Vec::len) + usize::from(param.allow_unset);
+            let combo = egui::ComboBox::from_id_salt((&param.name, item_count))
+                .selected_text(&selected_str);
             let response = combo.show_ui(ui, |ui| {
                 // Every entry writes one of `options`, so a dropdown can't
                 // express "no value" without this. Parameters that are mutually

@@ -1371,12 +1371,16 @@ impl ModelViewer {
     ///
     /// `viewport_left` and `viewport_bottom` are the pixel offsets of the
     /// callback rect within the framebuffer (from left/bottom edges).
+    /// `clip` is egui's clip rect as `(left, bottom, width, height)` pixels:
+    /// the blit is scissored to it so the viewer never paints over a
+    /// neighbouring panel when its rect overflows the central panel.
     fn render_direct(
         &mut self,
         width: u32,
         height: u32,
         viewport_left: i32,
         viewport_bottom: i32,
+        clip: (i32, i32, i32, i32),
         egui_fbo: Option<glow::Framebuffer>,
     ) {
         let context = match self.context.as_ref() {
@@ -1534,7 +1538,9 @@ impl ModelViewer {
         unsafe {
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, src_fbo);
             gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, egui_fbo);
-            gl.disable(glow::SCISSOR_TEST);
+            // three-d leaves its own scissor box behind; restore egui's clip.
+            gl.enable(glow::SCISSOR_TEST);
+            gl.scissor(clip.0, clip.1, clip.2, clip.3);
             gl.blit_framebuffer(
                 0,
                 0,
@@ -1547,7 +1553,6 @@ impl ModelViewer {
                 glow::COLOR_BUFFER_BIT,
                 glow::NEAREST,
             );
-            gl.enable(glow::SCISSOR_TEST);
             // Clean up the FBO (not the textures — those are owned by OffscreenTargets)
             if let Some(fbo) = src_fbo {
                 gl.delete_framebuffer(fbo);
@@ -1578,8 +1583,21 @@ impl ModelViewer {
                 return;
             }
 
+            let clip = info.clip_rect_in_pixels();
             let egui_fbo = painter.intermediate_fbo();
-            viewer.render_direct(width, height, vp.left_px, vp.from_bottom_px, egui_fbo);
+            viewer.render_direct(
+                width,
+                height,
+                vp.left_px,
+                vp.from_bottom_px,
+                (
+                    clip.left_px,
+                    clip.from_bottom_px,
+                    clip.width_px,
+                    clip.height_px,
+                ),
+                egui_fbo,
+            );
         });
 
         egui::PaintCallback {
