@@ -445,12 +445,13 @@ fn render_model_preview(app: &mut App, ui: &mut egui::Ui, available: egui::Vec2)
 
             ui.add_space(8.0);
 
-            // Calculate available space for the 3D viewer
-            // Account for the controls above (~60px) and buttons below (~80px)
+            // Calculate available space for the 3D viewer, leaving ~80px for
+            // the action buttons below. No height floor: a dragged-up console
+            // shrinks the viewer rather than pushing it past the panel.
             let viewer_available = ui.available_size();
             let preview_size = egui::vec2(
                 (viewer_available.x - 20.0).max(200.0),
-                (viewer_available.y - 80.0).max(200.0),
+                (viewer_available.y - 80.0).max(0.0),
             );
 
             // Center the 3D viewer horizontally
