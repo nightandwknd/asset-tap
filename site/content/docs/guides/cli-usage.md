@@ -34,14 +34,15 @@ irm https://assettap.dev/install.ps1 | iex
 
 ## API Key Configuration
 
-The CLI needs an API key from at least one provider -- [fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai/settings/api). A single key unlocks the full pipeline. There are two ways to configure keys:
+The CLI needs an API key from at least one provider -- [fal.ai](https://fal.ai/dashboard/keys), [Meshy](https://www.meshy.ai/settings/api), or [Tripo](https://platform.tripo3d.ai). A single key unlocks the full pipeline. There are two ways to configure keys:
 
 **Option 1: Environment variable** (recommended for CLI)
 
 ```bash
-# Pick one (or both); Asset Tap uses whichever provider owns the model you select.
+# Pick any; Asset Tap uses whichever provider owns the model you select.
 export FAL_KEY=your_fal_key
 export MESHY_API_KEY=your_meshy_key
+export TRIPO_API_KEY=your_tripo_key
 ```
 
 Add these to your shell profile (`~/.zshrc`, `~/.bashrc`) to persist across sessions.
@@ -77,6 +78,9 @@ asset-tap -p meshy --image-model meshy/nano-banana-pro --3d-model meshy/v6/image
 
 # Budget tier on Meshy (meshy-6-lite, 2-4x cheaper)
 asset-tap -p meshy --3d-model meshy/v6-lite/image-to-3d "a simple cube"
+
+# Low-poly on Tripo from an image you already have (requires TRIPO_API_KEY)
+asset-tap --image concept.png --3d-model tripo/p1/image-to-model --param face_limit=5000
 ```
 
 > **Tip:** If you omit `-p/--provider`, Asset Tap routes the request to whichever provider owns the model you pick. `--3d-model fal-ai/trellis-2` goes to fal.ai; `--3d-model meshy/v6/image-to-3d` goes to Meshy. Set the provider explicitly only when you're not specifying a model.
@@ -200,7 +204,8 @@ That covers a blip, not a sustained overload: if you are batching, the fix is
 to submit fewer jobs at once. Meshy publishes no documented safe parallelism
 for its generation endpoints, so run Meshy jobs sequentially -- one prompt at a
 time -- rather than fanning out and relying on the retry loop to absorb the
-rejections.
+rejections. Tripo documents per-account limits: 10 concurrent v3.1 jobs, 5 P1
+jobs, and 1 text-to-image job; a full slot answers with a 429.
 
 ## Scripts and Non-Interactive Use
 

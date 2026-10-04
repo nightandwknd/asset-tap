@@ -16,14 +16,15 @@ Asset Tap uses a data-driven provider system where AI providers are defined enti
 
 ## Included Providers
 
-Asset Tap ships with pre-configured support for two providers. You only need an API key for one of them to run the full pipeline.
+Asset Tap ships with pre-configured support for three providers. You only need an API key for one of them to run the full pipeline.
 
-Asset Tap is not tied to either service: the provider layer is a compatibility surface, support for more providers is coming, and anyone can [add their own](#adding-custom-providers) with a YAML file.
+Asset Tap is not tied to any one service: the provider layer is a compatibility surface, support for more providers is coming, and anyone can [add their own](#adding-custom-providers) with a YAML file.
 
 Model tables follow one ordering everywhere: model families ascend (older/lower tier first, newest last) and appear in the same order under every provider that carries them; specialized and provider-exclusive models follow their family; each provider's default is marked inline. The tables compare like-for-like at a glance.
 
 - **[fal.ai](https://fal.ai)** -- Pay-per-generation pricing, broadest model selection.
 - **[Meshy AI](https://www.meshy.ai)** -- Subscription-based, credit pool; specialized in 3D.
+- **[Tripo3D](https://www.tripo3d.ai)** -- Subscription-based, credit pool; specialized in 3D, including low-poly.
 
 ### fal.ai
 
@@ -80,12 +81,41 @@ Version-specific knobs, per Meshy's own docs: v6 and v7 add `texture_resolution`
 
 > **Why two ways to reach Meshy?** The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a `FAL_KEY`. The Meshy provider's entry uses Meshy's subscription credits and requires a `MESHY_API_KEY`. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.
 
+### Tripo3D
+
+Native Tripo v3 API. Requires `TRIPO_API_KEY` from the [Tripo console](https://platform.tripo3d.ai) (API Keys page).
+
+#### Text-to-Image Models
+
+| Model                                                                             | `--image-model`         | Description                            |
+| --------------------------------------------------------------------------------- | ----------------------- | -------------------------------------- |
+| [Seedream v4](https://developers.tripo3d.ai/en/docs/generation-text-to-image)     | `tripo/seedream-v4`     | Balanced quality _(default)_           |
+| [Seedream v5](https://developers.tripo3d.ai/en/docs/generation-text-to-image)     | `tripo/seedream-v5`     | Stronger prompt following              |
+| [Nano Banana Pro](https://developers.tripo3d.ai/en/docs/generation-text-to-image) | `tripo/nano-banana-pro` | Higher quality; tunable `aspect_ratio` |
+| [GPT Image 2](https://developers.tripo3d.ai/en/docs/generation-text-to-image)     | `tripo/gpt-image-2`     | Tunable `quality` (low/medium/high)    |
+
+Tripo runs one image task at a time per account by default.
+
+#### Image-to-3D Models
+
+| Model                                                                                  | `--3d-model`                | Description                                       |
+| -------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| [Tripo v3.1](https://developers.tripo3d.ai/en/docs/generation-image-to-model/standard) | `tripo/v3.1/image-to-model` | Latest H-series model, highest detail _(default)_ |
+| [Tripo P1](https://developers.tripo3d.ai/en/docs/generation-image-to-model/p)          | `tripo/p1/image-to-model`   | Low-poly with clean topology, 50-20,000 faces     |
+
+Tunable parameters (both): `texture`, `pbr`, `texture_quality` (standard/detailed/extreme), `texture_version`, `delight` (needs `texture_version=v3.5-20260815`), `texture_alignment`, `orientation`, `face_limit`, `enable_image_autofix`, `auto_size`, `export_uv`, `model_seed`, `texture_seed`. v3.1 adds `geometry_quality` (`detailed` is Ultra) and `smart_low_poly`. PBR forces texture on, so turning texture off needs `pbr=false` too.
+
+Not exposed: `quad` (Tripo switches the output to FBX), `compress` (meshopt geometry), `generate_parts`, and `export_orientation`.
+
+> **Canceling a Tripo run.** Tripo's API has no cancel endpoint. Canceling in Asset Tap stops waiting for the result, but the task keeps running on Tripo's side and is billed if it succeeds.
+
 ### Pricing Models
 
 | Provider | Billing      | How it works                                                                |
 | -------- | ------------ | --------------------------------------------------------------------------- |
 | fal.ai   | Pay-per-call | Charged per generation at the model's listed cost; no monthly minimum.      |
 | Meshy AI | Subscription | Monthly plan grants a credit pool; each generation deducts credits from it. |
+| Tripo3D  | Subscription | Monthly plan grants a credit pool; credits are refunded for failed tasks.   |
 
 Per-generation costs are set by the providers and change without notice; check their pricing pages against your own key.
 
@@ -195,6 +225,15 @@ response:
     # Meshy uses DELETE for its cancel endpoint.
     cancel_method: DELETE
     cancel_url_template: '${status_url}'
+
+    # Optional: the provider's own status vocabulary. Defaults are fal's
+    # IN_QUEUE / IN_PROGRESS. Tripo uses queued / running, reports a 0-100
+    # percentage, nests its failure message, and has no cancel endpoint.
+    queued_value: 'queued'
+    running_value: 'running'
+    progress_field: 'data.progress'
+    error_field: 'data.error_message'
+    cancelable: false
 ```
 
 `status_url_template` supports nested paths (`${data.id}`) and array indices (`${items[0]}`). Relative paths are resolved against `base_url`.
@@ -333,6 +372,11 @@ text_to_image: # or image_to_3d
         max_attempts: integer
         cancel_method: string # Optional: HTTP method for cancel (default PUT)
         cancel_url_template: string # Optional: template using ${status_url}
+        cancelable: boolean # Optional: false if there is no cancel endpoint (default true)
+        queued_value: string | string[] # Optional: queued status(es) (default IN_QUEUE)
+        running_value: string | string[] # Optional: running status(es) (default IN_PROGRESS)
+        progress_field: string # Optional: 0-100 percentage
+        error_field: string # Optional: failure message (default top-level `error`)
     parameters: [] # Optional: user-tunable fields (see below)
 ```
 

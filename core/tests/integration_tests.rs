@@ -15,6 +15,25 @@ use asset_tap_core::{
 };
 use std::path::PathBuf;
 
+/// Every shipped provider YAML, relative to the repo root, so a new provider
+/// is covered by the contract tests without being listed by hand.
+fn provider_yaml_paths() -> Vec<String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../providers");
+    let mut paths: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("reading {}: {}", dir.display(), e))
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            name.ends_with(".yaml").then(|| format!("providers/{name}"))
+        })
+        .collect();
+    paths.sort();
+    assert!(
+        paths.len() >= 3,
+        "expected fal-ai, meshy and tripo: {paths:?}"
+    );
+    paths
+}
+
 // =============================================================================
 // Pipeline Configuration Tests
 // =============================================================================
@@ -677,8 +696,8 @@ fn every_declared_parameter_exists_in_request_body() {
     }
 
     let mut missing = Vec::new();
-    for path in ["providers/fal-ai.yaml", "providers/meshy.yaml"] {
-        let config = load(path);
+    for path in provider_yaml_paths() {
+        let config = load(&path);
         let provider_id = config.provider.id.clone();
         for model in config.text_to_image.iter().chain(config.image_to_3d.iter()) {
             check_model(&provider_id, model, &mut missing);
@@ -748,8 +767,8 @@ fn parameter_defaults_match_request_body_templates() {
     }
 
     let mut drift = Vec::new();
-    for path in ["providers/fal-ai.yaml", "providers/meshy.yaml"] {
-        let config = load(path);
+    for path in provider_yaml_paths() {
+        let config = load(&path);
         let provider_id = config.provider.id.clone();
         for model in config.text_to_image.iter().chain(config.image_to_3d.iter()) {
             check_model(&provider_id, model, &mut drift);

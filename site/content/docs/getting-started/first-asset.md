@@ -20,10 +20,11 @@ Install first if you haven't: [Installation](@/docs/getting-started/installation
 
 Asset Tap works in two steps: first it generates an image from your text prompt (text-to-image), then it converts that image into a 3D model (image-to-3D). You'll need an API key from at least one provider that supports these models.
 
-**Included providers** -- pick either one (a single key unlocks the full pipeline):
+**Included providers** -- pick any one (a single key unlocks the full pipeline):
 
 - [fal.ai](https://fal.ai) -- [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
 - [Meshy AI](https://www.meshy.ai) -- [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
+- [Tripo3D](https://www.tripo3d.ai) -- [Get API Key](https://platform.tripo3d.ai). Subscription + credits.
 
 You can also [configure your own providers](@/docs/guides/providers.md#adding-custom-providers) with YAML configuration files.
 
