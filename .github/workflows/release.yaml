@@ -67,9 +67,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
+      # Same key in ci.yaml and release.yaml so PRs restore main's build.
+      # RUST_BACKTRACE differs between the two and is left out of the hash.
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-macos-${{ matrix.target }}
+          key: macos-${{ matrix.target }}
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUSTC RUSTFLAGS RUSTDOCFLAGS
 
       - name: Stamp version
         run: sed -i.bak 's/^version = ".*"/version = "${{ needs.version.outputs.new_version }}"/' Cargo.toml
