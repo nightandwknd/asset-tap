@@ -96,13 +96,13 @@ Only static models defined in provider YAML files are available in mock mode.
 
 **Adding a provider YAML is all it takes — there is no mock code to write.**
 
-`core/src/api/mock/config_driven.rs` reads the same `PollingConfig` the HTTP client reads and builds the exact response the client is about to ask for: it populates the fields `status_url_template` interpolates, sets `status_check_field` to `success_value`, and writes the artifact URL at `result_field` — inside `response_envelope_field` and behind `response_url_field` when those are declared. Path expressions (`images[0].url`, `model_urls.glb`) are written by the inverse of the client's field extraction, so any shape the client can read is a shape the mock can produce.
+`core/src/api/mock/config_driven.rs` reads the same `PollingConfig` the HTTP client reads and builds the exact response the client is about to ask for: it populates the fields `status_url_template` interpolates, sets `status_check_field` to `success_value`, and writes the artifact URL at `result_field` — inside `response_envelope_field` and behind `response_url_field` when those are declared. A provider's own `upload:` endpoint is mounted too, answering with the sample image URL at `file_url_field`. Task ids carry the stage (`image-…`, `model3d-…`), so a provider whose stages share one poll URL (Tripo's `/v3/tasks/{id}`) still reaches the right handler. Path expressions (`images[0].url`, `model_urls.glb`) are written by the inverse of the client's field extraction, so any shape the client can read is a shape the mock can produce.
 
 These handlers mount at wiremock priority 1, ahead of the fal-shaped catch-alls in `generic_handlers.rs`, which remain as a fallback for non-polling response types and for tests that POST to arbitrary paths.
 
 This supersedes the `MOCK_SUPPORTED_PROVIDERS` allowlist, which registered only `fal.ai` in mock mode because the fal-shaped handlers 404'd anything with a different contract — Meshy returns a bare `{"result": "<id>"}` task id, polls a URL from `status_url_template`, and puts results at `image_urls[0]` with no envelope.
 
-`test_every_provider_runs_in_mock_mode` in `core/tests/pipeline_execution_tests.rs` runs a full pipeline for every registered provider. A new provider whose shape the synthesizer can't build fails that test rather than silently vanishing from mock mode.
+`test_every_provider_runs_in_mock_mode` in `core/tests/pipeline_execution_tests.rs` runs every registered provider: the full pipeline when it offers both capabilities, otherwise the stage it declares. A new provider whose shape the synthesizer can't build fails that test rather than silently vanishing from mock mode.
 
 **Scope.** The mock is derived from the same YAML that drives the client, so it cannot catch a YAML that misdescribes the real API — a wrong `result_field` is wrong in both halves and still passes. Mock mode verifies config parsing, model registration, request bodies and parameter injection, the polling loop, upload/data-URI selection, artifact download, and bundle writing. Confirm response-field extraction against the real API once per provider.
 

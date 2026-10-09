@@ -473,6 +473,43 @@ pub struct PollingConfig {
     )]
     pub failure_value: Vec<String>,
 
+    /// Status values meaning "waiting in a queue". Defaults to fal.ai's
+    /// `IN_QUEUE` when unset. Same scalar-or-list shape as `failure_value`.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_one_or_many",
+        serialize_with = "serialize_one_or_many",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub queued_value: Vec<String>,
+
+    /// Status values meaning "running". Defaults to fal.ai's `IN_PROGRESS`
+    /// when unset. Only these emit "Processing..." progress; other non-terminal
+    /// statuses are polled silently.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_one_or_many",
+        serialize_with = "serialize_one_or_many",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub running_value: Vec<String>,
+
+    /// Optional field holding a 0–100 completion percentage, shown on the
+    /// "Processing..." progress message while the job runs.
+    #[serde(default)]
+    pub progress_field: Option<String>,
+
+    /// Optional field holding the failure message when the status is a
+    /// `failure_value`. Falls back to a top-level `error` string, then the
+    /// status itself.
+    #[serde(default)]
+    pub error_field: Option<String>,
+
+    /// Whether the provider can cancel a running job. When false, no cancel
+    /// request is sent on user cancel, poll timeout, or poll failure.
+    #[serde(default = "default_cancelable")]
+    pub cancelable: bool,
+
     /// Optional field in the status response containing the URL to fetch the actual result.
     /// When set, the result is fetched from this URL instead of extracting it from the status response.
     /// Used by queue-based APIs (e.g., fal.ai) where the status endpoint and result endpoint differ.
@@ -514,6 +551,43 @@ fn default_poll_interval() -> u64 {
 
 fn default_max_attempts() -> u32 {
     polling::DEFAULT_MAX_ATTEMPTS
+}
+
+fn default_cancelable() -> bool {
+    true
+}
+
+/// fal.ai's queue vocabulary, used when a config declares no status lists.
+const DEFAULT_QUEUED_VALUE: &str = "IN_QUEUE";
+const DEFAULT_RUNNING_VALUE: &str = "IN_PROGRESS";
+
+impl PollingConfig {
+    /// Whether `status` means the job is waiting in a queue.
+    pub fn is_queued(&self, status: &str) -> bool {
+        matches_or_default(&self.queued_value, DEFAULT_QUEUED_VALUE, status)
+    }
+
+    /// Whether `status` means the job is running.
+    pub fn is_running(&self, status: &str) -> bool {
+        matches_or_default(&self.running_value, DEFAULT_RUNNING_VALUE, status)
+    }
+
+    /// A status the client reads as running: the first declared, else the
+    /// default. Used by mock mode to report a job in progress.
+    pub fn running_status(&self) -> &str {
+        self.running_value
+            .first()
+            .map(String::as_str)
+            .unwrap_or(DEFAULT_RUNNING_VALUE)
+    }
+}
+
+fn matches_or_default(values: &[String], default: &str, status: &str) -> bool {
+    if values.is_empty() {
+        status == default
+    } else {
+        values.iter().any(|v| v == status)
+    }
 }
 
 impl ProviderConfig {

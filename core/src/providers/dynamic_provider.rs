@@ -56,8 +56,15 @@ fn model_not_found(
 /// Convert an anyhow error from http_client into a structured Error.
 ///
 /// If the anyhow wraps an [`HttpError`], creates a full [`crate::types::ApiError`] with
-/// structured fields (URL, status code, method). Otherwise falls back to `Error::Api(String)`.
+/// structured fields (URL, status code, method). A wrapped [`crate::types::Error`]
+/// passes through unchanged, so a cancel raised while polling stays
+/// `Error::Cancelled` (`--json` reports `canceled`, exit 5) instead of becoming
+/// an untyped `unknown` error. Anything else falls back to `Error::Api(String)`.
 fn convert_http_error(e: anyhow::Error, provider_name: &str) -> crate::types::Error {
+    let e = match e.downcast::<crate::types::Error>() {
+        Ok(typed) => return typed,
+        Err(e) => e,
+    };
     match e.downcast::<HttpError>() {
         Ok(http_err) => {
             let provider = crate::types::ApiProvider::new(provider_name);
@@ -931,6 +938,18 @@ mod tests {
     }
 
     #[test]
+    fn convert_http_error_keeps_cancellation_typed() {
+        // The poll loop returns `Error::Cancelled` through anyhow when the user
+        // cancels. Flattening it to `Error::Api(String)` made `--json` report
+        // `kind: unknown`, exit 1, instead of `canceled`, exit 5.
+        let err = convert_http_error(crate::types::Error::Cancelled.into(), "Test");
+        assert!(err.is_cancellation(), "got {err:?}");
+
+        let wrapped = anyhow::Error::from(crate::types::Error::Cancelled).context("polling");
+        assert!(convert_http_error(wrapped, "Test").is_cancellation());
+    }
+
+    #[test]
     fn test_convert_http_error_non_http_fallback() {
         // When the anyhow error does NOT contain an HttpError, falls back to Error::Api(String)
         let anyhow_err = anyhow::anyhow!("some random error");
@@ -1052,6 +1071,11 @@ mod tests {
                         poll_query_params: None,
                         cancel_url_template: None,
                         cancel_method: None,
+                        queued_value: vec![],
+                        running_value: vec![],
+                        progress_field: None,
+                        error_field: None,
+                        cancelable: true,
                         result_field: "model_url".to_string(),
                         interval_ms: 10,
                         max_attempts: 5,

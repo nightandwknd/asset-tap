@@ -326,6 +326,37 @@ fn test_unique_timestamped_path_disambiguates_collisions() {
     assert_eq!(third_name, format!("{}-2", first_name));
 }
 
+/// Parallel runs (`asset-tap ... &` several times) start in the same second and
+/// race for the same name. Each must still get its own directory: checking
+/// for a free name and then creating it let every process pick the same one
+/// and write into a single bundle.
+#[test]
+fn test_parallel_generation_dirs_are_distinct() {
+    use asset_tap_core::config::create_generation_dir_in;
+    use std::sync::{Arc, Barrier};
+
+    const RUNS: usize = 16;
+    let dir = tempfile::tempdir().unwrap();
+    let base = Arc::new(dir.path().to_path_buf());
+    let barrier = Arc::new(Barrier::new(RUNS));
+
+    let handles: Vec<_> = (0..RUNS)
+        .map(|_| {
+            let (base, barrier) = (Arc::clone(&base), Arc::clone(&barrier));
+            std::thread::spawn(move || {
+                barrier.wait();
+                create_generation_dir_in(&base).unwrap()
+            })
+        })
+        .collect();
+    let mut dirs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+    dirs.sort();
+    dirs.dedup();
+    assert_eq!(dirs.len(), RUNS, "runs shared a directory: {dirs:?}");
+    assert!(dirs.iter().all(|d| d.is_dir()));
+}
+
 // =============================================================================
 // File Permissions and Error Handling Tests
 // =============================================================================
