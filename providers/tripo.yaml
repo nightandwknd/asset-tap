@@ -323,7 +323,7 @@ image_to_3d:
         default: false
       - name: 'face_limit'
         label: 'Face Limit'
-        description: 'Maximum face count (1.5M standard, 2M with Detailed geometry). Leave blank for adaptive.'
+        description: 'Maximum face count (1.5M standard, 2M with Detailed geometry). With Smart Low-Poly it is a target and can be exceeded. Leave blank for adaptive.'
         type: integer
         widget: input
         default: null

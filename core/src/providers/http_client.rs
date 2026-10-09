@@ -900,7 +900,8 @@ impl HttpProviderClient {
         };
 
         tracing::info!(
-            "Polling for result (interval: {}ms, max: {} attempts)",
+            "Polling {} (interval: {}ms, max: {} attempts)",
+            full_status_url,
             polling.interval_ms,
             polling.max_attempts
         );
@@ -1192,7 +1193,8 @@ impl HttpProviderClient {
     ) {
         if !polling.cancelable {
             tracing::warn!(
-                "Provider has no cancel endpoint; the remote job keeps running and may still be billed"
+                "Provider has no cancel endpoint; the remote job keeps running and may still be billed: {}",
+                status_url
             );
             return;
         }

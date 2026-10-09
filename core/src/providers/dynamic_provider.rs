@@ -56,8 +56,15 @@ fn model_not_found(
 /// Convert an anyhow error from http_client into a structured Error.
 ///
 /// If the anyhow wraps an [`HttpError`], creates a full [`crate::types::ApiError`] with
-/// structured fields (URL, status code, method). Otherwise falls back to `Error::Api(String)`.
+/// structured fields (URL, status code, method). A wrapped [`crate::types::Error`]
+/// passes through unchanged, so a cancel raised while polling stays
+/// `Error::Cancelled` (`--json` reports `canceled`, exit 5) instead of becoming
+/// an untyped `unknown` error. Anything else falls back to `Error::Api(String)`.
 fn convert_http_error(e: anyhow::Error, provider_name: &str) -> crate::types::Error {
+    let e = match e.downcast::<crate::types::Error>() {
+        Ok(typed) => return typed,
+        Err(e) => e,
+    };
     match e.downcast::<HttpError>() {
         Ok(http_err) => {
             let provider = crate::types::ApiProvider::new(provider_name);
@@ -928,6 +935,18 @@ mod tests {
                 other => panic!("expected InvalidModel, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn convert_http_error_keeps_cancellation_typed() {
+        // The poll loop returns `Error::Cancelled` through anyhow when the user
+        // cancels. Flattening it to `Error::Api(String)` made `--json` report
+        // `kind: unknown`, exit 1, instead of `canceled`, exit 5.
+        let err = convert_http_error(crate::types::Error::Cancelled.into(), "Test");
+        assert!(err.is_cancellation(), "got {err:?}");
+
+        let wrapped = anyhow::Error::from(crate::types::Error::Cancelled).context("polling");
+        assert!(convert_http_error(wrapped, "Test").is_cancellation());
     }
 
     #[test]
