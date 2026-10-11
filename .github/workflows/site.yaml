@@ -35,10 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Zola
         if: github.event.action != 'closed'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
           # Install Zola step in `publish` below.
@@ -49,7 +49,7 @@ jobs:
       - name: Build site
         if: github.event.action != 'closed'
         run: cd site && zola build --base-url "/pr-preview/pr-${{ github.event.number }}"
-      - uses: rossjrw/pr-preview-action@v1
+      - uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
         with:
           source-dir: site/public
 
@@ -63,9 +63,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Zola
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           # Keep in sync with ZOLA_VERSION in the Makefile and the
           # Install Zola step in `preview` above.
@@ -95,7 +95,7 @@ jobs:
             done
           fi
       - name: Deploy to gh-pages, preserving open PR previews
-        uses: JamesIves/github-pages-deploy-action@v4
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
         with:
           folder: site/public
           branch: gh-pages
