@@ -24,7 +24,7 @@
 
 use super::fixtures::MockFixtures;
 use super::server::{MockServerConfig, SimulatedFailure};
-use crate::providers::config::{ModelConfig, PollingConfig, ProviderConfig};
+use crate::providers::config::{ModelConfig, PollingConfig, ProviderConfig, UploadConfig};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -36,11 +36,6 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 /// handler takes precedence over the catch-all fallbacks in `generic_handlers`,
 /// which match every POST regardless of path.
 const PRIORITY: u8 = 1;
-
-/// Status value returned while a job is still running. Any value other than
-/// the provider's `success_value`/`failure_value` works — the client only
-/// compares against those two.
-const PENDING_STATUS: &str = "IN_PROGRESS";
 
 /// Which sample artifact a stage should hand back.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,6 +74,10 @@ pub async fn mount_provider(
     // is claimed once, so the poll counter isn't split across handlers.
     let mut mounted_submit: HashSet<(String, Artifact)> = HashSet::new();
     let mut mounted_poll: HashSet<(String, Artifact)> = HashSet::new();
+
+    if let Some(upload) = config.provider.upload.as_ref() {
+        mount_upload(server, upload, &config.provider.id, base_url).await;
+    }
 
     let models = config
         .text_to_image
@@ -130,8 +129,11 @@ async fn mount_model(
     // Where the client will poll. With `status_url_template` the provider
     // dictates the URL and we mount to match it; otherwise the client reads the
     // URL out of `status_field`, so we pick one in our own namespace.
+    //
+    // Task ids carry the artifact slug, so a provider whose stages share one
+    // poll URL (Tripo's `/v3/tasks/{id}`) still reaches the right handler.
     let poll_pattern = match polling.status_url_template.as_deref() {
-        Some(template) => template_to_regex(template),
+        Some(template) => template_to_regex(template, &format!("{}-[^/]+", artifact.slug())),
         None => format!("^/__mock/{provider_id}/{}/poll/[^/]+$", artifact.slug()),
     };
 
@@ -169,6 +171,38 @@ async fn mount_model(
             mount_result(server, polling, artifact, provider_id, base_url).await;
         }
     }
+}
+
+/// POST {upload endpoint} — accept the file and hand back where it lives.
+///
+/// The generic upload handler only answers fal's `/upload` paths with a
+/// top-level `file_url`, so a provider declaring its own endpoint and response
+/// field (Tripo's `/v3/files` → `data.file_token`) would otherwise 404. The
+/// mock hands back the sample image URL; a provider that expects an opaque
+/// token never looks inside it, and the 3D handler ignores the body.
+async fn mount_upload(
+    server: &MockServer,
+    upload: &UploadConfig,
+    provider_id: &str,
+    base_url: &str,
+) {
+    if upload.endpoint.starts_with("http://") || upload.endpoint.starts_with("https://") {
+        return;
+    }
+    let endpoint = upload
+        .endpoint
+        .split('?')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let body = upload_body(upload, provider_id, base_url);
+
+    Mock::given(method(upload.method.as_str()))
+        .and(path(endpoint))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .with_priority(PRIORITY)
+        .mount(server)
+        .await;
 }
 
 /// POST {endpoint} — accept the job and tell the client where to poll.
@@ -212,7 +246,7 @@ async fn mount_submit(
             // Each stage gets a fresh set of poll cycles.
             poll_count.store(0, Ordering::SeqCst);
 
-            let task_id = MockFixtures::request_id();
+            let task_id = format!("{}-{}", artifact.slug(), MockFixtures::request_id());
             let poll_url = format!(
                 "{base_url}/__mock/{provider_id}/{}/poll/{task_id}",
                 artifact.slug()
@@ -332,6 +366,25 @@ fn submit_body(polling: &PollingConfig, task_id: &str, poll_url: &str) -> Value 
     body
 }
 
+/// Upload response: the file's location at the declared field, plus a PUT
+/// target for two-step uploads (answered by the generic PUT catch-all).
+fn upload_body(upload: &UploadConfig, provider_id: &str, base_url: &str) -> Value {
+    let mut body = json!({});
+    set_json_path(
+        &mut body,
+        &upload.response.file_url_field,
+        json!(MockFixtures::sample_image_url(base_url)),
+    );
+    if let Some(field) = upload.response.upload_url_field.as_deref() {
+        set_json_path(
+            &mut body,
+            field,
+            json!(format!("{base_url}/__mock/{provider_id}/upload/put")),
+        );
+    }
+    body
+}
+
 /// Status response for a job that hasn't finished.
 fn pending_body(polling: &PollingConfig, poll_index: u32) -> Value {
     // Reuse the tqdm-style log lines so the GUI progress panel still exercises
@@ -341,8 +394,11 @@ fn pending_body(polling: &PollingConfig, poll_index: u32) -> Value {
     set_json_path(
         &mut body,
         &polling.status_check_field,
-        json!(PENDING_STATUS),
+        json!(polling.running_status()),
     );
+    if let Some(field) = polling.progress_field.as_deref() {
+        set_json_path(&mut body, field, json!((poll_index * 20).min(99)));
+    }
     body
 }
 
@@ -390,6 +446,9 @@ fn failed_body(polling: &PollingConfig, message: &str) -> Value {
         .map(String::as_str)
         .unwrap_or("FAILED");
     set_json_path(&mut body, &polling.status_check_field, json!(failed));
+    if let Some(field) = polling.error_field.as_deref() {
+        set_json_path(&mut body, field, json!(message));
+    }
     body
 }
 
@@ -415,8 +474,8 @@ fn template_fields(template: &str) -> Vec<String> {
 }
 
 /// Turn a poll-URL template into an anchored regex, with each `${field}`
-/// standing in for one path segment.
-fn template_to_regex(template: &str) -> String {
+/// replaced by `placeholder`.
+fn template_to_regex(template: &str, placeholder: &str) -> String {
     let mut pattern = String::from("^");
     let mut rest = template;
     while let Some(start) = rest.find("${") {
@@ -424,7 +483,7 @@ fn template_to_regex(template: &str) -> String {
         let after = &rest[start + 2..];
         match after.find('}') {
             Some(end) => {
-                pattern.push_str("[^/]+");
+                pattern.push_str(placeholder);
                 rest = &after[end + 1..];
             }
             None => {
@@ -555,12 +614,15 @@ mod tests {
     #[test]
     fn template_becomes_segment_regex() {
         assert_eq!(
-            template_to_regex("/openapi/v1/text-to-image/${result}"),
+            template_to_regex("/openapi/v1/text-to-image/${result}", "[^/]+"),
             "^/openapi/v1/text-to-image/[^/]+$"
         );
         // Regex metacharacters in the literal parts are escaped; '-' is only
         // special inside a character class, so it stays as-is above.
-        assert_eq!(template_to_regex("/v1.0/x/${id}"), r"^/v1\.0/x/[^/]+$");
+        assert_eq!(
+            template_to_regex("/v1.0/x/${id}", "image-[^/]+"),
+            r"^/v1\.0/x/image-[^/]+$"
+        );
         assert_eq!(template_fields("/x/${a}/${b.c}"), vec!["a", "b.c"]);
     }
 
@@ -608,6 +670,41 @@ mod tests {
         assert_eq!(result["response"]["images"][0]["url"], "http://x/img.png");
     }
 
+    /// Tripo: upload answers at its own path with a nested token field, and
+    /// status/progress/error all live under `data`.
+    #[test]
+    fn builds_nested_upload_and_status_bodies() {
+        let upload: UploadConfig = serde_yaml_ng::from_str(
+            "endpoint: '/v3/files'\n\
+             request: { type: multipart, file_field: file }\n\
+             response: { file_url_field: 'data.file_token' }\n",
+        )
+        .expect("valid upload config");
+        let body = upload_body(&upload, "tripo", "http://x");
+        assert!(body["data"]["file_token"].is_string(), "{body}");
+
+        let cfg = polling(
+            "status_url_template: '/v3/tasks/${data.task_id}'\n\
+             status_check_field: 'data.status'\n\
+             success_value: 'success'\n\
+             failure_value: ['failed', 'banned']\n\
+             running_value: 'running'\n\
+             progress_field: 'data.progress'\n\
+             error_field: 'data.error_message'\n\
+             result_field: 'data.output.model_url'\n",
+        );
+        assert_eq!(
+            submit_body(&cfg, "task-1", "unused"),
+            json!({ "data": { "task_id": "task-1" } })
+        );
+        let pending = pending_body(&cfg, 2);
+        assert_eq!(pending["data"]["status"], "running");
+        assert_eq!(pending["data"]["progress"], 40);
+        let failed = failed_body(&cfg, "boom");
+        assert_eq!(failed["data"]["status"], "failed");
+        assert_eq!(failed["data"]["error_message"], "boom");
+    }
+
     #[test]
     fn pending_and_failed_use_the_declared_status_field() {
         let cfg = polling(
@@ -617,7 +714,7 @@ mod tests {
              failure_value: 'FAILED'\n\
              result_field: 'out'\n",
         );
-        assert_eq!(pending_body(&cfg, 0)["state"], PENDING_STATUS);
+        assert_eq!(pending_body(&cfg, 0)["state"], cfg.running_status());
         assert_eq!(failed_body(&cfg, "boom")["state"], "FAILED");
     }
 }

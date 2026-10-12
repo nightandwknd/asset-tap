@@ -211,6 +211,7 @@ Parity is not blind equality — the test encodes **verified** asymmetries, each
 - Some providers (e.g. Meshy) return only a task id on task creation (`{"result": "<id>"}`) rather than a full status URL.
 - Set `status_url_template` on `PollingConfig` to build the poll URL from the initial response. Supports `${field}`, `${field.nested}`, `${array[0]}` substitution.
 - Fal uses the simpler path — `status_field` is already a full URL. Leave `status_url_template` unset.
+- Status vocabulary beyond fal's defaults is declared, not coded: `queued_value`/`running_value` (progress events), `progress_field` (percentage), `error_field` (failure message), and `cancelable: false` for a provider with no cancel endpoint. Tripo ([providers/tripo.yaml](providers/tripo.yaml)) uses all of them.
 
 ### Rig and Animation
 
@@ -416,7 +417,7 @@ Mock mode redirects all requests to a local `wiremock` server. **Every provider 
 
 It verifies that YAML parses, models register, request bodies and parameters are built, the polling loop runs, and bundles are written — but because the mock is derived from the same YAML that drives the client, it **cannot** validate provider-specific response parsing (a wrong `result_field` is wrong in both halves and still passes). To confirm response field extraction, use the real API once per provider.
 
-`test_every_provider_runs_in_mock_mode` in [core/tests/pipeline_execution_tests.rs](core/tests/pipeline_execution_tests.rs) runs a full pipeline for every registered provider, so a new provider whose shape can't be synthesized fails a test instead of silently disappearing.
+`test_every_provider_runs_in_mock_mode` in [core/tests/pipeline_execution_tests.rs](core/tests/pipeline_execution_tests.rs) runs every registered provider (the full pipeline, or the one stage a single-capability provider declares), so a new provider whose shape can't be synthesized fails a test instead of silently disappearing.
 
 ### Code Style
 

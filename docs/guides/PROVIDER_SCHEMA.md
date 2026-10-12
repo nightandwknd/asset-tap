@@ -216,7 +216,7 @@ The provider applies its own server-side default in every case. Never send a lit
 
 ### Cross-Provider Parity
 
-When the same underlying model is served by multiple providers (e.g. Meshy v6 via both `fal-ai/meshy/v6/image-to-3d` and `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of which provider is selected. YAML sequences can't be merged with `<<:` anchors, so this is a hand-sync contract. A drift-catcher test in [core/tests/integration_tests.rs](../../core/tests/integration_tests.rs) fails CI if the surfaces diverge.
+When the same underlying model is served by multiple providers (e.g. Meshy v6 via both `fal-ai/meshy/v6/image-to-3d` and `meshy/v6/image-to-3d`), keep the `parameters:` lists in sync so users see identical knobs regardless of which provider is selected. YAML sequences can't be merged with `<<:` anchors, so this is a hand-sync contract. (Within one file, anchor each parameter on its own and list the aliases per model, as [providers/tripo.yaml](../../providers/tripo.yaml) does for its two image-to-3D models; that shares the knobs without needing identical lists.) A drift-catcher test in [core/tests/integration_tests.rs](../../core/tests/integration_tests.rs) fails CI if the surfaces diverge.
 
 ### Persistence
 
@@ -349,6 +349,11 @@ response:
     poll_query_params: '?logs=1' # (Optional) Query params appended to poll URL
     cancel_url_template: '${status_url}/cancel' # (Optional) Cancel URL built from ${status_url}
     cancel_method: PUT # (Optional) HTTP method for cancel; defaults to PUT, use DELETE for REST-style
+    cancelable: true # (Optional) false when the provider has no cancel endpoint
+    queued_value: 'IN_QUEUE' # (Optional) Queued status(es): string or list; defaults to IN_QUEUE
+    running_value: 'IN_PROGRESS' # (Optional) Running status(es): string or list; defaults to IN_PROGRESS
+    progress_field: 'progress' # (Optional) 0-100 percentage shown while running
+    error_field: 'error.message' # (Optional) Failure message; defaults to a top-level `error` string
 ```
 
 **Polling workflow:**
@@ -371,6 +376,22 @@ the motivating case: it documents `PENDING`, `IN_PROGRESS`, `SUCCEEDED`,
 `FAILED` and `CANCELED`, and without `failure_value: ['FAILED', 'CANCELED']` a
 task canceled server-side would look like it was still running. List every
 terminal non-success status.
+
+**`queued_value` / `running_value`** (optional) — the provider's non-terminal
+status names, each a string or a list. They default to fal.ai's `IN_QUEUE` and
+`IN_PROGRESS`. Only matching statuses emit Queued and "Processing..." progress
+events; any other non-terminal status still polls, silently. With
+`progress_field` set, the running message carries the percentage
+(`Processing... 42%`).
+
+**`error_field`** (optional) — path to the failure message when the status is a
+`failure_value`. Without it the message comes from a top-level `error` string,
+or the status itself (Tripo's `data.error_message` would otherwise surface only
+as `failed`).
+
+**`cancelable`** (optional, default `true`) — set `false` for a provider with no
+cancel endpoint (Tripo). Otherwise a user cancel, poll timeout, or poll failure
+sends a request to the cancel URL, which for such a provider can only fail.
 
 **`status_url_template`** (optional) — for providers that return only a task id
 instead of a full status URL (e.g. Meshy's `{"result": "<task-id>"}`). When set,

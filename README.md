@@ -39,7 +39,7 @@ Installs `asset-tap.exe` and the `atap` alias to `%LOCALAPPDATA%\AssetTap\bin` a
 Then:
 
 ```bash
-asset-tap auth set fal.ai        # or: asset-tap auth set meshy
+asset-tap auth set fal.ai        # or: meshy, tripo
 asset-tap "a stylized sci-fi crate"
 ```
 
@@ -99,10 +99,11 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed setup instructions.
 
 Asset Tap ships with pre-configured provider integrations. Choose one or more AI providers that offer text-to-image and image-to-3D capabilities:
 
-**Included providers.** Pick either one; a single key runs the full pipeline:
+**Included providers.** Pick any one; a single key runs the full pipeline:
 
 - [fal.ai](https://fal.ai) - [Get API Key](https://fal.ai/dashboard/keys). Pay-per-generation.
 - [Meshy AI](https://www.meshy.ai) - [Get API Key](https://www.meshy.ai/settings/api). Subscription + credits.
+- [Tripo3D](https://www.tripo3d.ai) - [Get API Key](https://platform.tripo3d.ai). Subscription + credits.
 
 You can also add your own providers by creating YAML configuration files (see provider configs in `providers/` directory).
 
@@ -219,6 +220,10 @@ output/
 | **Nano Banana 2**   | Meshy    | Meshy's mid text-to-image tier                                  |
 | **Nano Banana Pro** | Meshy    | Meshy's higher-quality text-to-image tier                       |
 | **GPT Image 2**     | Meshy    | The only Meshy model offering 3:2 and 2:3 aspect ratios         |
+| **Seedream v4**     | Tripo    | ByteDance Seedream 4, balanced quality _(default)_              |
+| **Seedream v5**     | Tripo    | ByteDance Seedream 5, stronger prompt following                 |
+| **Nano Banana Pro** | Tripo    | Higher quality with aspect ratio control                        |
+| **GPT Image 2**     | Tripo    | OpenAI GPT Image 2 with a quality tier                          |
 
 ### Image-to-3D
 
@@ -232,15 +237,17 @@ output/
 | **Meshy v6**       | Meshy    | Meshy 6, production-ready 3D with PBR textures                     |
 | **Meshy v7**       | Meshy    | Meshy 7.1, newest generation, high-resolution geometry _(default)_ |
 | **Smart Topology** | Meshy    | Meshy T2, clean topology and game-ready face counts                |
+| **Tripo v3.1**     | Tripo    | Latest H-series model, highest detail _(default)_                  |
+| **Tripo P1**       | Tripo    | Low-poly with clean topology, 50-20,000 faces                      |
 
 _(default)_ marks each provider's own default model.
 
-Models are provided by [fal.ai](https://fal.ai) and [Meshy AI](https://www.meshy.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
+Models are provided by [fal.ai](https://fal.ai), [Meshy AI](https://www.meshy.ai), and [Tripo3D](https://www.tripo3d.ai). See [Provider Documentation](docs/architecture/PROVIDERS.md) for complete details and custom provider setup.
 
 ## Requirements
 
 - **Operating System**: macOS 10.15+, Linux (glibc 2.31+), Windows 10+
-- **AI Provider**: API key from [fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai/settings/api) (one is enough)
+- **AI Provider**: API key from [fal.ai](https://fal.ai/dashboard/keys), [Meshy](https://www.meshy.ai/settings/api), or [Tripo](https://platform.tripo3d.ai) (one is enough)
 
 ## Documentation
 

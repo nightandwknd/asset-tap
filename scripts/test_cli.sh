@@ -456,6 +456,27 @@ run_test "Meshy rejects aspect_ratio alongside Multi-View" \
 run_test "Meshy accepts Multi-View alone (aspect_ratio dropped)" \
     "$CLI --mock -y --image-only -p meshy --image-model meshy/nano-banana-2 --param generate_multi_view=true 'test'" 0
 
+# Tripo exercises a provider-declared upload (a file token at data.file_token,
+# not a URL) and one poll URL shared by both stages.
+run_test "Specify provider: tripo" \
+    "$CLI --mock -y -p tripo 'test'" 0
+
+run_test "Tripo P1 accepts face_limit in range" \
+    "$CLI --mock -y -p tripo --3d-model tripo/p1/image-to-model --param face_limit=5000 'test'" 0
+
+run_test "Tripo P1 rejects face_limit below 50" \
+    "$CLI --mock -y -p tripo --3d-model tripo/p1/image-to-model --param face_limit=10 'test'" 2
+
+run_test "Tripo P1 rejects v3.1-only geometry_quality" \
+    "$CLI --mock -y -p tripo --3d-model tripo/p1/image-to-model --param geometry_quality=detailed 'test'" 2
+
+# Only the v3.5 texture model reads delight.
+run_test "Tripo rejects delight without texture_version v3.5" \
+    "$CLI --mock -y -p tripo --param delight=false 'test'" 2
+
+run_test "Tripo accepts delight with texture_version v3.5" \
+    "$CLI --mock -y -p tripo --param texture_version=v3.5-20260815 --param delight=false 'test'" 0
+
 run_test "fal nano-banana-pro accepts seed" \
     "$CLI --mock -y --image-only --image-model fal-ai/nano-banana-pro --param seed=42 'test'" 0
 

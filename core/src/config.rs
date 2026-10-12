@@ -41,10 +41,25 @@ pub fn create_generation_dir() -> Result<PathBuf, std::io::Error> {
 }
 
 /// Create a generation directory in a specific base path.
+///
+/// Each candidate is claimed with `create_dir`, which creates the directory or
+/// fails because it exists in one step. Parallel runs starting in the same
+/// second (`asset-tap ... &` four times) therefore each get their own
+/// directory; checking `exists()` first left a gap in which they all picked
+/// the same name and wrote into one bundle.
 pub fn create_generation_dir_in(base_dir: &Path) -> Result<PathBuf, std::io::Error> {
-    let dir_path = unique_timestamped_path(base_dir);
-    std::fs::create_dir_all(&dir_path)?;
-    Ok(dir_path)
+    std::fs::create_dir_all(base_dir)?;
+    for candidate in counter_suffix_candidates(base_dir.join(generate_timestamp())) {
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free timestamped directory name",
+    ))
 }
 
 /// Build a path under `base_dir` with the current timestamp as the directory
@@ -59,9 +74,9 @@ pub fn create_generation_dir_in(base_dir: &Path) -> Result<PathBuf, std::io::Err
 /// timestamped output dir name."
 ///
 /// The returned path does not exist at the moment of return, but the caller
-/// is responsible for actually creating it. There's no protection against a
-/// second process creating the same name in the gap — that's an exotic enough
-/// failure mode that a plain check-then-create is fine for our use case.
+/// is responsible for actually creating it, and another process can claim the
+/// name in between. Generation directories avoid that gap with
+/// [`create_generation_dir_in`], which claims the name atomically.
 pub fn unique_timestamped_path(base_dir: &Path) -> PathBuf {
     find_unused_with_counter_suffix(base_dir.join(generate_timestamp()))
 }
@@ -81,23 +96,22 @@ pub fn unique_timestamped_path(base_dir: &Path) -> PathBuf {
 /// caller's subsequent `create_dir_all` / `rename` either succeed (merging
 /// or overwriting) or surface the real error.
 pub fn find_unused_with_counter_suffix(base: PathBuf) -> PathBuf {
-    if !base.exists() {
-        return base;
-    }
-    // We need both the parent dir and the base filename to construct
-    // siblings. If `base` has no parent or no filename it's already a
-    // pathological input — return it unchanged and let the caller handle it.
-    let (parent, stem) = match (base.parent(), base.file_name().and_then(|n| n.to_str())) {
-        (Some(p), Some(s)) => (p, s),
-        _ => return base,
-    };
-    for i in 1..1000 {
-        let candidate = parent.join(format!("{stem}-{i}"));
-        if !candidate.exists() {
-            return candidate;
+    counter_suffix_candidates(base.clone())
+        .find(|candidate| !candidate.exists())
+        .unwrap_or(base)
+}
+
+/// `base`, then `base-1`, `base-2`, ... up to the retry cap. A `base` with no
+/// parent or no UTF-8 filename can't have siblings, so it yields only itself.
+fn counter_suffix_candidates(base: PathBuf) -> impl Iterator<Item = PathBuf> {
+    let siblings = match (base.parent(), base.file_name().and_then(|n| n.to_str())) {
+        (Some(parent), Some(stem)) => {
+            let (parent, stem) = (parent.to_path_buf(), stem.to_string());
+            Some((1..1000).map(move |i| parent.join(format!("{stem}-{i}"))))
         }
-    }
-    base
+        _ => None,
+    };
+    std::iter::once(base).chain(siblings.into_iter().flatten())
 }
 
 /// List available text-to-image models from a provider registry.

@@ -77,6 +77,7 @@ const AFTER_HELP: &str = concat!(
     "  Providers rate-limit per API key. A 429 (or 5xx) while polling is retried with\n",
     "  exponential backoff (2s doubling to a 30s cap, up to 5 consecutive failures);\n",
     "  Meshy documents no safe parallelism, so run its jobs one at a time.\n",
+    "  Tripo allows 10 concurrent v3.1 and 5 P1 jobs per account, but 1 image job.\n",
     "\n",
     "AUTHENTICATION:\n",
     "  Provider keys resolve from stored settings first, then environment variables\n",

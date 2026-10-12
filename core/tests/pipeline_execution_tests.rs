@@ -564,7 +564,8 @@ async fn test_pipeline_cancel_before_3d() {
 // Mock coverage guarantee
 // =============================================================================
 
-/// Every registered provider must complete a full pipeline in mock mode.
+/// Every registered provider must complete its stages in mock mode: the full
+/// pipeline when it offers both capabilities, otherwise the one it declares.
 ///
 /// Mock handlers are synthesized from each provider's own YAML polling contract
 /// (see `api::mock::config_driven`). Add a provider whose shape the synthesizer
@@ -586,18 +587,31 @@ async fn test_every_provider_runs_in_mock_mode() {
         let model_3d = provider.get_default_model(ProviderCapability::ImageTo3D);
 
         // A provider need not offer both capabilities; run whatever it declares.
-        let (Ok(image_model), Ok(model_3d)) = (image_model, model_3d) else {
+        let (image_model, model_3d) = (image_model.ok(), model_3d.ok());
+        if image_model.is_none() && model_3d.is_none() {
             continue;
-        };
+        }
 
         let out_dir = temp_dir.path().join(id.replace('.', "_"));
-        let config = PipelineConfig::new()
-            .with_prompt("a test asset")
-            .with_image_provider(&id)
-            .with_3d_provider(&id)
-            .with_image_model(&image_model.id)
-            .with_3d_model(&model_3d.id)
-            .with_output_dir(out_dir);
+        let mut config = PipelineConfig::new().with_output_dir(out_dir.clone());
+        config = match &image_model {
+            Some(m) => config
+                .with_prompt("a test asset")
+                .with_image_provider(&id)
+                .with_image_model(&m.id),
+            // 3D-only provider: feed it a still so its upload path runs too.
+            None => {
+                let input = temp_dir
+                    .path()
+                    .join(format!("{}-input.png", id.replace('.', "_")));
+                std::fs::write(&input, [0x89, 0x50, 0x4E, 0x47]).unwrap();
+                config.with_existing_image(input.to_string_lossy())
+            }
+        };
+        config = match &model_3d {
+            Some(m) => config.with_3d_provider(&id).with_3d_model(&m.id),
+            None => config.with_skip_3d(),
+        };
 
         let (mut progress_rx, handle, _approval_tx, _cancel_tx) = run_pipeline(config, &registry)
             .await
@@ -608,28 +622,27 @@ async fn test_every_provider_runs_in_mock_mode() {
         let output = handle
             .await
             .expect("Task should complete")
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Provider '{id}' failed in mock mode ({} / {}): {e}",
-                    image_model.id, model_3d.id
-                )
-            });
+            .unwrap_or_else(|e| panic!("Provider '{id}' failed in mock mode: {e}"));
 
-        assert!(
-            output.image_path.is_some_and(|p| p.exists()),
-            "Provider '{id}' produced no image"
-        );
-        assert!(
-            output.model_path.is_some_and(|p| p.exists()),
-            "Provider '{id}' produced no 3D model"
-        );
+        if image_model.is_some() {
+            assert!(
+                output.image_path.is_some_and(|p| p.exists()),
+                "Provider '{id}' produced no image"
+            );
+        }
+        if model_3d.is_some() {
+            assert!(
+                output.model_path.is_some_and(|p| p.exists()),
+                "Provider '{id}' produced no 3D model"
+            );
+        }
 
         exercised.push(id);
     }
 
     assert!(
-        exercised.len() >= 2,
-        "Expected at least fal.ai and meshy to run in mock mode, got {exercised:?}"
+        exercised.len() >= 3,
+        "Expected at least fal.ai, meshy and tripo to run in mock mode, got {exercised:?}"
     );
 
     cleanup_mock_env();

@@ -64,6 +64,7 @@ All `providers/*.yaml` files are automatically embedded in the binary at compile
 
 - **fal.ai** ([`providers/fal-ai.yaml`](../../providers/fal-ai.yaml)) - Text-to-image and image-to-3D models with dynamic discovery. Pay-per-call billing; uses two-step upload (`initiate_then_put`).
 - **Meshy AI** ([`providers/meshy.yaml`](../../providers/meshy.yaml)) - Native Meshy API for text-to-image and image-to-3D. Subscription + credits billing; no upload endpoint (uses data-URI inline). Exposes `status_url_template` for task-id-based polling, `cancel_method: DELETE`, and a list of extra terminal failure statuses so a task Meshy reports as `CANCELED` ends the poll as a failure instead of spinning until timeout.
+- **Tripo3D** ([`providers/tripo.yaml`](../../providers/tripo.yaml)) - Native Tripo v3 API for text-to-image (Seedream, Nano Banana Pro, GPT Image 2) and image-to-3D (v3.1, P1 low-poly). Subscription + credits billing. Multipart upload to `/v3/files` returns an opaque `file_token`, which `input` accepts in place of a URL. Every task polls `/v3/tasks/${data.task_id}`; declares its own `queued_value`/`running_value`, `progress_field`, `error_field`, and `cancelable: false` (the API documents no cancel endpoint).
 
 Each YAML file in `providers/` defines models and API configuration. Only files directly in `providers/` are embedded; removing a file excludes its provider from the binary.
 
@@ -168,7 +169,7 @@ End users see only the curated static models from provider YAML files.
 - **Cache**: `core/src/providers/discovery_cache.rs`
 - **Registry integration**: `core/src/providers/registry.rs`
 
-See [`providers/fal-ai.yaml`](../../providers/fal-ai.yaml) for a full example using `initiate_then_put` upload and queue-based polling, or [`providers/meshy.yaml`](../../providers/meshy.yaml) for the task-id polling / data-URI / DELETE-cancel pattern.
+See [`providers/fal-ai.yaml`](../../providers/fal-ai.yaml) for a full example using `initiate_then_put` upload and queue-based polling, [`providers/meshy.yaml`](../../providers/meshy.yaml) for the task-id polling / data-URI / DELETE-cancel pattern, or [`providers/tripo.yaml`](../../providers/tripo.yaml) for a multipart upload returning a file token, nested status fields, and no cancel endpoint.
 
 ### Auditing against provider schemas
 

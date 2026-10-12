@@ -49,7 +49,7 @@ Next: [CLI usage](@/docs/guides/cli-usage.md).
 ## Requirements
 
 - **OS**: macOS 10.15+ (Intel or Apple Silicon), Windows 10+, Linux (glibc 2.31+)
-- **API key**: from a supported provider ([fal.ai](https://fal.ai/dashboard/keys) or [Meshy](https://www.meshy.ai)) or one you [configure yourself](@/docs/guides/providers.md#adding-custom-providers)
+- **API key**: from a supported provider ([fal.ai](https://fal.ai/dashboard/keys), [Meshy](https://www.meshy.ai), or [Tripo](https://platform.tripo3d.ai)) or one you [configure yourself](@/docs/guides/providers.md#adding-custom-providers)
 
 ## Build from source
 

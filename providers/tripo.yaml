@@ -1,0 +1,375 @@
+# Tripo3D Provider Configuration
+# Native Tripo v3 API — text-to-image and image-to-3D
+# Reference: https://developers.tripo3d.ai/en/docs (append `.md` to any page
+# for the raw markdown). Model ids follow the per-endpoint pages, which use
+# dated ids (`v3.1-20260211`); the Models & Versions page lists undated aliases
+# (`tripo-v3.1`) that no endpoint page documents.
+
+x-tripo-auth: &tripo-auth
+  Authorization: 'Bearer ${TRIPO_API_KEY}'
+
+x-tripo-request-headers: &tripo-request-headers
+  <<: *tripo-auth
+  Content-Type: 'application/json'
+
+# Every generation endpoint returns {"code":0,"data":{"task_id":"task_..."}},
+# polled at GET /v3/tasks/{task_id}. Documented statuses: queued, running,
+# success, failed, banned (content policy), expired (outputs no longer
+# available), cancelled. Credits are frozen at creation and released on any
+# non-success outcome. There is no cancel endpoint: none of the five SDKs'
+# route table (/en/docs/sdk) has one, and `cancelled` comes from the console.
+x-tripo-polling: &tripo-polling
+  status_url_template: '/v3/tasks/${data.task_id}'
+  status_check_field: 'data.status'
+  success_value: 'success'
+  failure_value: ['failed', 'banned', 'expired', 'cancelled']
+  queued_value: 'queued'
+  running_value: 'running'
+  progress_field: 'data.progress'
+  error_field: 'data.error_message'
+  cancelable: false
+
+x-tripo-t2i-polling: &tripo-t2i-polling
+  <<: *tripo-polling
+  result_field: 'data.output.generated_image_url'
+  interval_ms: 1500
+  max_attempts: 120
+
+x-tripo-i23d-polling: &tripo-i23d-polling
+  <<: *tripo-polling
+  result_field: 'data.output.model_url'
+  # Tripo recommends polling every 1-2 seconds.
+  interval_ms: 2000
+  max_attempts: 300
+
+# Text-to-image body shared by every model. `output_format` is pinned to png:
+# image.png must hold PNG bytes, and this saves a re-encode.
+x-tripo-t2i-body: &tripo-t2i-body
+  prompt: '${prompt}'
+  output_format: 'png'
+
+# Image-to-3D body shared by the H and P series. Values mirror Tripo's
+# documented defaults; null means "omit" (Tripo's own default applies).
+#
+# Deliberately not exposed:
+#   quad              — "Enabling quad will force the output format to FBX",
+#                       which breaks the model.glb contract.
+#   compress          — meshopt-compressed geometry; our GLB reader does not
+#                       decode EXT_meshopt_compression.
+#   generate_parts    — rejected (1004) unless texture and pbr are both false.
+#   export_orientation — Tripo warns it can silently mis-orient post-processing.
+#   texture_quality: fast — only valid with texture_version v3.5; any other
+#                       texture version returns 1004 rather than falling back.
+x-tripo-i23d-body: &tripo-i23d-body
+  input: '${image_url}'
+  texture: true
+  pbr: true
+  texture_quality: 'standard'
+  texture_version: null
+  delight: true
+  texture_alignment: 'original_image'
+  orientation: 'default'
+  enable_image_autofix: false
+  auto_size: false
+  export_uv: true
+  face_limit: null
+  model_seed: null
+  texture_seed: null
+
+# Image-to-3D parameters shared by the H and P series. A YAML alias replaces a
+# whole list, so each knob is anchored on its own and listed per model.
+x-tripo-i23d-params:
+  - &tripo-texture
+    name: 'texture'
+    label: 'Texture'
+    description: 'Generate texture maps. Turning this off also needs PBR off — PBR forces texture on.'
+    type: boolean
+    default: true
+  - &tripo-pbr
+    name: 'pbr'
+    label: 'PBR'
+    description: 'Base color, metallic, roughness and normal maps. Forces Texture on.'
+    type: boolean
+    default: true
+  - &tripo-texture-quality
+    name: 'texture_quality'
+    label: 'Texture Quality'
+    description: 'Detailed is higher fidelity and slower; Extreme is 8K and costs extra credits.'
+    type: select
+    default: 'standard'
+    options: ['standard', 'detailed', 'extreme']
+  - &tripo-texture-version
+    name: 'texture_version'
+    label: 'Texture Model'
+    description: "Pin the texture model. Unset uses the geometry model's default (v3.0). v3.5 is required for Remove Lighting."
+    type: select
+    default: null
+    allow_unset: true
+    options: ['v3.5-20260815', 'v3.0-20250812']
+  - &tripo-delight
+    name: 'delight'
+    label: 'Remove Lighting'
+    description: 'Strip baked-in lighting from the image before texturing. Only the v3.5 texture model reads it.'
+    type: boolean
+    requires: { texture_version: 'v3.5-20260815' }
+    default: true
+  - &tripo-texture-alignment
+    name: 'texture_alignment'
+    label: 'Texture Alignment'
+    description: 'Match the input image colors, or the generated geometry.'
+    type: select
+    default: 'original_image'
+    options: ['original_image', 'geometry']
+  - &tripo-orientation
+    name: 'orientation'
+    label: 'Orientation'
+    description: 'Align the model to the input image viewpoint. Only applies with Texture on.'
+    type: select
+    requires: { texture: true }
+    default: 'default'
+    options: ['default', 'align_image']
+  - &tripo-image-autofix
+    name: 'enable_image_autofix'
+    label: 'Image Autofix'
+    description: 'Enhance a low-resolution or low-quality input image before generation.'
+    type: boolean
+    default: false
+  - &tripo-auto-size
+    name: 'auto_size'
+    label: 'Real-World Scale'
+    description: 'Scale the model to real-world dimensions in meters.'
+    type: boolean
+    default: false
+  - &tripo-export-uv
+    name: 'export_uv'
+    label: 'UV Unwrap'
+    description: 'Unwrap UVs during generation. Off is faster and smaller.'
+    type: boolean
+    default: true
+  - &tripo-model-seed
+    name: 'model_seed'
+    label: 'Geometry Seed'
+    description: 'Same seed and image give the same mesh. Leave blank for random.'
+    type: integer
+    widget: input
+    default: null
+  - &tripo-texture-seed
+    name: 'texture_seed'
+    label: 'Texture Seed'
+    description: 'Keep Geometry Seed fixed and vary this for new textures on the same mesh.'
+    type: integer
+    widget: input
+    default: null
+
+provider:
+  id: 'tripo'
+  name: 'Tripo3D'
+  description: 'Native Tripo API — text-to-image and image-to-3D (v3.1, P1 low-poly)'
+  env_vars: ['TRIPO_API_KEY']
+  base_url: 'https://openapi.tripo3d.ai'
+  auth_format: 'Bearer ${TRIPO_API_KEY}'
+  api_key_url: 'https://platform.tripo3d.ai'
+  website_url: 'https://www.tripo3d.ai'
+  docs_url: 'https://developers.tripo3d.ai/en/docs/quick-start'
+
+  # POST /v3/files returns {"code":0,"data":{"file_token":"file_..."}}. The
+  # token is opaque, not a URL; image-to-model's `input` accepts it directly.
+  upload:
+    endpoint: '/v3/files'
+    method: POST
+    request:
+      type: multipart
+      file_field: 'file'
+      headers:
+        <<: *tripo-auth
+    response:
+      file_url_field: 'data.file_token'
+
+text_to_image:
+  # https://developers.tripo3d.ai/en/docs/generation-text-to-image
+  # Tripo runs one image task at a time per account by default.
+  - id: 'tripo/seedream-v4'
+    name: 'Seedream v4'
+    description: "ByteDance Seedream 4 via Tripo — Tripo's default image model"
+    is_default: true
+    endpoint: '/v3/generation/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-t2i-body
+        model: 'seedream_v4'
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-t2i-polling
+
+  - id: 'tripo/seedream-v5'
+    name: 'Seedream v5'
+    description: 'ByteDance Seedream 5 via Tripo — stronger prompt following'
+    endpoint: '/v3/generation/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-t2i-body
+        model: 'seedream_v5'
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-t2i-polling
+
+  - id: 'tripo/nano-banana-pro'
+    name: 'Nano Banana Pro'
+    description: 'Google Nano Banana Pro via Tripo — higher quality'
+    endpoint: '/v3/generation/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-t2i-body
+        model: 'banana_pro'
+        aspect_ratio: '1:1'
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-t2i-polling
+    parameters:
+      # Only the banana series reads aspect_ratio; seedream and chat_image
+      # size by `size`, whose per-model values the docs don't list.
+      - name: 'aspect_ratio'
+        label: 'Aspect Ratio'
+        description: 'Output image aspect ratio'
+        type: select
+        default: '1:1'
+        options: [
+          '1:1',
+          '2:3',
+          '3:2',
+          '3:4',
+          '4:3',
+          '4:5',
+          '5:4',
+          '9:16',
+          '16:9',
+          '21:9',
+        ]
+
+  - id: 'tripo/gpt-image-2'
+    name: 'GPT Image 2'
+    description: 'OpenAI GPT Image 2 via Tripo'
+    endpoint: '/v3/generation/text-to-image'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-t2i-body
+        model: 'chat_image_2'
+        quality: 'low'
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-t2i-polling
+    parameters:
+      - name: 'quality'
+        label: 'Quality'
+        description: 'Rendering tier. Low and medium bill at the base price; high costs more and takes longer.'
+        type: select
+        default: 'low'
+        options: ['low', 'medium', 'high']
+
+image_to_3d:
+  # https://developers.tripo3d.ai/en/docs/generation-image-to-model/standard
+  - id: 'tripo/v3.1/image-to-model'
+    name: 'Tripo v3.1'
+    description: 'Tripo v3.1 — latest H-series model, highest detail'
+    is_default: true
+    endpoint: '/v3/generation/image-to-model'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-i23d-body
+        model: 'v3.1-20260211'
+        geometry_quality: 'standard'
+        smart_low_poly: false
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-i23d-polling
+    parameters:
+      - *tripo-texture
+      - *tripo-pbr
+      - *tripo-texture-quality
+      - *tripo-texture-version
+      - *tripo-delight
+      - name: 'geometry_quality'
+        label: 'Geometry Quality'
+        description: 'Detailed is Ultra mode: finer geometry detail.'
+        type: select
+        default: 'standard'
+        options: ['standard', 'detailed']
+      - *tripo-texture-alignment
+      - *tripo-orientation
+      - name: 'smart_low_poly'
+        label: 'Smart Low-Poly'
+        description: 'Hand-crafted low-poly topology (500–20,000 faces). Best for simple subjects; complex ones may fail.'
+        type: boolean
+        default: false
+      - name: 'face_limit'
+        label: 'Face Limit'
+        description: 'Maximum face count (1.5M standard, 2M with Detailed geometry). With Smart Low-Poly it is a target and can be exceeded. Leave blank for adaptive.'
+        type: integer
+        widget: input
+        default: null
+        max: 2000000
+      - *tripo-image-autofix
+      - *tripo-auto-size
+      - *tripo-export-uv
+      - *tripo-model-seed
+      - *tripo-texture-seed
+
+  # https://developers.tripo3d.ai/en/docs/generation-image-to-model/p
+  # The P series takes no geometry_quality or smart_low_poly. P2-20260801 is
+  # documented as Preview and not added.
+  - id: 'tripo/p1/image-to-model'
+    name: 'Tripo P1'
+    description: 'Tripo P1 — low-poly with clean topology, 50–20,000 faces'
+    endpoint: '/v3/generation/image-to-model'
+    method: POST
+    request:
+      headers:
+        <<: *tripo-request-headers
+      body:
+        <<: *tripo-i23d-body
+        model: 'P1-20260311'
+    response:
+      response_type: polling
+      polling:
+        <<: *tripo-i23d-polling
+    parameters:
+      - *tripo-texture
+      - *tripo-pbr
+      - *tripo-texture-quality
+      - *tripo-texture-version
+      - *tripo-delight
+      - *tripo-texture-alignment
+      - *tripo-orientation
+      - name: 'face_limit'
+        label: 'Face Limit'
+        description: 'Maximum face count. Tripo suggests at least 150 for simple models, 250 for complex. Leave blank for adaptive.'
+        type: integer
+        widget: input
+        default: null
+        min: 50
+        max: 20000
+      - *tripo-image-autofix
+      - *tripo-auto-size
+      - *tripo-export-uv
+      - *tripo-model-seed
+      - *tripo-texture-seed

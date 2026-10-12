@@ -900,7 +900,8 @@ impl HttpProviderClient {
         };
 
         tracing::info!(
-            "Polling for result (interval: {}ms, max: {} attempts)",
+            "Polling {} (interval: {}ms, max: {} attempts)",
+            full_status_url,
             polling.interval_ms,
             polling.max_attempts
         );
@@ -1022,25 +1023,32 @@ impl HttpProviderClient {
             if let Some(ref p) = progress {
                 let elapsed = poll_start.elapsed().as_secs();
 
-                if status == "IN_QUEUE" {
+                if polling.is_queued(&status) {
                     // Extract queue position if available
                     let position = json
                         .get("queue_position")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as u32;
                     p.send(Progress::queued(p.stage, position));
-                } else if status == "IN_PROGRESS" {
+                } else if polling.is_running(&status) {
+                    let percent = polling
+                        .progress_field
+                        .as_deref()
+                        .and_then(|field| self.extract_json_field(&json, Some(field)).ok())
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .map(|pct| format!(" {}%", pct.round()))
+                        .unwrap_or_default();
                     // Status changed to in-progress
-                    if last_status != "IN_PROGRESS" {
+                    if last_status != status {
                         p.send(Progress::processing(
                             p.stage,
-                            Some("Processing...".to_string()),
+                            Some(format!("Processing...{percent}")),
                         ));
                     } else {
                         // Periodic elapsed time update
                         p.send(Progress::processing(
                             p.stage,
-                            Some(format!("Processing... ({}s elapsed)", elapsed)),
+                            Some(format!("Processing...{percent} ({}s elapsed)", elapsed)),
                         ));
                     }
 
@@ -1126,9 +1134,13 @@ impl HttpProviderClient {
 
             let is_failure = polling.failure_value.iter().any(|v| v == &status);
             if is_failure {
-                let error_detail = json
-                    .get("error")
-                    .and_then(|e| e.as_str())
+                let declared = polling
+                    .error_field
+                    .as_deref()
+                    .and_then(|field| self.extract_json_field(&json, Some(field)).ok());
+                let error_detail = declared
+                    .as_deref()
+                    .or_else(|| json.get("error").and_then(|e| e.as_str()))
                     .unwrap_or(&status);
                 tracing::error!(
                     http.url = %full_status_url,
@@ -1179,6 +1191,13 @@ impl HttpProviderClient {
         polling: &PollingConfig,
         auth_headers: &HashMap<String, String>,
     ) {
+        if !polling.cancelable {
+            tracing::warn!(
+                "Provider has no cancel endpoint; the remote job keeps running and may still be billed: {}",
+                status_url
+            );
+            return;
+        }
         let cancel_url = if let Some(ref template) = polling.cancel_url_template {
             template.replace("${status_url}", status_url)
         } else {
@@ -2186,5 +2205,137 @@ mod poll_tests {
             .await
             .expect("template-built poll URL should resolve and complete");
         assert_eq!(result, b"GLB");
+    }
+
+    /// Tripo-style: the failure message sits at `data.error_message`, not a
+    /// top-level `error`, so `error_field` is what surfaces it.
+    #[tokio::test]
+    async fn poll_reads_declared_error_field() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "status": "failed", "error_message": "subject is occluded" },
+            })))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = polling(
+            "status_field: status_url\n\
+             status_check_field: data.status\n\
+             success_value: success\n\
+             failure_value: failed\n\
+             error_field: data.error_message\n\
+             result_field: data.output.model_url\n\
+             interval_ms: 1\n",
+        );
+
+        let err = client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect_err("failed status should error");
+        assert!(
+            err.to_string().contains("subject is occluded"),
+            "error should carry the declared message, got: {err}"
+        );
+    }
+
+    /// A declared `running_value` emits "Processing..." with the
+    /// `progress_field` percentage; fal's `IN_PROGRESS` default would not match.
+    #[tokio::test]
+    async fn poll_reports_declared_running_status_with_percent() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "status": "running", "progress": 42 },
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "status": "success",
+                    "output": { "model_url": format!("{}/result", server.uri()) },
+                },
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/result"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"GLB".to_vec()))
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = polling(
+            "status_field: status_url\n\
+             status_check_field: data.status\n\
+             success_value: success\n\
+             queued_value: queued\n\
+             running_value: running\n\
+             progress_field: data.progress\n\
+             result_field: data.output.model_url\n\
+             interval_ms: 1\n",
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let progress = PollingProgress {
+            tx,
+            stage: Stage::Model3DGeneration,
+        };
+
+        client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), Some(progress))
+            .await
+            .expect("should complete");
+
+        let mut messages = Vec::new();
+        while let Ok(p) = rx.try_recv() {
+            if let Progress::Processing {
+                message: Some(m), ..
+            } = p
+            {
+                messages.push(m);
+            }
+        }
+        assert!(
+            messages.iter().any(|m| m == "Processing... 42%"),
+            "expected a percentage message, got {messages:?}"
+        );
+    }
+
+    /// `cancelable: false` sends nothing when polling aborts. Tripo documents
+    /// no cancel endpoint, so the default PUT would only log a failure.
+    #[tokio::test]
+    async fn non_cancelable_sends_no_cancel_request() {
+        super::SKIP_URL_VALIDATION_FOR_TEST.store(true, std::sync::atomic::Ordering::Relaxed);
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let client = client_for(&server.uri());
+        let initial = serde_json::json!({ "status_url": format!("{}/status", server.uri()) });
+        let cfg = fast_polling("cancelable: false");
+
+        client
+            .poll_for_result(&initial, &cfg, &HashMap::new(), None)
+            .await
+            .expect_err("terminal 4xx should abort");
+        drop(server);
     }
 }
