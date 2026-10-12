@@ -2,6 +2,46 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.10.2 — 2026-10-12
+
+### Features
+
+- Tripo3D as a provider, and fixes for parallel runs and canceling ([#100](https://github.com/nightandwknd/asset-tap/pull/100))
+
+### Build
+
+- debug builds take half the disk ([#101](https://github.com/nightandwknd/asset-tap/pull/101))
+
+  Debug builds keep line tables only and dependencies carry no debuginfo,
+  so a debug build's target/ drops from 3.6 GB to 1.8 GB and links faster.
+  Backtraces still show file and line. macOS PR builds now restore the
+  cache main's release build saved.
+
+### CI/CD
+
+- pin every action to a release commit; a release never ships without its installers ([#103](https://github.com/nightandwknd/asset-tap/pull/103))
+
+  Every third-party action (80 references across the workflows and the
+  composite actions) now pins the commit of the newest release within the
+  major already in use, with the version as a comment. The signing job ran
+  install-action and rust-toolchain on movable refs beside the Apple
+  certificate and password; a moved tag could not reach those secrets now.
+  rust-toolchain pins dated commits of its master and nightly branches,
+  since the branch selects the toolchain. Dependabot now also watches the
+  composite actions' directories, so their pins update with the rest.
+
+  The release job copied the .deb, AppImage and Windows installer with
+  `find ... || echo`, and two upload steps were `if-no-files-found: warn`, so
+  a build that produced no installer still shipped a release with 404ing
+  download links and a SHA256SUMS that left them out. The uploads now fail,
+  and the release job downloads and verifies every artifact before it pushes
+  the release commit and tag, so a missing file stops the release instead of
+  leaving a tag with no release.
+
+### Chores
+
+- **deps:** bump the rust-dependencies group with 2 updates ([#102](https://github.com/nightandwknd/asset-tap/pull/102))
+
 ## v26.10.1 — 2026-10-04
 
 ### Bug Fixes
