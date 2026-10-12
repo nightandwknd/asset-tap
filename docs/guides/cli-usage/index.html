@@ -1209,11 +1209,12 @@
   </span>
 </a>
 </h2>
-<p>The CLI needs an API key from at least one provider -- <a rel="external" href="https://fal.ai/dashboard/keys">fal.ai</a> or <a rel="external" href="https://www.meshy.ai/settings/api">Meshy</a>. A single key unlocks the full pipeline. There are two ways to configure keys:</p>
+<p>The CLI needs an API key from at least one provider -- <a rel="external" href="https://fal.ai/dashboard/keys">fal.ai</a>, <a rel="external" href="https://www.meshy.ai/settings/api">Meshy</a>, or <a rel="external" href="https://platform.tripo3d.ai">Tripo</a>. A single key unlocks the full pipeline. There are two ways to configure keys:</p>
 <p><strong>Option 1: Environment variable</strong> (recommended for CLI)</p>
-<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Pick one (or both); Asset Tap uses whichever provider owns the model you select.</span></span>
+<pre class="giallo z-l-code z-d-code" ><code data-lang="shellscript"><span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Pick any; Asset Tap uses whichever provider owns the model you select.</span></span>
 <span class="giallo-l"><span class="z-l-8 z-d-10">export</span><span> FAL_KEY</span><span class="z-l-8 z-d-10">=</span><span>your_fal_key</span></span>
-<span class="giallo-l"><span class="z-l-8 z-d-10">export</span><span> MESHY_API_KEY</span><span class="z-l-8 z-d-10">=</span><span>your_meshy_key</span></span></code></pre>
+<span class="giallo-l"><span class="z-l-8 z-d-10">export</span><span> MESHY_API_KEY</span><span class="z-l-8 z-d-10">=</span><span>your_meshy_key</span></span>
+<span class="giallo-l"><span class="z-l-8 z-d-10">export</span><span> TRIPO_API_KEY</span><span class="z-l-8 z-d-10">=</span><span>your_tripo_key</span></span></code></pre>
 <p>Add these to your shell profile (<code>~/.zshrc</code>, <code>~/.bashrc</code>) to persist across sessions.</p>
 <p><strong>Option 2: GUI settings</strong> (shared automatically)</p>
 <p>If you've configured your API key in the Asset Tap GUI (Settings &gt; API Keys), the CLI picks it up automatically -- both share the same settings file.</p>
@@ -1248,7 +1249,10 @@
 <span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">p</span><span class="z-l-2 z-d-6"> meshy</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image-model</span><span class="z-l-2 z-d-6"> meshy/nano-banana-pro</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-3d-model</span><span class="z-l-2 z-d-6"> meshy/v6/image-to-3d</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a detailed castle</span><span class="z-l-2 z-d-6">&quot;</span></span>
 <span class="giallo-l"></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Budget tier on Meshy (meshy-6-lite, 2-4x cheaper)</span></span>
-<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">p</span><span class="z-l-2 z-d-6"> meshy</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-3d-model</span><span class="z-l-2 z-d-6"> meshy/v6-lite/image-to-3d</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a simple cube</span><span class="z-l-2 z-d-6">&quot;</span></span></code></pre>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">p</span><span class="z-l-2 z-d-6"> meshy</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-3d-model</span><span class="z-l-2 z-d-6"> meshy/v6-lite/image-to-3d</span><span class="z-l-2 z-d-6"> &quot;</span><span class="z-l-2 z-d-6">a simple cube</span><span class="z-l-2 z-d-6">&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> Low-poly on Tripo from an image you already have (requires TRIPO_API_KEY)</span></span>
+<span class="giallo-l"><span class="z-l-6 z-d-7">asset-tap</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-image</span><span class="z-l-2 z-d-6"> concept.png</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-3d-model</span><span class="z-l-2 z-d-6"> tripo/p1/image-to-model</span><span class="z-l-1 z-d-4"> -</span><span class="z-l-1 z-d-4">-param</span><span class="z-l-2 z-d-6"> face_limit=</span><span class="z-l-1 z-d-4">5000</span></span></code></pre>
 <blockquote>
 <p><strong>Tip:</strong> If you omit <code>-p/--provider</code>, Asset Tap routes the request to whichever provider owns the model you pick. <code>--3d-model fal-ai/trellis-2</code> goes to fal.ai; <code>--3d-model meshy/v6/image-to-3d</code> goes to Meshy. Set the provider explicitly only when you're not specifying a model.</p>
 </blockquote>
@@ -1371,7 +1375,8 @@ consumer sees them rather than a silent stall.</p>
 to submit fewer jobs at once. Meshy publishes no documented safe parallelism
 for its generation endpoints, so run Meshy jobs sequentially -- one prompt at a
 time -- rather than fanning out and relying on the retry loop to absorb the
-rejections.</p>
+rejections. Tripo documents per-account limits: 10 concurrent v3.1 jobs, 5 P1
+jobs, and 1 text-to-image job; a full slot answers with a 429.</p>
 <h2 id="scripts-and-non-interactive-use">Scripts and Non-Interactive Use<a class="zola-anchor" href="#scripts-and-non-interactive-use" aria-label="Anchor link for: scripts-and-non-interactive-use">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>

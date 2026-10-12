@@ -1194,12 +1194,13 @@
   </span>
 </a>
 </h2>
-<p>Asset Tap ships with pre-configured support for two providers. You only need an API key for one of them to run the full pipeline.</p>
-<p>Asset Tap is not tied to either service: the provider layer is a compatibility surface, support for more providers is coming, and anyone can <a href="https://assettap.dev/docs/guides/providers/#adding-custom-providers">add their own</a> with a YAML file.</p>
+<p>Asset Tap ships with pre-configured support for three providers. You only need an API key for one of them to run the full pipeline.</p>
+<p>Asset Tap is not tied to any one service: the provider layer is a compatibility surface, support for more providers is coming, and anyone can <a href="https://assettap.dev/docs/guides/providers/#adding-custom-providers">add their own</a> with a YAML file.</p>
 <p>Model tables follow one ordering everywhere: model families ascend (older/lower tier first, newest last) and appear in the same order under every provider that carries them; specialized and provider-exclusive models follow their family; each provider's default is marked inline. The tables compare like-for-like at a glance.</p>
 <ul>
 <li><strong><a rel="external" href="https://fal.ai">fal.ai</a></strong> -- Pay-per-generation pricing, broadest model selection.</li>
 <li><strong><a rel="external" href="https://www.meshy.ai">Meshy AI</a></strong> -- Subscription-based, credit pool; specialized in 3D.</li>
+<li><strong><a rel="external" href="https://www.tripo3d.ai">Tripo3D</a></strong> -- Subscription-based, credit pool; specialized in 3D, including low-poly.</li>
 </ul>
 <h3 id="fal-ai">fal.ai<a class="zola-anchor" href="#fal-ai" aria-label="Anchor link for: fal-ai">
   <span class="content-icon content-icon-sm" aria-hidden="true">
@@ -1279,6 +1280,44 @@
 <blockquote>
 <p><strong>Why two ways to reach Meshy?</strong> The fal.ai "Meshy v6" entry uses fal's pay-per-call billing and requires a <code>FAL_KEY</code>. The Meshy provider's entry uses Meshy's subscription credits and requires a <code>MESHY_API_KEY</code>. Pick whichever fits your billing relationship -- or keep both keys configured and switch per generation.</p>
 </blockquote>
+<h3 id="tripo3d">Tripo3D<a class="zola-anchor" href="#tripo3d" aria-label="Anchor link for: tripo3d">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h3>
+<p>Native Tripo v3 API. Requires <code>TRIPO_API_KEY</code> from the <a rel="external" href="https://platform.tripo3d.ai">Tripo console</a> (API Keys page).</p>
+<h4 id="text-to-image-models-2">Text-to-Image Models<a class="zola-anchor" href="#text-to-image-models-2" aria-label="Anchor link for: text-to-image-models-2">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h4>
+<table><thead><tr><th>Model</th><th><code>--image-model</code></th><th>Description</th></tr></thead><tbody>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-text-to-image">Seedream v4</a></td><td><code>tripo/seedream-v4</code></td><td>Balanced quality <em>(default)</em></td></tr>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-text-to-image">Seedream v5</a></td><td><code>tripo/seedream-v5</code></td><td>Stronger prompt following</td></tr>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-text-to-image">Nano Banana Pro</a></td><td><code>tripo/nano-banana-pro</code></td><td>Higher quality; tunable <code>aspect_ratio</code></td></tr>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-text-to-image">GPT Image 2</a></td><td><code>tripo/gpt-image-2</code></td><td>Tunable <code>quality</code> (low/medium/high)</td></tr>
+</tbody></table>
+<p>Tripo runs one image task at a time per account by default.</p>
+<h4 id="image-to-3d-models-2">Image-to-3D Models<a class="zola-anchor" href="#image-to-3d-models-2" aria-label="Anchor link for: image-to-3d-models-2">
+  <span class="content-icon content-icon-sm" aria-hidden="true">
+    <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
+
+  </span>
+</a>
+</h4>
+<table><thead><tr><th>Model</th><th><code>--3d-model</code></th><th>Description</th></tr></thead><tbody>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-image-to-model/standard">Tripo v3.1</a></td><td><code>tripo/v3.1/image-to-model</code></td><td>Latest H-series model, highest detail <em>(default)</em></td></tr>
+<tr><td><a rel="external" href="https://developers.tripo3d.ai/en/docs/generation-image-to-model/p">Tripo P1</a></td><td><code>tripo/p1/image-to-model</code></td><td>Low-poly with clean topology, 50-20,000 faces</td></tr>
+</tbody></table>
+<p>Tunable parameters (both): <code>texture</code>, <code>pbr</code>, <code>texture_quality</code> (standard/detailed/extreme), <code>texture_version</code>, <code>delight</code> (needs <code>texture_version=v3.5-20260815</code>), <code>texture_alignment</code>, <code>orientation</code>, <code>face_limit</code>, <code>enable_image_autofix</code>, <code>auto_size</code>, <code>export_uv</code>, <code>model_seed</code>, <code>texture_seed</code>. v3.1 adds <code>geometry_quality</code> (<code>detailed</code> is Ultra) and <code>smart_low_poly</code>. PBR forces texture on, so turning texture off needs <code>pbr=false</code> too.</p>
+<p>Not exposed: <code>quad</code> (Tripo switches the output to FBX), <code>compress</code> (meshopt geometry), <code>generate_parts</code>, and <code>export_orientation</code>.</p>
+<blockquote>
+<p><strong>Canceling a Tripo run.</strong> Tripo's API has no cancel endpoint. Canceling in Asset Tap stops waiting for the result, but the task keeps running on Tripo's side and is billed if it succeeds.</p>
+</blockquote>
 <h3 id="pricing-models">Pricing Models<a class="zola-anchor" href="#pricing-models" aria-label="Anchor link for: pricing-models">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1289,6 +1328,7 @@
 <table><thead><tr><th>Provider</th><th>Billing</th><th>How it works</th></tr></thead><tbody>
 <tr><td>fal.ai</td><td>Pay-per-call</td><td>Charged per generation at the model's listed cost; no monthly minimum.</td></tr>
 <tr><td>Meshy AI</td><td>Subscription</td><td>Monthly plan grants a credit pool; each generation deducts credits from it.</td></tr>
+<tr><td>Tripo3D</td><td>Subscription</td><td>Monthly plan grants a credit pool; credits are refunded for failed tasks.</td></tr>
 </tbody></table>
 <p>Per-generation costs are set by the providers and change without notice; check their pricing pages against your own key.</p>
 <hr />
@@ -1397,7 +1437,16 @@
 <span class="giallo-l"><span class="z-l-5 z-d-3">    #</span><span class="z-l-5 z-d-3"> Optional: override the cancel HTTP method. Defaults to PUT.</span></span>
 <span class="giallo-l"><span class="z-l-5 z-d-3">    #</span><span class="z-l-5 z-d-3"> Meshy uses DELETE for its cancel endpoint.</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">    c</span><span class="z-l-3 z-d-5">ancel_method</span><span>:</span><span class="z-l-2 z-d-6"> D</span><span class="z-l-2 z-d-6">ELETE</span></span>
-<span class="giallo-l"><span class="z-l-3 z-d-5">    c</span><span class="z-l-3 z-d-5">ancel_url_template</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">${status_url}</span><span class="z-l-2 z-d-6">&#39;</span></span></code></pre>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    c</span><span class="z-l-3 z-d-5">ancel_url_template</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">${status_url}</span><span class="z-l-2 z-d-6">&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">    #</span><span class="z-l-5 z-d-3"> Optional: the provider&#39;s own status vocabulary. Defaults are fal&#39;s</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">    #</span><span class="z-l-5 z-d-3"> IN_QUEUE / IN_PROGRESS. Tripo uses queued / running, reports a 0-100</span></span>
+<span class="giallo-l"><span class="z-l-5 z-d-3">    #</span><span class="z-l-5 z-d-3"> percentage, nests its failure message, and has no cancel endpoint.</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    q</span><span class="z-l-3 z-d-5">ueued_value</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">queued</span><span class="z-l-2 z-d-6">&#39;</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    r</span><span class="z-l-3 z-d-5">unning_value</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">running</span><span class="z-l-2 z-d-6">&#39;</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    p</span><span class="z-l-3 z-d-5">rogress_field</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">data.progress</span><span class="z-l-2 z-d-6">&#39;</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    e</span><span class="z-l-3 z-d-5">rror_field</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">data.error_message</span><span class="z-l-2 z-d-6">&#39;</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">    c</span><span class="z-l-3 z-d-5">ancelable</span><span>:</span><span class="z-l-1 z-d-4"> false</span></span></code></pre>
 <p><code>status_url_template</code> supports nested paths (<code>${data.id}</code>) and array indices (<code>${items[0]}</code>). Relative paths are resolved against <code>base_url</code>.</p>
 <p><strong>Binary / Base64</strong> -- For direct file responses:</p>
 <pre class="giallo z-l-code z-d-code" ><code data-lang="yaml"><span class="giallo-l"><span class="z-l-3 z-d-5">r</span><span class="z-l-3 z-d-5">esponse</span><span>:</span></span>
@@ -1406,7 +1455,7 @@
 <span class="giallo-l"><span class="z-l-5 z-d-3">#</span><span class="z-l-5 z-d-3"> or base64-encoded in JSON:</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">r</span><span class="z-l-3 z-d-5">esponse</span><span>:</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">  r</span><span class="z-l-3 z-d-5">esponse_type</span><span>:</span><span class="z-l-2 z-d-6"> b</span><span class="z-l-2 z-d-6">ase64</span></span>
-<span class="giallo-l"><span class="z-l-3 z-d-5">  f</span><span class="z-l-3 z-d-5">ield</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">artifacts[0].base64</span><span class="z-l-2 z-d-6">&#39;</span></span></code></pre><h3 id="image-to-3d-models-2">Image-to-3D Models<a class="zola-anchor" href="#image-to-3d-models-2" aria-label="Anchor link for: image-to-3d-models-2">
+<span class="giallo-l"><span class="z-l-3 z-d-5">  f</span><span class="z-l-3 z-d-5">ield</span><span>:</span><span class="z-l-2 z-d-6"> &#39;</span><span class="z-l-2 z-d-6">artifacts[0].base64</span><span class="z-l-2 z-d-6">&#39;</span></span></code></pre><h3 id="image-to-3d-models-3">Image-to-3D Models<a class="zola-anchor" href="#image-to-3d-models-3" aria-label="Anchor link for: image-to-3d-models-3">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
 
@@ -1540,6 +1589,11 @@
 <span class="giallo-l"><span class="z-l-3 z-d-5">        m</span><span class="z-l-3 z-d-5">ax_attempts</span><span>:</span><span class="z-l-2 z-d-6"> i</span><span class="z-l-2 z-d-6">nteger</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        c</span><span class="z-l-3 z-d-5">ancel_method</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: HTTP method for cancel (default PUT)</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">        c</span><span class="z-l-3 z-d-5">ancel_url_template</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: template using ${status_url}</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        c</span><span class="z-l-3 z-d-5">ancelable</span><span>:</span><span class="z-l-2 z-d-6"> b</span><span class="z-l-2 z-d-6">oolean</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: false if there is no cancel endpoint (default true)</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        q</span><span class="z-l-3 z-d-5">ueued_value</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring | string[]</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: queued status(es) (default IN_QUEUE)</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        r</span><span class="z-l-3 z-d-5">unning_value</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring | string[]</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: running status(es) (default IN_PROGRESS)</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        p</span><span class="z-l-3 z-d-5">rogress_field</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: 0-100 percentage</span></span>
+<span class="giallo-l"><span class="z-l-3 z-d-5">        e</span><span class="z-l-3 z-d-5">rror_field</span><span>:</span><span class="z-l-2 z-d-6"> s</span><span class="z-l-2 z-d-6">tring</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: failure message (default top-level `error`)</span></span>
 <span class="giallo-l"><span class="z-l-3 z-d-5">    p</span><span class="z-l-3 z-d-5">arameters</span><span>:</span><span> [</span><span>]</span><span class="z-l-5 z-d-3"> #</span><span class="z-l-5 z-d-3"> Optional: user-tunable fields (see below)</span></span></code></pre><h3 id="tunable-parameters">Tunable Parameters<a class="zola-anchor" href="#tunable-parameters" aria-label="Anchor link for: tunable-parameters">
   <span class="content-icon content-icon-sm" aria-hidden="true">
     <svg focusable="false" class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"></path><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"></path></svg>
@@ -1877,6 +1931,14 @@
     
     <li class="docs-toc-item docs-toc-level-3">
       
+      <a href="https://assettap.dev/docs/guides/providers/#tripo3d">
+        Tripo3D
+      </a>
+      
+    </li>
+    
+    <li class="docs-toc-item docs-toc-level-3">
+      
       <a href="https://assettap.dev/docs/guides/providers/#pricing-models">
         Pricing Models
       </a>
@@ -1938,7 +2000,7 @@
     
     <li class="docs-toc-item docs-toc-level-3">
       
-      <a href="https://assettap.dev/docs/guides/providers/#image-to-3d-models-2">
+      <a href="https://assettap.dev/docs/guides/providers/#image-to-3d-models-3">
         Image-to-3D Models
       </a>
       
