@@ -33,15 +33,20 @@ updates:
 
   # ─── GitHub Actions ─────────────────────────────────────────────────
   - package-ecosystem: 'github-actions'
-    directory: '/'
+    # Composite actions pin their own `uses:` too; without their directories
+    # Dependabot never sees those pins and they would freeze.
+    directories:
+      - '/'
+      - '/.github/actions/*'
     schedule:
       interval: 'weekly'
       time: '12:00'
       timezone: 'America/Chicago'
     ignore:
       # Compiler version lives in rust-toolchain.toml. CI installs it via
-      # dtolnay/rust-toolchain@master + an explicit toolchain input, so
-      # Dependabot must not treat action @tags as rustc upgrades.
+      # dtolnay/rust-toolchain (pinned to a dated commit of its master branch)
+      # + an explicit toolchain input, so Dependabot must not treat action
+      # @tags as rustc upgrades. Bump that pin by hand.
       - dependency-name: 'dtolnay/rust-toolchain'
       # The action tag tracks Zola versions and must move in LOCKSTEP with
       # ZOLA_VERSION in the Makefile and the zola@ pin in site.yaml (all

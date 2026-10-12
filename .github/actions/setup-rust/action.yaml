@@ -26,7 +26,7 @@ runs:
 
     # @master is required when the toolchain comes from an input rather than the
     # action ref. The compiler version lives only in rust-toolchain.toml.
-    - uses: dtolnay/rust-toolchain@master
+    - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master 2026-10-09
       with:
         toolchain: ${{ steps.pin.outputs.channel }}
         components: ${{ inputs.components }}

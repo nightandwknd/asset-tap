@@ -48,10 +48,10 @@ runs:
   steps:
     # ── Toolchain & Cache ──────────────────────────────────────────────
     - uses: ./.github/actions/setup-rust
-    - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         key: build-${{ inputs.platform }}
-    - uses: taiki-e/install-action@v2
+    - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
       with:
         tool: cargo-packager
 
@@ -116,7 +116,7 @@ runs:
     # ── Upload: Binaries ──────────────────────────────────────────────
     - name: Upload binaries (macOS)
       if: inputs.platform == 'macos' && inputs.upload-binaries == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-binaries-macos${{ inputs.artifact-suffix }}
         path: |
@@ -126,7 +126,7 @@ runs:
 
     - name: Upload binaries (Linux)
       if: inputs.platform == 'linux' && inputs.upload-binaries == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-binaries-linux${{ inputs.artifact-suffix }}
         path: |
@@ -136,7 +136,7 @@ runs:
 
     - name: Upload binaries (Windows)
       if: inputs.platform == 'windows' && inputs.upload-binaries == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-binaries-windows${{ inputs.artifact-suffix }}
         path: |
@@ -147,7 +147,7 @@ runs:
     # ── Upload: Installers ─────────────────────────────────────────────
     - name: Upload DMG (macOS)
       if: inputs.platform == 'macos' && inputs.upload-installers == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-macos${{ inputs.artifact-suffix }}
         path: target/release/AssetTap.dmg
@@ -156,25 +156,25 @@ runs:
 
     - name: Upload .deb (Linux)
       if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-linux-deb${{ inputs.artifact-suffix }}
         path: target/release/*.deb
-        if-no-files-found: warn
+        if-no-files-found: error
         retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload AppImage (Linux)
       if: inputs.platform == 'linux' && inputs.upload-installers == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-linux-appimage${{ inputs.artifact-suffix }}
         path: target/release/*.AppImage
-        if-no-files-found: warn
+        if-no-files-found: error
         retention-days: ${{ inputs.installer-retention-days }}
 
     - name: Upload NSIS installer (Windows)
       if: inputs.platform == 'windows' && inputs.upload-installers == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-windows${{ inputs.artifact-suffix }}
         path: target/release/*-setup.exe
@@ -184,7 +184,7 @@ runs:
     # ── Upload: CLI Archives ───────────────────────────────────────────
     - name: Upload CLI archive (macOS)
       if: inputs.platform == 'macos' && inputs.upload-cli-archives == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-cli-macos${{ inputs.artifact-suffix }}
         path: asset-tap-cli-macos.tar.gz
@@ -193,7 +193,7 @@ runs:
 
     - name: Upload CLI archive (Linux)
       if: inputs.platform == 'linux' && inputs.upload-cli-archives == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-cli-linux${{ inputs.artifact-suffix }}
         path: asset-tap-cli-linux.tar.gz
@@ -202,7 +202,7 @@ runs:
 
     - name: Upload CLI archive (Windows)
       if: inputs.platform == 'windows' && inputs.upload-cli-archives == 'true'
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: asset-tap-cli-windows${{ inputs.artifact-suffix }}
         path: asset-tap-cli-windows.zip
