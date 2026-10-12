@@ -29,7 +29,7 @@ anyhow = "1"
 thiserror = "2"
 
 # Utilities
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
 walkdir = "2"
