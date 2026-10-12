@@ -8,6 +8,18 @@ All notable changes to Asset Tap are documented here.
 
 - Tripo3D as a provider, and fixes for parallel runs and canceling ([#100](https://github.com/nightandwknd/asset-tap/pull/100))
 
+  Tripo3D joins fal.ai and Meshy. Image-to-3D runs on Tripo v3.1, or on P1
+  for clean low-poly meshes of 50 to 20,000 faces. Text-to-image offers
+  Seedream v4 and v5, Nano Banana Pro, and GPT Image 2. Add a key with
+  `asset-tap auth set tripo` or `TRIPO_API_KEY`. Tripo runs show their
+  progress percentage, and a failed one reports Tripo's own reason.
+
+  Runs started in the same second no longer share one bundle folder.
+
+  Canceling a generation now ends as a cancel: `--json` exits 5 and the
+  terminal exits 130. Tripo has no cancel endpoint, so its job keeps
+  running, and the log shows the task URL for fetching the result.
+
 ### Build
 
 - debug builds take half the disk ([#101](https://github.com/nightandwknd/asset-tap/pull/101))
