@@ -41,3 +41,37 @@ if [[ "$first" != "## v0.0.0-prepend-test"* ]]; then
 fi
 
 echo "git-cliff prepend kept one header and ${latest}."
+
+# A squash body that repeats a conventional header, as GitHub's multi-commit
+# squash does ("* feat: ..."), must still render its paragraphs. git-cliff
+# reads such a line as a trailer and drops everything after it.
+repo=$(mktemp -d)
+trap 'rm -f "$tmp"; rm -rf "$repo"' EXIT
+git -C "$repo" init -q
+git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -F - <<'MSG'
+feat: a squashed feature (#1)
+
+* feat: a squashed feature
+
+Body paragraph that must survive.
+
+* fix: a squashed fix
+
+Second paragraph that must survive.
+
+Co-Authored-By: Someone <someone@example.com>
+MSG
+notes=$(cd "$repo" && git-cliff --config "$OLDPWD/cliff.toml" --unreleased)
+for want in "Body paragraph that must survive." "Second paragraph that must survive."; do
+  if ! grep -F "$want" <<<"$notes" >/dev/null; then
+    echo "ERROR: squash body lost \"$want\""
+    echo "$notes"
+    exit 1
+  fi
+done
+if grep -E '^ +(\* )?(feat|fix): |Co-Authored-By' <<<"$notes" >/dev/null; then
+  echo "ERROR: squash body kept a sub-commit header or trailer"
+  echo "$notes"
+  exit 1
+fi
+echo "git-cliff kept a squash body's paragraphs."

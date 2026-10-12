@@ -62,11 +62,15 @@ commit_preprocessors = [
   { pattern = "\\(#([0-9]+)\\)", replace = "([#${1}](https://github.com/nightandwknd/asset-tap/pull/${1}))" },
   # GitHub's squash body is a bulleted list of the branch's commits, wrapped in
   # trailers and a rule. None of that belongs in release notes.
-  { pattern = "(?m)^Co-authored-by:.*$", replace = "" },
-  { pattern = "(?m)^Signed-off-by:.*$", replace = "" },
+  { pattern = "(?mi)^Co-authored-by:.*$", replace = "" },
+  { pattern = "(?mi)^Signed-off-by:.*$", replace = "" },
   { pattern = "(?m)^Claude-Session:.*$", replace = "" },
   { pattern = "(?m)^🤖 Generated with .*$", replace = "" },
   { pattern = "(?m)^-{3,}$", replace = "" },
+  # A conventional header after the first line ("* feat(x): ..." from a
+  # multi-commit squash, or a title repeated into the body) parses as a
+  # trailer, and everything after it is dropped from the body. Remove them.
+  { pattern = '\n\n(?:\* )?(?:feat|fix|perf|refactor|docs?|test|build|ci|style|chore|revert)(?:\([^)\n]*\))?!?: [^\n]*', replace = "" },
   # Squashed sub-commits arrive as "* feat(x): ..."; keep the text, drop the
   # bullet so it does not nest oddly under the entry.
   { pattern = "(?m)^\\* ", replace = "" },
