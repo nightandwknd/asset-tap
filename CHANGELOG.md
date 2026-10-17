@@ -2,6 +2,20 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.10.3 — 2026-10-17
+
+### Bug Fixes
+
+- **deps:** update zip to 9.0.4 ([#109](https://github.com/nightandwknd/asset-tap/pull/109))
+
+### Chores
+
+- **deps:** bump base64 to 0.23 ([#105](https://github.com/nightandwknd/asset-tap/pull/105))
+
+- **deps:** bump rustls to 0.23.46 ([#106](https://github.com/nightandwknd/asset-tap/pull/106))
+
+- **deps:** bump the actions group across 4 directories with 1 update ([#107](https://github.com/nightandwknd/asset-tap/pull/107))
+
 ## v26.10.2 — 2026-10-12
 
 ### Features
