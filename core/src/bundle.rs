@@ -1913,9 +1913,14 @@ pub(crate) fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
         // crafted archive that mixes safe and traversal entries can't partially
         // extract. A None here means the name escapes the destination directory.
         let Some(raw_path) = safe_zip_entry_path(&entry) else {
+            // `name()` fails only when the raw bytes are not UTF-8 or CP437.
+            // Fall back to a lossy decode so the refusal still names the entry.
+            let shown = entry
+                .name()
+                .map(|name| name.into_owned())
+                .unwrap_or_else(|_| String::from_utf8_lossy(entry.name_raw()).into_owned());
             return Err(format!(
-                "Refusing to extract unsafe zip entry path: {:?}",
-                entry.name()
+                "Refusing to extract unsafe zip entry path: {shown:?}"
             ));
         };
 
@@ -1979,7 +1984,7 @@ pub(crate) fn extract_zip_to_dir<R: std::io::Read + std::io::Seek>(
 /// paths containing `..` components, and (on Windows) drive-letter/UNC
 /// prefixes — the zip-slip attack surface. Normalizes the resulting path to
 /// `/` separators so downstream prefix detection is platform-independent.
-fn safe_zip_entry_path(entry: &zip::read::ZipFile<'_>) -> Option<String> {
+fn safe_zip_entry_path<R: std::io::Read>(entry: &zip::read::ZipFile<'_, R>) -> Option<String> {
     let enclosed = entry.enclosed_name()?;
     let mut parts = Vec::new();
     for component in enclosed.components() {
@@ -2492,7 +2497,7 @@ mod tests {
         assert_eq!(archive.len(), 4);
 
         let mut names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
             .collect();
         names.sort();
         assert!(names.contains(&bundle_files::METADATA.to_string()));
