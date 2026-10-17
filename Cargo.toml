@@ -82,7 +82,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 # Archive
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Tracing/logging
 tracing = "0.1"

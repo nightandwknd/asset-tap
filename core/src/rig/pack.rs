@@ -757,7 +757,12 @@ fn zip_looks_like_pack(path: &Path) -> bool {
         let Ok(entry) = archive.by_index(i) else {
             continue;
         };
-        let name = entry.name().replace('\\', "/").to_ascii_lowercase();
+        // An undecodable entry name cannot be a pack hint. Skip it rather than
+        // failing classification — this runs while a file is hovered.
+        let Ok(decoded) = entry.name() else {
+            continue;
+        };
+        let name = decoded.replace('\\', "/").to_ascii_lowercase();
         if name.split('/').next() == Some("__macosx")
             || name
                 .rsplit('/')
