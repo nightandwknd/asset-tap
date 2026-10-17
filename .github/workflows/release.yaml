@@ -92,7 +92,11 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/asset-tap
             target/${{ matrix.target }}/release/asset-tap-gui
-          retention-days: 1
+          # package-macos is the `release` environment, so it does not start
+          # until a reviewer approves. GitHub cancels that wait after 30 days.
+          # A shorter retention deletes the binaries first: download-artifact
+          # then matches nothing, exits 0, and lipo fails on a missing file.
+          retention-days: 30
 
   package-macos:
     name: Package macOS (universal)
@@ -124,6 +128,22 @@ jobs:
         with:
           pattern: macos-*
           path: arch
+
+      # A pattern that matches nothing is a successful download. Say so here,
+      # before lipo reports a missing path.
+      - name: Require both arch builds
+        run: |
+          missing=0
+          for arch_name in macos-aarch64-apple-darwin macos-x86_64-apple-darwin; do
+            for bin in asset-tap asset-tap-gui; do
+              path="arch/${arch_name}/${bin}"
+              if [ ! -f "$path" ]; then
+                echo "::error::missing ${path}. Build macOS uploads these, and they last 30 days. Re-run the Build macOS jobs; re-running only Package macOS cannot recreate them."
+                missing=1
+              fi
+            done
+          done
+          exit "$missing"
 
       - name: Create universal binaries
         run: |

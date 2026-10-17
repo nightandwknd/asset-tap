@@ -583,7 +583,7 @@ To set up (one-time):
    - ✅ **Deployment branches** → "Selected branches" → add rule for `main` only
 4. Save
 
-When a release workflow run reaches the `package-macos` job, it will pause and notify reviewers. The job (and its secrets) only runs after approval.
+When a release workflow run reaches the `package-macos` job, it will pause and notify reviewers. The job (and its secrets) only runs after approval. GitHub cancels a review that sits for 30 days. The per-arch binaries (`macos-aarch64-apple-darwin`, `macos-x86_64-apple-darwin`) are uploaded before that gate and kept for the same 30 days, so approving on the last day still has both inputs for `lipo`. Re-running only the package job cannot recreate them once they expire.
 
 **Solo dev note:** Leave "Prevent self-review" **off** — otherwise you'll deadlock yourself on every release.
 
