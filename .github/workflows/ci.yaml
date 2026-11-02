@@ -196,7 +196,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@f0d5300ba8908d942c808f4d31c08471d7798ba3 # nightly 2026-10-09
+      # `make udeps` calls `cargo +nightly-2026-11-02` (UDEPS_NIGHTLY in the
+      # Makefile). Do not float `nightly`: the 2026-11-01 nightly
+      # (rustc f9ceb4a4d) cannot compile zbus 5.13.2 — E0391, a
+      # needs_async_drop cycle on zvariant_utils::Child. The next nightly can.
+      - uses: dtolnay/rust-toolchain@f0d5300ba8908d942c808f4d31c08471d7798ba3 # 2026-10-09
+        with:
+          toolchain: nightly-2026-11-02
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
