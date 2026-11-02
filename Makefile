@@ -204,18 +204,25 @@ endif
 audit-providers: ## Audit fal provider YAML against fal's live OpenAPI schemas (network)
 	./scripts/audit-fal-schemas.sh
 
-udeps: ## Check for unused dependencies (requires nightly)
+# cargo-udeps needs nightly. The date is pinned, not floating: the 2026-11-01
+# nightly (rustc 1.101.0-nightly f9ceb4a4d) fails to compile zbus 5.13.2 with
+# E0391, a needs_async_drop cycle in zvariant_utils::signature::Child.
+# nightly-2026-11-02 compiles it. The udeps job in .github/workflows/ci.yaml
+# installs this same toolchain.
+UDEPS_NIGHTLY := nightly-2026-11-02
+
+udeps: ## Check for unused dependencies (requires the pinned nightly)
 ifndef CHECK_UDEPS
 	@echo "Installing cargo-udeps..."
 	@cargo install cargo-udeps
 endif
-	cargo +nightly udeps --workspace --all-features
+	cargo +$(UDEPS_NIGHTLY) udeps --workspace --all-features
 
-udeps-ci: ## udeps for `make ci` — skips gracefully if nightly is absent
-	@if rustup toolchain list 2>/dev/null | grep -q nightly; then \
+udeps-ci: ## udeps for `make ci` — skips gracefully if the pinned nightly is absent
+	@if rustup toolchain list 2>/dev/null | grep -q '$(UDEPS_NIGHTLY)'; then \
 		$(MAKE) udeps; \
 	else \
-		echo "nightly toolchain not installed — skipping udeps (matches CI's nightly job)"; \
+		echo "$(UDEPS_NIGHTLY) not installed — skipping udeps (matches CI's pinned nightly job)"; \
 	fi
 
 # =============================================================================
