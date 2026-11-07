@@ -3,9 +3,24 @@
 Spike branch: `spike/browser-viewer-feasibility-20261107`. Harness, commands and
 the browser checklist: [README.md](README.md). Raw outputs: [results/](results/).
 
-**Browser status: UNVERIFIED.** No browser was started while producing this
-document. Compilation, a wasm VM under Node, and unit tests were run. A separate
-report must cover what actually renders. Nothing below asserts a browser outcome.
+**Browser status: UNVERIFIED.** No browser was started by the author of this
+document. Compilation, a wasm VM under Node, and unit tests were run. Nothing
+below asserts a browser outcome.
+
+### Reported browser attempt (externally supplied, not measured here)
+
+A separate party reported trying the harness URL
+(`http://127.0.0.1:8137/?glb=fixtures/mannequin_g4_baked.glb`) twice, plus the
+bare localhost address once, in Chrome 156.0.8078.47. All three attempts showed
+`net::ERR_CONNECTION_REFUSED` and the app did not load. They also reported that a
+separate shell `curl` against the same address returned HTTP 200.
+
+These are second-hand observations. I did not reproduce them and did no network
+or browser diagnosis, so **no cause is inferred**. As a result, still not
+verified in any browser: page load, WebGL2 context, rendering, PBR/lighting,
+animation playback, frame rate, GPU behavior and browser memory. Another
+desktop verification attempt is pending. **Browser rendering remains an open
+gate; the verdict stays a conditional go.**
 
 ## Verdict: conditional go
 
