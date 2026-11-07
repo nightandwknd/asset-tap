@@ -1,0 +1,6 @@
+# Isolated feasibility spike. Deliberately NOT a member of the repo's root
+# workspace (it has its own [workspace] + Cargo.lock) so it cannot affect
+# desktop builds, CI, or the root lockfile.
+[workspace]
+resolver = "2"
+members = ["shim-core", "native-probe", "web", "wasm-probe"]

@@ -1,0 +1,12 @@
+warning: unexpected `cfg` condition value: `mock`
+    = note: no expected values for `feature`
+    = note: `#[warn(unexpected_cfgs)]` on by default
+test rig::pack::tests::a_zip_without_a_library_reports_that_and_not_a_parse_error ... FAILED
+test rig::pack::tests::install_from_a_zip_picks_the_library_over_the_mannequin ... FAILED
+---- rig::pack::tests::a_zip_without_a_library_reports_that_and_not_a_parse_error stdout ----
+thread 'rig::pack::tests::a_zip_without_a_library_reports_that_and_not_a_parse_error' (56718) panicked at shim-core/src/../../../../core/src/rig/pack.rs:1433:9:
+expected NoLibrary, got Install("spike stand-in: zip extraction not implemented")
+---- rig::pack::tests::install_from_a_zip_picks_the_library_over_the_mannequin stdout ----
+thread 'rig::pack::tests::install_from_a_zip_picks_the_library_over_the_mannequin' (56727) panicked at shim-core/src/../../../../core/src/rig/pack.rs:1259:55:
+install from zip: Install("spike stand-in: zip extraction not implemented")
+test result: FAILED. 103 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s

@@ -1,0 +1,10 @@
+[package]
+name = "native-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Times bind/bake/skinning over the REAL core/src/rig source (via the shim), natively"
+
+[dependencies]
+asset-tap-core = { path = "../shim-core", package = "asset-tap-core-shim" }
+rayon = "1.10"

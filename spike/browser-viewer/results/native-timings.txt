@@ -1,0 +1,129 @@
+# native-probe over real core/src/rig (via shim), release build, rustc 1.97.1
+# host: Intel(R) Xeon(R) Processor, 8 logical cores, 16002 MiB RAM, kernel 6.12.113+
+# date: 2026-11-07T06:17:23Z
+== grid=4 threads=1 rep=1
+threads(rayon)=1 input_bytes=116184
+bind(fit+weights, no clip): 6.303953ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 45.08221ms  out_bytes=316572
+SkinnedClip::from_glb: 506.605µs  verts=2400
+skin sample: 34646 frames/s => 0.03 ms/frame (CPU, this thread count)
+peak RSS VmHWM=20920 kB
+== grid=4 threads=1 rep=2
+threads(rayon)=1 input_bytes=116184
+bind(fit+weights, no clip): 5.947717ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 39.854445ms  out_bytes=316572
+SkinnedClip::from_glb: 504.444µs  verts=2400
+skin sample: 32013 frames/s => 0.03 ms/frame (CPU, this thread count)
+peak RSS VmHWM=20892 kB
+== grid=4 threads=1 rep=3
+threads(rayon)=1 input_bytes=116184
+bind(fit+weights, no clip): 5.247479ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 44.277766ms  out_bytes=316572
+SkinnedClip::from_glb: 571.837µs  verts=2400
+skin sample: 34397 frames/s => 0.03 ms/frame (CPU, this thread count)
+peak RSS VmHWM=21116 kB
+== grid=4 threads=default rep=1
+threads(rayon)=default(all cores) input_bytes=116184
+bind(fit+weights, no clip): 4.278842ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 40.383303ms  out_bytes=316572
+SkinnedClip::from_glb: 507.057µs  verts=2400
+skin sample: 31035 frames/s => 0.03 ms/frame (CPU, this thread count)
+peak RSS VmHWM=21044 kB
+== grid=4 threads=default rep=2
+threads(rayon)=default(all cores) input_bytes=116184
+bind(fit+weights, no clip): 4.407307ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 47.540406ms  out_bytes=316572
+SkinnedClip::from_glb: 672.196µs  verts=2400
+skin sample: 27405 frames/s => 0.04 ms/frame (CPU, this thread count)
+peak RSS VmHWM=21112 kB
+== grid=4 threads=default rep=3
+threads(rayon)=default(all cores) input_bytes=116184
+bind(fit+weights, no clip): 4.943843ms  joints=53 verts=2400 out_bytes=190928
+bake(clip ["Walk_Loop"] onto rest): 43.005837ms  out_bytes=316572
+SkinnedClip::from_glb: 509.092µs  verts=2400
+skin sample: 25989 frames/s => 0.04 ms/frame (CPU, this thread count)
+peak RSS VmHWM=20932 kB
+== grid=20 threads=1 rep=1
+threads(rayon)=1 input_bytes=2278888
+bind(fit+weights, no clip): 80.782124ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 45.716841ms  out_bytes=3437992
+SkinnedClip::from_glb: 4.955806ms  verts=42336
+skin sample: 3102 frames/s => 0.32 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31600 kB
+== grid=20 threads=1 rep=2
+threads(rayon)=1 input_bytes=2278888
+bind(fit+weights, no clip): 80.007839ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 45.487259ms  out_bytes=3437992
+SkinnedClip::from_glb: 4.895422ms  verts=42336
+skin sample: 3068 frames/s => 0.33 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31724 kB
+== grid=20 threads=1 rep=3
+threads(rayon)=1 input_bytes=2278888
+bind(fit+weights, no clip): 90.700385ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 64.65685ms  out_bytes=3437992
+SkinnedClip::from_glb: 6.544811ms  verts=42336
+skin sample: 2790 frames/s => 0.36 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31804 kB
+== grid=20 threads=default rep=1
+threads(rayon)=default(all cores) input_bytes=2278888
+bind(fit+weights, no clip): 44.227705ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 47.799312ms  out_bytes=3437992
+SkinnedClip::from_glb: 5.070526ms  verts=42336
+skin sample: 10503 frames/s => 0.10 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31600 kB
+== grid=20 threads=default rep=2
+threads(rayon)=default(all cores) input_bytes=2278888
+bind(fit+weights, no clip): 45.106703ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 48.464489ms  out_bytes=3437992
+SkinnedClip::from_glb: 4.973883ms  verts=42336
+skin sample: 10389 frames/s => 0.10 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31616 kB
+== grid=20 threads=default rep=3
+threads(rayon)=default(all cores) input_bytes=2278888
+bind(fit+weights, no clip): 45.539109ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 52.920455ms  out_bytes=3437992
+SkinnedClip::from_glb: 5.603707ms  verts=42336
+skin sample: 11408 frames/s => 0.09 ms/frame (CPU, this thread count)
+peak RSS VmHWM=31692 kB
+== grid=55 threads=1 rep=1
+threads(rayon)=1 input_bytes=16605940
+bind(fit+weights, no clip): 622.391329ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 195.181528ms  out_bytes=23974540
+SkinnedClip::from_glb: 49.102862ms  verts=301056
+skin sample: 429 frames/s => 2.33 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180532 kB
+== grid=55 threads=1 rep=2
+threads(rayon)=1 input_bytes=16605940
+bind(fit+weights, no clip): 598.996167ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 171.186335ms  out_bytes=23974540
+SkinnedClip::from_glb: 48.294764ms  verts=301056
+skin sample: 421 frames/s => 2.38 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180352 kB
+== grid=55 threads=1 rep=3
+threads(rayon)=1 input_bytes=16605940
+bind(fit+weights, no clip): 599.933066ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 182.604176ms  out_bytes=23974540
+SkinnedClip::from_glb: 50.819671ms  verts=301056
+skin sample: 409 frames/s => 2.44 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180392 kB
+== grid=55 threads=default rep=1
+threads(rayon)=default(all cores) input_bytes=16605940
+bind(fit+weights, no clip): 351.131288ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 179.903646ms  out_bytes=23974540
+SkinnedClip::from_glb: 47.149761ms  verts=301056
+skin sample: 2553 frames/s => 0.39 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180480 kB
+== grid=55 threads=default rep=2
+threads(rayon)=default(all cores) input_bytes=16605940
+bind(fit+weights, no clip): 300.810054ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 153.611839ms  out_bytes=23974540
+SkinnedClip::from_glb: 44.912794ms  verts=301056
+skin sample: 2585 frames/s => 0.39 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180560 kB
+== grid=55 threads=default rep=3
+threads(rayon)=default(all cores) input_bytes=16605940
+bind(fit+weights, no clip): 306.543128ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 166.655695ms  out_bytes=23974540
+SkinnedClip::from_glb: 53.529844ms  verts=301056
+skin sample: 2524 frames/s => 0.40 ms/frame (CPU, this thread count)
+peak RSS VmHWM=180472 kB

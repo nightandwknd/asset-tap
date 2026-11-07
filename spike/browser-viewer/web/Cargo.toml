@@ -1,0 +1,27 @@
+[package]
+name = "browser-viewer-web"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Spike: real gui/src/viewer/model.rs on wasm32 (eframe web + glow/WebGL2) with bytes loading"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+asset-tap-core = { path = "../shim-core", package = "asset-tap-core-shim" }
+# Same versions/feature choices as the desktop workspace (glow is the only renderer).
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.34"
+glow = "0.17"
+gltf = { version = "1.4", features = ["KHR_materials_unlit", "extras"] }
+three-d = { version = "0.19", default-features = false }
+three-d-asset = { version = "0.10", features = ["gltf", "image"] }
+rayon = "1.10"
+tracing = "0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+send_wrapper = "0.6"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "Performance", "HtmlCanvasElement", "Response", "Request", "console"] }

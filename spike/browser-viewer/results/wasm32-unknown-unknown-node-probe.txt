@@ -1,0 +1,20 @@
+# ===== CORRECTION NOTE (added after the run; original lines below are unmodified) =====
+# The JSON key "wasm_memory_kib" below is the size of wasm linear memory at the end of each probe call
+# (pages * 64 KiB), cumulative within the loaded module. It is NOT RSS and NOT a peak-usage measurement.
+# The key is now named "wasm_linear_memory_kib_at_end" in wasm-probe/src/lib.rs; this output was not
+# regenerated. "parse_ms" uses Date.now(), so it has about 1 ms resolution (values like 7.0 / 2.0 / 1.0
+# for the smallest file are quantization-limited and should not be read as precise).
+# ======================================================================================
+# wasm-probe (real SkinnedClip from bytes) on wasm32-unknown-unknown under Node; Intel(R) Xeon(R) Processor, 2026-11-07T06:31:52Z
+node v24.22.1 v8 13.6.233.17-node.58
+rayon_probe: par_iter ok sum=4999950000 current_num_threads=1
+path_api_probe(/x.glb): Err: cannot read /x.glb: operation not supported on this platform
+mannequin_g4_baked.glb 316572 B rep1 {"parse_ms":7.0,"verts":2400,"has_animation":true,"clip_seconds":1.333,"frames":22912,"ms_per_frame":0.044,"wasm_memory_kib":2112}
+mannequin_g4_baked.glb 316572 B rep2 {"parse_ms":2.0,"verts":2400,"has_animation":true,"clip_seconds":1.333,"frames":23320,"ms_per_frame":0.043,"wasm_memory_kib":2112}
+mannequin_g4_baked.glb 316572 B rep3 {"parse_ms":1.0,"verts":2400,"has_animation":true,"clip_seconds":1.333,"frames":23364,"ms_per_frame":0.043,"wasm_memory_kib":2112}
+mannequin_g20_baked.glb 3437992 B rep1 {"parse_ms":8.0,"verts":42336,"has_animation":true,"clip_seconds":1.333,"frames":1511,"ms_per_frame":0.662,"wasm_memory_kib":14144}
+mannequin_g20_baked.glb 3437992 B rep2 {"parse_ms":4.0,"verts":42336,"has_animation":true,"clip_seconds":1.333,"frames":1507,"ms_per_frame":0.664,"wasm_memory_kib":14144}
+mannequin_g20_baked.glb 3437992 B rep3 {"parse_ms":4.0,"verts":42336,"has_animation":true,"clip_seconds":1.333,"frames":1502,"ms_per_frame":0.666,"wasm_memory_kib":14144}
+mannequin_g55_baked.glb 23974540 B rep1 {"parse_ms":44.0,"verts":301056,"has_animation":true,"clip_seconds":1.333,"frames":214,"ms_per_frame":4.692,"wasm_memory_kib":93376}
+mannequin_g55_baked.glb 23974540 B rep2 {"parse_ms":21.0,"verts":301056,"has_animation":true,"clip_seconds":1.333,"frames":213,"ms_per_frame":4.695,"wasm_memory_kib":93376}
+mannequin_g55_baked.glb 23974540 B rep3 {"parse_ms":20.0,"verts":301056,"has_animation":true,"clip_seconds":1.333,"frames":213,"ms_per_frame":4.700,"wasm_memory_kib":93376}

@@ -1,0 +1,4 @@
+target/
+web/www/pkg/
+web/www/fixtures/mannequin_g20_baked.glb
+web/www/fixtures/mannequin_g55_baked.glb

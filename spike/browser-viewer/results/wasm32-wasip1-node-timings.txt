@@ -1,0 +1,76 @@
+# ===== CORRECTION NOTE (added after the run; original lines below are unmodified) =====
+# The original lines below label the wasm memory figure "peak RSS VmHWM=... (wasm linear memory)".
+# That label is WRONG. On wasm32-wasip1 there is no /proc and no RSS. The number is the SIZE OF WASM
+# LINEAR MEMORY (pages * 64 KiB) read at program exit. It is not resident-set size and not a measured
+# peak of live data (linear memory only grows and the allocator may retain unused pages). It is not
+# comparable with the native "peak RSS VmHWM" values in native-timings.txt, which really are the
+# kernel's peak resident set. native-probe/src/main.rs now prints the corrected label; a re-run of the
+# smallest fixture printed the identical number (17600 kB), so only the label changed, not the data.
+# ======================================================================================
+# native-probe (real core/src/rig via shim) built --release for wasm32-wasip1, run under Node v24.22.1 / V8 13.6 WASI. NOT a browser.
+# host: Intel(R) Xeon(R) Processor, 8 logical cores, 16002 MiB RAM
+# rayon pool: 1 thread, current-thread only (wasm has no threads in this build)
+# date: 2026-11-07T06:21:59Z
+== grid=4 rep=1
+threads(rayon)=default(1 cores) input_bytes=116184
+bind(fit+weights, no clip): 20.538213ms  joints=53 verts=2400 out_bytes=190932
+bake(clip ["Walk_Loop"] onto rest): 47.914899ms  out_bytes=316576
+SkinnedClip::from_glb: 1.655156ms  verts=2400
+skin sample: 22032 frames/s => 0.05 ms/frame (CPU, this thread count)
+peak RSS VmHWM=17600 (wasm linear memory) kB
+== grid=4 rep=2
+threads(rayon)=default(1 cores) input_bytes=116184
+bind(fit+weights, no clip): 22.249532ms  joints=53 verts=2400 out_bytes=190932
+bake(clip ["Walk_Loop"] onto rest): 46.205901ms  out_bytes=316576
+SkinnedClip::from_glb: 1.669885ms  verts=2400
+skin sample: 21869 frames/s => 0.05 ms/frame (CPU, this thread count)
+peak RSS VmHWM=17600 (wasm linear memory) kB
+== grid=4 rep=3
+threads(rayon)=default(1 cores) input_bytes=116184
+bind(fit+weights, no clip): 20.808155ms  joints=53 verts=2400 out_bytes=190932
+bake(clip ["Walk_Loop"] onto rest): 51.024656ms  out_bytes=316576
+SkinnedClip::from_glb: 1.878658ms  verts=2400
+skin sample: 21368 frames/s => 0.05 ms/frame (CPU, this thread count)
+peak RSS VmHWM=17600 (wasm linear memory) kB
+== grid=20 rep=1
+threads(rayon)=default(1 cores) input_bytes=2278888
+bind(fit+weights, no clip): 112.995519ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 54.537232ms  out_bytes=3437988
+SkinnedClip::from_glb: 7.243294ms  verts=42336
+skin sample: 1424 frames/s => 0.70 ms/frame (CPU, this thread count)
+peak RSS VmHWM=28864 (wasm linear memory) kB
+== grid=20 rep=2
+threads(rayon)=default(1 cores) input_bytes=2278888
+bind(fit+weights, no clip): 142.022935ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 51.365432ms  out_bytes=3437988
+SkinnedClip::from_glb: 6.844307ms  verts=42336
+skin sample: 1371 frames/s => 0.73 ms/frame (CPU, this thread count)
+peak RSS VmHWM=28864 (wasm linear memory) kB
+== grid=20 rep=3
+threads(rayon)=default(1 cores) input_bytes=2278888
+bind(fit+weights, no clip): 114.066468ms  joints=53 verts=42336 out_bytes=3312128
+bake(clip ["Walk_Loop"] onto rest): 54.157895ms  out_bytes=3437988
+SkinnedClip::from_glb: 7.631684ms  verts=42336
+skin sample: 1390 frames/s => 0.72 ms/frame (CPU, this thread count)
+peak RSS VmHWM=28864 (wasm linear memory) kB
+== grid=55 rep=1
+threads(rayon)=default(1 cores) input_bytes=16605940
+bind(fit+weights, no clip): 779.733065ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 160.839652ms  out_bytes=23974540
+SkinnedClip::from_glb: 37.06884ms  verts=301056
+skin sample: 208 frames/s => 4.81 ms/frame (CPU, this thread count)
+peak RSS VmHWM=200576 (wasm linear memory) kB
+== grid=55 rep=2
+threads(rayon)=default(1 cores) input_bytes=16605940
+bind(fit+weights, no clip): 632.482037ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 152.271774ms  out_bytes=23974540
+SkinnedClip::from_glb: 37.381293ms  verts=301056
+skin sample: 196 frames/s => 5.10 ms/frame (CPU, this thread count)
+peak RSS VmHWM=200576 (wasm linear memory) kB
+== grid=55 rep=3
+threads(rayon)=default(1 cores) input_bytes=16605940
+bind(fit+weights, no clip): 666.715242ms  joints=53 verts=301056 out_bytes=23848472
+bake(clip ["Walk_Loop"] onto rest): 142.843316ms  out_bytes=23974540
+SkinnedClip::from_glb: 34.237208ms  verts=301056
+skin sample: 206 frames/s => 4.85 ms/frame (CPU, this thread count)
+peak RSS VmHWM=200576 (wasm linear memory) kB
