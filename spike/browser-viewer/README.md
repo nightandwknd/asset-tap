@@ -4,10 +4,11 @@ An isolated, throwaway harness that asks one question: can the existing 3D
 viewer and the humanoid rig run in a browser via `wasm32`? Findings are in
 [FEASIBILITY.md](FEASIBILITY.md). This file is how to build, serve and verify.
 
-**Status: built and type-checked; no successful browser run yet.** One externally
-reported attempt (Chrome 156.0.8078.47, three loads of the localhost URL) showed
-`net::ERR_CONNECTION_REFUSED` while a shell `curl` on the same address returned
-HTTP 200; cause not investigated, nothing rendered or verified (see
+**Status: built and type-checked; no successful browser run yet.** Two independent
+external attempts (the first in Chrome 156.0.8078.47, three loads of the localhost
+URL) showed `net::ERR_CONNECTION_REFUSED` while shell checks on the same address
+returned HTTP 200. Classified **validation environment blocked**: not a render
+failure, not a pass; cause not investigated, nothing rendered or verified (see
 [FEASIBILITY.md](FEASIBILITY.md)). Everything under
 "Browser verification" below is still a checklist, not a result. The author
 started no browser while preparing this spike.

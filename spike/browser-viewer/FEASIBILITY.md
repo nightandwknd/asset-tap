@@ -16,11 +16,17 @@ bare localhost address once, in Chrome 156.0.8078.47. All three attempts showed
 separate shell `curl` against the same address returned HTTP 200.
 
 These are second-hand observations. I did not reproduce them and did no network
-or browser diagnosis, so **no cause is inferred**. As a result, still not
-verified in any browser: page load, WebGL2 context, rendering, PBR/lighting,
-animation playback, frame rate, GPU behavior and browser memory. Another
-desktop verification attempt is pending. **Browser rendering remains an open
-gate; the verdict stays a conditional go.**
+or browser diagnosis, so **no cause is inferred**. A second, independent desktop
+verification has since also reported `net::ERR_CONNECTION_REFUSED`, again while
+shell-side checks of the same address reported HTTP 200 and healthy.
+
+**Classification: VALIDATION ENVIRONMENT BLOCKED.** This is neither a
+viewer-render failure nor a pass: in both attempts the page never loaded, so the
+viewer code was never exercised. Still not verified in any browser: page load,
+WebGL2 context, rendering, PBR/lighting, animation playback, frame rate, GPU
+behavior and browser memory. **Browser rendering remains an open gate; the
+verdict stays a conditional go.** A browser that can actually reach the served
+page is needed to close it.
 
 ## Verdict: conditional go
 
