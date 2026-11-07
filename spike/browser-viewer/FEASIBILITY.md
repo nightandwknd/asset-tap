@@ -3,43 +3,57 @@
 Spike branch: `spike/browser-viewer-feasibility-20261107`. Harness, commands and
 the browser checklist: [README.md](README.md). Raw outputs: [results/](results/).
 
-**Browser status: UNVERIFIED.** No browser was started by the author of this
-document. Compilation, a wasm VM under Node, and unit tests were run. Nothing
-below asserts a browser outcome.
+**Browser status: VERIFIED in Chrome 153.0.0.0** (macOS, ANGLE Metal on Apple
+M3 Pro, WebGL 2.0), driven with Playwright against `127.0.0.1:8000`. Two earlier
+external attempts (Chrome 156) only produced `net::ERR_CONNECTION_REFUSED`
+while shell checks returned HTTP 200; that environment problem was not
+diagnosed and did not recur.
 
-### Reported browser attempt (externally supplied, not measured here)
+### Browser run
 
-A separate party reported trying the harness URL
-(`http://127.0.0.1:8137/?glb=fixtures/mannequin_g4_baked.glb`) twice, plus the
-bare localhost address once, in Chrome 156.0.8078.47. All three attempts showed
-`net::ERR_CONNECTION_REFUSED` and the app did not load. They also reported that a
-separate shell `curl` against the same address returned HTTP 200.
+**First run: blank canvas.** The page loaded and the status read `loaded: true`,
+`error: null`, 2,400 verts / 3,072 tris, `hasClip: true`, but nothing was drawn.
+The console showed `GL_INVALID_OPERATION: glBlitFramebuffer: Invalid operation
+on multisampled framebuffer` on every frame. eframe requests a bare
+`getContext("webgl2")`, which is antialiased, and WebGL2 forbids blitting into
+a multisampled draw framebuffer; the viewer's `render_direct` blits its
+offscreen target that way.
 
-These are second-hand observations. I did not reproduce them and did no network
-or browser diagnosis, so **no cause is inferred**. A second, independent desktop
-verification has since also reported `net::ERR_CONNECTION_REFUSED`, again while
-shell-side checks of the same address reported HTTP 200 and healthy.
+**Fix (harness only, `model.rs` untouched):** `web/src/lib.rs` `start()` creates
+the context with `antialias: false` before eframe starts. eframe's later
+`getContext("webgl2")` returns that same context.
 
-**Classification: VALIDATION ENVIRONMENT BLOCKED.** This is neither a
-viewer-render failure nor a pass: in both attempts the page never loaded, so the
-viewer code was never exercised. Still not verified in any browser: page load,
-WebGL2 context, rendering, PBR/lighting, animation playback, frame rate, GPU
-behavior and browser memory. **Browser rendering remains an open gate; the
-verdict stays a conditional go.** A browser that can actually reach the served
-page is needed to close it.
+**After the fix:** zero console warnings or errors (a `/favicon.ico` 404 aside).
+All three fixtures render a textured mannequin with grid and axes and play the
+baked `Walk_Loop` (1.333 s). Pause froze `playTime` and the frame; Play resumed
+it; drag orbited, the wheel zoomed, Reset camera restored the exact initial
+frame. `rayonProbe` read `par_iter ok sum=99990000 current_num_threads=1`.
 
-## Verdict: conditional go
+| Fixture | Verts / tris      | parseMs | gpuUploadMs | fps (observed) | JS heap used |
+| ------- | ----------------- | ------- | ----------- | -------------- | ------------ |
+| g4      | 2,400 / 3,072     | 2.4     | 7.5         | 119.8          | 4.5 MB       |
+| g20     | 42,336 / 76,800   | 8.0     | 8.5         | 119.9          | 8.3 MB       |
+| g55     | 301,056 / 580,800 | 48.6    | 16.1        | 120            | 30 MB        |
+
+Caveats: fps is pinned at the display's 120 Hz refresh, so it shows g55 holds
+full rate but not how much headroom there is. Memory is `performance.memory` JS
+heap only; it excludes wasm linear memory and GPU memory, so it is **not** tab
+memory. One browser, one GPU. Firefox, Safari and other GPUs are untested, as is
+whether `EXT_color_buffer_float` is required elsewhere. The model reads darker
+and more muted than the harness docs predict; not compared against desktop.
+
+## Verdict: go
 
 - **Compute (rig, bind, bake, CPU skinning): go.** The real rig source compiles
   for `wasm32-unknown-unknown` and `wasm32-wasip1`, and runs single-threaded in a
   wasm VM (Node/V8) with sub-second bind on a 301k-vertex mesh. The blocker is
   API shape (paths and `std::fs`), not the algorithms.
-- **Rendering: go, gated on browser verification.** The real `three-d` viewer
-  type-checks and builds for wasm32 with exactly two small source adaptations.
-  Whether it renders (WebGL2, environment lighting, framebuffer blit) is not
-  known.
-- **Do not extract crates yet.** Step 0 below (browser verification of this
-  harness) gates the viewer half. The rig half can start independently.
+- **Rendering: go.** The real `three-d` viewer builds for wasm32 with two small
+  source adaptations and renders and animates in Chrome at up to 581k triangles.
+  The one real blocker found was the multisampled default framebuffer, fixed
+  host-side. A real web host must create a non-MSAA WebGL2 context.
+- **Extraction can proceed.** Step 0 below is closed for Chrome; widening it to
+  Firefox/Safari is a follow-up, not a gate.
 
 ## What was built, and what is real
 
@@ -235,9 +249,10 @@ Every step must leave the native workspace building, `make ci` green, and the CL
 and desktop outputs unchanged. Compare against the existing golden fixtures, not
 against bytes produced on another target.
 
-0. **Gate: run the README checklist in a real browser.** Record browser, OS,
-   GPU and the `gl` string. If WebGL2 IBL or the blit fails, fix or descope the
-   viewer half before step 3. Steps 1-2 do not depend on it.
+0. **Gate: run the README checklist in a real browser. Done for Chrome 153 /
+   Apple M3 Pro.** The blit failed on the multisampled default framebuffer and is
+   fixed by an `antialias: false` context (see Browser run). Repeat on Firefox and
+   Safari before shipping; steps 1-2 do not depend on it.
 1. **Bytes API inside `asset-tap-core` (no new crate).** Add bytes-in/bytes-out
    forms of the rig operations (fit, rewrite, apply clips, marker seeding) and a
    pack source that can be bytes as well as a directory. Re-implement the path
@@ -262,9 +277,9 @@ against bytes produced on another target.
 
 ## Risks and follow-ups
 
-- Highest unknowns, all browser-side: IBL passes needing float render targets
-  (`EXT_color_buffer_float`), the framebuffer blit via `intermediate_fbo`, texture
-  decode time on the main thread for large GLBs, and tab memory limits.
+- Remaining browser-side unknowns: other browsers and GPUs (IBL passes may need
+  `EXT_color_buffer_float`), real tab memory (only JS heap was measured), texture
+  decode time on the main thread for large GLBs, and colour/gamma against desktop.
 - The stand-ins hide pack zip install, download and OS directories; step 2 must
   gate them properly rather than stub them.
 - Unoptimized wasm is 10.4 MB (3.2 MB gzip); optimized size not measured.

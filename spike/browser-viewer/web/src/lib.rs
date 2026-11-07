@@ -199,6 +199,15 @@ pub async fn start(canvas_id: String, glb_url: String) -> Result<(), JsValue> {
     use wasm_bindgen::JsCast;
     let canvas = web_sys::window().unwrap().document().unwrap().get_element_by_id(&canvas_id)
         .ok_or("canvas not found")?.dyn_into::<web_sys::HtmlCanvasElement>()?;
+    // eframe asks for a bare "webgl2" context, which the browser creates antialiased, so the default
+    // framebuffer is multisampled and WebGL2 rejects `blit_framebuffer` into it (INVALID_OPERATION).
+    // The viewer blits an offscreen target into it, so create the context first without antialiasing;
+    // a later get_context("webgl2") on the same canvas returns this one and ignores attributes.
+    {
+        let attrs = js_sys::Object::new();
+        js_sys::Reflect::set(&attrs, &"antialias".into(), &false.into())?;
+        canvas.get_context_with_context_options("webgl2", &attrs)?;
+    }
     let inbox: Rc<RefCell<Option<Result<Vec<u8>, String>>>> = Rc::default();
     if !glb_url.is_empty() {
         let inbox = inbox.clone();

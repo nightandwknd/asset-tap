@@ -4,14 +4,12 @@ An isolated, throwaway harness that asks one question: can the existing 3D
 viewer and the humanoid rig run in a browser via `wasm32`? Findings are in
 [FEASIBILITY.md](FEASIBILITY.md). This file is how to build, serve and verify.
 
-**Status: built and type-checked; no successful browser run yet.** Two independent
-external attempts (the first in Chrome 156.0.8078.47, three loads of the localhost
-URL) showed `net::ERR_CONNECTION_REFUSED` while shell checks on the same address
-returned HTTP 200. Classified **validation environment blocked**: not a render
-failure, not a pass; cause not investigated, nothing rendered or verified (see
-[FEASIBILITY.md](FEASIBILITY.md)). Everything under
-"Browser verification" below is still a checklist, not a result. The author
-started no browser while preparing this spike.
+**Status: verified in Chrome 153 (macOS, Apple M3 Pro, WebGL 2.0).** All three
+fixtures load, render a textured mannequin and play the baked walk; pause/play,
+orbit, zoom and reset work. The first run rendered a blank canvas (WebGL2 rejects
+a blit into eframe's multisampled default framebuffer); `start()` now creates the
+context with `antialias: false` first. Details and numbers are in
+[FEASIBILITY.md](FEASIBILITY.md). Not yet checked: Firefox, Safari, other GPUs.
 
 This directory is its own Cargo workspace with its own `Cargo.lock`. It is not a
 member of the repository workspace, so it cannot affect desktop builds, CI or the
@@ -75,7 +73,7 @@ tools/make-fixtures.sh
 You can also drag any `.glb` onto the canvas (bytes arrive via the browser, not
 a path).
 
-## Browser verification (all UNVERIFIED)
+## Browser verification checklist
 
 The page publishes machine-readable state as JSON in `window.__viewerStatus` and
 mirrors it in the box under the canvas. Check, in order:
@@ -102,15 +100,18 @@ mirrors it in the box under the canvas. Check, in order:
 Record with each result: browser name and version, OS, GPU/driver, and the
 `gl` string.
 
-### Where it is most likely to fail (predictions, not observations)
+### Known issues and remaining risks
 
-- **Float render targets.** The viewer builds an image-based-lighting
-  environment (irradiance/prefilter passes). Those usually need
-  `EXT_color_buffer_float` on WebGL2. If the model loads but shaders or
-  framebuffers fail, look here first.
-- **Framebuffer blit.** `render_direct` blits an offscreen target into egui's
-  framebuffer using `painter.intermediate_fbo()`. Not exercised on the web yet.
-- **Colour/gamma differences** between the desktop and web egui paths.
+- **Framebuffer blit (hit, fixed).** `render_direct` blits an offscreen target
+  into egui's framebuffer. eframe's bare `getContext("webgl2")` is antialiased,
+  so the blit raised `INVALID_OPERATION` every frame and the canvas stayed blank
+  while the status read `loaded: true`. Fixed in `web/src/lib.rs`. A real
+  extraction must make the web host create a non-MSAA context.
+- **Float render targets (not hit on Chrome/ANGLE Metal).** The
+  image-based-lighting passes can need `EXT_color_buffer_float`; other
+  browsers or GPUs may differ.
+- **Colour/gamma.** The model reads darker and more muted than the "metallic
+  sheen" described above; not compared against desktop.
 
 ## Non-browser checks that were run
 
