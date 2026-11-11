@@ -6,7 +6,7 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
-      day: 'monday'
+      day: 'sunday'
       time: '12:00'
       timezone: 'America/Chicago'
     cooldown:
@@ -45,7 +45,7 @@ updates:
       - '/.github/actions/*'
     schedule:
       interval: 'weekly'
-      day: 'monday'
+      day: 'sunday'
       time: '12:00'
       timezone: 'America/Chicago'
     cooldown:
