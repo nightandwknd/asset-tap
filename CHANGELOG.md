@@ -2,6 +2,40 @@
 
 All notable changes to Asset Tap are documented here.
 
+## v26.11.1 — 2026-11-12
+
+### Bug Fixes
+
+- **deps:** bump openssl to 0.10.82, rmcp to 3.9.0, and rustix to 1.1.6 ([#118](https://github.com/nightandwknd/asset-tap/pull/118))
+
+### Chores
+
+- **deps:** bump the rust-dependencies group with 4 updates ([#110](https://github.com/nightandwknd/asset-tap/pull/110))
+
+- **deps:** bump rustls-webpki to 0.103.16 and webpki-roots to 1.0.10 ([#111](https://github.com/nightandwknd/asset-tap/pull/111))
+
+- **deps:** bump the actions group across 4 directories with 1 update ([#112](https://github.com/nightandwknd/asset-tap/pull/112))
+
+- **deps:** bump the rust-dependencies group with 4 updates ([#113](https://github.com/nightandwknd/asset-tap/pull/113))
+
+- **deps:** bump the actions group across 4 directories with 2 updates ([#114](https://github.com/nightandwknd/asset-tap/pull/114))
+
+- **deps:** bump the rust-dependencies group with 3 updates ([#115](https://github.com/nightandwknd/asset-tap/pull/115))
+
+- **deps:** bump the actions group across 4 directories with 3 updates ([#116](https://github.com/nightandwknd/asset-tap/pull/116))
+
+- **dependabot:** weekly Sunday schedule and cooldowns ([#119](https://github.com/nightandwknd/asset-tap/pull/119))
+
+  Move cargo/npm from Sunday to Monday and set github-actions to
+  Monday explicitly, all at 12:00 America/Chicago. Add Dependabot
+  cooldowns (cargo/npm: 7/14/7/7 days; github-actions: 7 default
+  days). Cooldown does not apply to security updates. Groups,
+  ignores, limits, and directories are unchanged.
+
+  Correct the schedule day to sunday for every ecosystem, including
+  an explicit day for github-actions. Cooldowns are unchanged.
+  Cooldown does not apply to security updates.
+
 ## v26.10.3 — 2026-10-17
 
 ### Bug Fixes
