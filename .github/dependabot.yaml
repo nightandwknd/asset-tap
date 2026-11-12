@@ -9,6 +9,11 @@ updates:
       day: 'sunday'
       time: '12:00'
       timezone: 'America/Chicago'
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 7
     versioning-strategy: lockfile-only
     open-pull-requests-limit: 10
     ignore:
@@ -40,8 +45,11 @@ updates:
       - '/.github/actions/*'
     schedule:
       interval: 'weekly'
+      day: 'sunday'
       time: '12:00'
       timezone: 'America/Chicago'
+    cooldown:
+      default-days: 7
     ignore:
       # Compiler version lives in rust-toolchain.toml. CI installs it via
       # dtolnay/rust-toolchain (pinned to a dated commit of its master branch)
